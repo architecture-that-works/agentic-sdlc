@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from tools.commit import generate_commit_message
+from src.tools.commit import generate_commit_message
 
 
 def test_generate_commit_message_returns_string() -> None:
