@@ -11,7 +11,7 @@ Deterministic protocol for git operations when an agent completes work on a GitH
 
 ## Scope
 
-**Owns:** Branch naming convention (`feature/issue-N`), commit message format (`feat(#N): Title`), PR creation with issue auto-close (`Closes #N`), error handling for git/gh commands, agent-driven automation of the full branch → PR flow.
+**Owns:** Branch naming convention (`feature/issue-N`), commit message format (`feat(#N): Title`), PR creation with issue auto-close (`Closes #N`), merge strategy (merge commit default), error handling for git/gh commands, agent-driven automation of the full branch → PR flow.
 
 **Does not own:** CI/CD pipeline configuration (→ `design-infrastructure`), code review standards (→ `code-quality`), repository or branching strategy design.
 
@@ -86,6 +86,20 @@ finally {
 Every `git` and `gh` command MUST be followed by a `$LASTEXITCODE` check. If any step fails, throw and abort — do not continue to the next step.
 
 The `finally` block is not optional. It must restore the developer's stashed work and return to `main` regardless of whether the try block succeeded or failed.
+
+## Merge Strategy
+
+Default: **merge commit**. Never change this without a deliberate reason.
+
+This project uses a one-issue-one-branch pattern with traceable `feat(#N)` commits. Merge commits preserve the full branch history in master, keep individual commits bisect-able, and maintain the issue-to-commit lineage in `git log --graph`.
+
+| Strategy | Use when |
+|---|---|
+| **Merge commit** | Default — all feature branches from issues |
+| **Squash** | Branch has noisy WIP commits with no signal ("fix typo", "wip") — collapses to one commit on master. Avoid: rewrites history and breaks `git branch -d` reachability checks |
+| **Rebase** | All commits are clean and self-contained and a linear history is explicitly needed. Avoid on shared branches — rewrites SHAs |
+
+GitHub repo setting: disable squash merge and rebase merge so merge commit is the only available option.
 
 ## Common Mistakes
 

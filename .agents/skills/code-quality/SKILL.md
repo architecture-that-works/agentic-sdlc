@@ -92,20 +92,46 @@ Exception: `requests` over `urllib` for HTTP calls. `numpy`/`pandas` for heavy a
 
 ## Implementation
 
-### Testing Strategy Taxonomy
+### Testing Strategy Taxonomy — Testing Trophy Model
 
-Choose the test type based on what you're building. This answers "what to test" — the TDD section below answers "how to test it".
+The Testing Trophy guides *how many* of each type to write and *where to invest*. Unlike the old pyramid (many unit tests at the base), the Trophy reflects what actually catches bugs: integration tests dominate because they verify real behaviour at real boundaries.
 
-| Type | When | Key concern |
+```
+         /\
+        /E2E\          few — smoke tests for critical journeys post-deployment
+       /------\
+      /Integr- \       the bulk — test real components against mocked external boundaries
+     / ation    \
+    /------------\
+   /  Unit Tests  \    targeted — pure functions, parsers, validators, retry decisions
+  /________________\
+ |   Static Types   |  mypy/pyright — free bug-catching before any test runs
+```
+
+**Layer decision rules:**
+
+| Layer | Use when | Mechanism |
 |---|---|---|
-| UI | Dashboard or interactive app | End-user testing of interactive visualisations is expensive — limit to critical user journeys |
-| Contract | REST APIs, service-to-service | Consumer-driven: test what the consumer expects, not what the producer assumes (→ `application-development`) |
-| Integration | Data stores, ETL pipelines | Starting point for pipeline testing — check row counts, unique ID counts, min-max date ranges |
-| Unit | Custom utility functions, data processing logic | Do NOT write unit tests for standard library or ML framework calls — trust the library; test your own logic only |
+| Static types | Always — first line of defence | `mypy --strict`; types catch a class of bug before tests exist |
+| Unit | Pure function with branching logic or edge cases: parsers, validators, transformers, retry decisions | Plain `pytest` assertions; zero I/O, no mocks of code you own |
+| Integration | Orchestration logic, adapters, pipelines — anything with a real boundary (filesystem, DB, injected service mock) | `tmp_path` for filesystem; `MagicMock` on *external* boundaries only |
+| E2E | Critical user journeys only — too slow and brittle for routine regression | Post-deployment smoke tests; not part of the unit suite |
 
-**ML-specific rule:** You should not need unit tests for calls into scikit-learn, XGBoost, PyTorch, or any well-tested ML framework. Write unit tests for your own data processing utilities, feature engineering functions, and validation logic.
+**What NOT to test:**
 
-**ETL starting point:** Integration tests on pipeline outputs (does Silver have the expected row count? are all branch IDs present? does the date range span the expected quarters?) catch more real bugs than unit tests on transformation logic.
+- Standard library or well-tested framework calls — do not test that `pathlib.Path.write_text` writes a file or that `requests.get` makes an HTTP call
+- Simple getters and plain assignments — constructing an object with known-good inputs is not a test case
+- Mock infrastructure — a test that verifies only that mock A called mock B with argument C tests your wiring, not your logic; it will pass even when the real system breaks
+- Exact log message text — messages change; assert log *level* and the presence of a key term, not the full string
+- Live-API-only branches — credential loading that requires real auth state belongs under `# pragma: no cover`, not a mock-heavy test that proves nothing
+
+**Complexity trade-off:**
+
+Test code contains bugs, must be maintained, and creates false confidence when it over-specifies. A test that breaks on every internal refactor adds friction without safety benefit. Apply a cost–benefit gate before writing each test: *if removing this test would make you nervous about a real regression, keep it; if not, do not write it.*
+
+**ML-specific rule:** Do not write unit tests for calls into scikit-learn, XGBoost, PyTorch, or any well-tested ML framework. Test your own data processing utilities, feature engineering functions, and validation logic only.
+
+**ETL starting point:** Integration tests on pipeline outputs (expected row count, all IDs present, expected date range) catch more real bugs than unit tests on transformation logic.
 
 ### TDD Enforcement
 
@@ -138,6 +164,44 @@ class TestCalculateScore(unittest.TestCase):
 ```
 
 **Mocking:** `unittest.mock.MagicMock` — standard library only, no third-party mock alternatives. Works identically in both runners.
+
+### Coverage Gate Philosophy
+
+A numeric coverage threshold is a proxy, not a goal. The goal is confidence in real regressions. A gate at 80% on testable code is more honest than 90% achieved by writing tests that exist only to move a counter.
+
+**Setting the threshold:**
+- Measure only the code that can be unit- or integration-tested without live external services.
+- Use `omit` in `[tool.coverage.run]` for adapter files that exclusively wrap live external APIs with no injected boundary — document the omission with an inline comment.
+- Do not omit files that have testable logic reachable via mock service injection; those should have tests.
+
+**`pragma: no cover` decision guide:**
+
+| Situation | Action |
+|---|---|
+| Branch requires live credentials or auth state | `# pragma: no cover` + one-line explanation |
+| `except ImportError` conditional import fallback | `# pragma: no cover` |
+| Platform-specific branch unreachable in CI | `# pragma: no cover` |
+| Logic reachable via injected mock boundary | Write the test; do not exclude |
+| Hard-to-mock but injectable as a service object | Write the test using constructor injection; do not exclude |
+
+**Shared test infrastructure:**
+
+Every project with more than two test files needs a `conftest.py` with domain-entity factory functions that accept keyword overrides. Inline entity construction duplicated across test files becomes a maintenance burden on every model change.
+
+```python
+# conftest.py — shared factory pattern
+def make_user(**overrides) -> User:
+    defaults = {"id": "u1", "name": "Test User", "role": Role.VIEWER}
+    return User(**{**defaults, **overrides})
+```
+
+Patch `time.sleep` in all tests that exercise retry or backoff logic — real delays make the suite unusably slow and add no regression signal.
+
+```python
+@patch("time.sleep")
+def test_retries_on_transient_failure(mock_sleep) -> None:
+    ...
+```
 
 ### Communication Plan Gate
 
