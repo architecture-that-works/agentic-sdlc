@@ -1,6 +1,6 @@
 # ISSUES.md
 
-Local improvement backlog. Add improvements as Agile User Story blocks below the `<!-- ISSUES -->` sentinel.
+Local improvement backlog. Add improvements as Agile User Story blocks below the ISSUES sentinel.
 
 Run `task sync` to push pending blocks to GitHub Issues and the project board.
 Run `task sync -- -DryRun` to preview without making changes.
