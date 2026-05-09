@@ -30,7 +30,7 @@ $ErrorActionPreference = 'Stop'
 function Test-HasApproval {
     param([int]$IssueNumber, [int]$PRNumber)
 
-    $labels = gh issue view $IssueNumber --json labels --jq '[.labels[].name]' |
+    $labels = gh issue view $IssueNumber --repo $KanbanRepo --json labels --jq '[.labels[].name]' |
         ConvertFrom-Json -ErrorAction SilentlyContinue
     if ($labels -contains 'agent:review') { return $true }
 

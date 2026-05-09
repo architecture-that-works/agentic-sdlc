@@ -35,7 +35,7 @@ function Resolve-PR {
     if ($found.Count -gt 0) { return $found[0].number }
 
     if ($IssueNumber -gt 0) {
-        $title       = gh issue view $IssueNumber --json title --jq '.title' 2>&1
+        $title       = gh issue view $IssueNumber --repo $KanbanRepo --json title --jq '.title' 2>&1
         $issueBranch = Get-BranchName -Number $IssueNumber -Title $title
         $found       = gh pr list --head $issueBranch --json number --limit 1 | ConvertFrom-Json
         if ($found.Count -gt 0) { return $found[0].number }
@@ -58,7 +58,7 @@ function Invoke-Review {
     Ensure-AgentLabels
     Add-Comment -Number $IssueNumber -Body "🔍 Agent reviewing PR #$PRNumber against acceptance criteria..."
 
-    $issue = gh issue view $IssueNumber --json title,body | ConvertFrom-Json
+    $issue = gh issue view $IssueNumber --repo $KanbanRepo --json title,body | ConvertFrom-Json
     $diff  = gh pr diff $PRNumber 2>&1 | Out-String
 
     $prompt = @"

@@ -71,13 +71,13 @@ function Ensure-AgentLabels {
 function Set-IssueLabel {
     param([int]$Number, [string]$Add = '', [string]$Remove = '')
     if ($Remove) {
-        $out = gh issue edit $Number --remove-label $Remove 2>&1 | Out-String
+        $out = gh issue edit $Number --repo $KanbanRepo --remove-label $Remove 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
             Write-Log "  ⚠️ Failed to remove label '$Remove' on #${Number}: $($out.Trim())" -Color Yellow
         }
     }
     if ($Add) {
-        $out = gh issue edit $Number --add-label $Add 2>&1 | Out-String
+        $out = gh issue edit $Number --repo $KanbanRepo --add-label $Add 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
             Write-Log "  ⚠️ Failed to add label '$Add' on #${Number}: $($out.Trim())" -Color Yellow
         }
@@ -91,7 +91,7 @@ function Add-Comment {
     $tmp = New-TemporaryFile
     try {
         $Body | Out-File $tmp.FullName -Encoding utf8
-        $out = gh issue comment $Number --body-file $tmp.FullName 2>&1 | Out-String
+        $out = gh issue comment $Number --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
             Write-Log "  ⚠️ Failed to post comment on #${Number}: $($out.Trim())" -Color Yellow
         }
@@ -144,7 +144,7 @@ function New-FeatureBranch {
         Write-Log "  Stashed leftover changes on $branch before retry." -Color DarkGray
     }
 
-    gh issue edit $Number --add-assignee '@me' 2>&1 | Out-Null
+    gh issue edit $Number --repo $KanbanRepo --add-assignee '@me' 2>&1 | Out-Null
     Set-IssueLabel -Number $Number -Remove 'agent:start' -Add 'agent:implementing'
     Write-Log "  Branch $branch — moved to Implementing." -Color DarkGray
     return $branch
@@ -163,8 +163,8 @@ function Get-ProjectId {
 
 function Get-ProjectItemId {
     param([int]$IssueNumber)
-    gh project item-list $KanbanProjectNumber --owner $KanbanProjectOwner --format json --jq `
-        ".items[] | select(.content.number == $IssueNumber) | .id" 2>&1
+    $jq = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .id"
+    gh project item-list $KanbanProjectNumber --owner $KanbanProjectOwner --format json --jq $jq 2>&1
 }
 
 function Move-ToLane {
