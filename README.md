@@ -10,6 +10,7 @@ Copier-based Python project scaffold for UV projects. Three variants: general-pu
 - [Variants](#variants)
 - [Repository Structure](#repository-structure)
 - [Conventions](#conventions)
+- [AI Workflow](#ai-workflow)
 
 ---
 
@@ -107,4 +108,53 @@ Each variant contains a complete, self-contained scaffold. Shared files (logging
 - **Test parity**: every `src/**/*.py` gets a matching `tests/**/test_*.py`
 - **UV only**: `uv add`, `uv sync`, `uv run` — never `pip install`
 - **Shared file drift**: when updating a shared file (e.g. `m_log.py`), update it in all three variants
-- **Native Secret Management; uses local vault named 'LocalStore' for secret management
+- **Native Secret Management**: uses local vault named 'LocalStore' for secret management
+
+---
+
+## AI Workflow
+
+Every generated project ships with a structured AI engineering workflow. It is not optional scaffolding — it is the primary mechanism for keeping agents aligned, context-efficient, and audit-ready across the full development lifecycle.
+
+### How it works
+
+The workflow is a sequential skill chain: **refine → architecture → plan → tdd → harness → review → ship**. Each skill is a constraint document that prevents a specific class of agent failure. Skills live in `.agents/skills/`.
+
+| Phase | Skill | What it prevents |
+|-------|-------|-----------------|
+| Align | `refine` | Premature implementation without shared language or agreed boundaries |
+| Map | `architecture` | Blind changes with unknown blast-radius |
+| Specify | `plan` | Coding without acceptance criteria or re-proposing rejected ideas |
+| Build | `tdd` | Untested code and shallow module design |
+| Run | `harness` | Context degradation, unverified output, environment drift |
+| Verify | `review` | Uncaught regressions and principle violations before merge |
+| Merge | `ship` | Security gaps, supply chain risk, lost architectural decisions |
+
+**Persistent across all phases:** `version-control` — branch naming, commit format, PR conventions.
+
+**Domain extensions** (extend the `tdd` REFACTOR phase with implementation patterns):
+- `application-development` — REST APIs, FastAPI, Pydantic, auth
+- `data-engineering` — Medallion pipeline, SQLAlchemy, Polars, DuckLake
+- `agentic-development` — Plan-Act-Observe loops, tool use, multi-agent coordination
+
+### Key files in every generated project
+
+| File | Purpose |
+|------|---------|
+| `CONTEXT.md` | Domain glossary, bounded contexts, architectural constraints — read first every session |
+| `AGENTS.md` | Standing instructions and skill index — loaded after `CONTEXT.md` |
+| `docs/adr/` | Architecture Decision Records (MADR format) — one per significant technology choice |
+
+### Starting a new feature
+
+```
+1. Open CONTEXT.md — read the glossary and constraints
+2. Invoke refine skill — align on requirements and boundaries
+3. Invoke architecture skill — understand blast-radius before touching code
+4. Invoke plan skill — decompose into labelled GitHub Issues
+5. Invoke tdd skill — Red-Green-Refactor loop
+6. Invoke review skill — auto-fix and validate before merge
+7. Invoke ship skill — security checks, squash merge, update CONTEXT.md
+```
+
+ADRs for tool selection decisions are in `docs/adr/`. See `ADR-000` for the template format.

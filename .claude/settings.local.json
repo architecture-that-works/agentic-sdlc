@@ -10,7 +10,8 @@
       "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\\\\.agents\\\\skills\\\\ship\" -Force)",
       "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\\\\.agents\\\\skills\\\\version-control\" -Force)",
       "PowerShell(git -C \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\" commit -m $msg)",
-      "PowerShell(git -C \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\" add -A)"
+      "PowerShell(git -C \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\" add -A)",
+      "Bash(git -C \"c:/Users/Yanni/Github/my_template_repo\" mv AI.md AGENTS.md)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Yanni\\Github\\my_template_repo\\.agents\\skills"

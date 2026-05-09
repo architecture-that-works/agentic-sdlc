@@ -13,11 +13,11 @@ Prevents context degradation and unverified agent output by managing the executi
 
 ## Scope
 
-**Owns:** Dev Container and GitHub Codespaces provisioning, Planner/Generator/Evaluator agent split, event log (`emitEvent`), tool-call offloading, `compact()` and context reset protocol, `CONTEXT.md` and `AI.md` loading at session start.
+**Owns:** Dev Container and GitHub Codespaces provisioning, Planner/Generator/Evaluator agent split, event log (`emitEvent`), tool-call offloading, `compact()` and context reset protocol, `CONTEXT.md` and `AGENTS.md` loading at session start.
 
 **Does not own:** `CONTEXT.md` content or the grill-me protocol (→ `refine`), TDD loop logic (→ `tdd`), PR review findings (→ `review`), merge and governance (→ `ship`).
 
-**Interfaces with:** `refine` — `CONTEXT.md` and `AI.md` are the harness initialisation inputs. `tdd` — the TDD loop runs inside harness sessions; log offloading keeps the loop fast. `review` — the Evaluator agent feeds findings to the review cycle.
+**Interfaces with:** `refine` — `CONTEXT.md` and `AGENTS.md` are the harness initialisation inputs. `tdd` — the TDD loop runs inside harness sessions; log offloading keeps the loop fast. `review` — the Evaluator agent feeds findings to the review cycle.
 
 ## When to Use
 
@@ -55,7 +55,7 @@ Environments are disposable — one per task, never shared between tasks.
 
 Load in this order at the start of every session:
 1. `CONTEXT.md` — domain glossary, boundaries, constraints
-2. `AI.md` — standing instructions and style preferences
+2. `AGENTS.md` — standing instructions and style preferences
 3. Task-specific context (issue body, relevant test files)
 
 If loading steps 1 + 2 + step 3 would push context fill into Transition Zone (> 100k tokens), offload step 3 to filesystem and load on demand.
@@ -97,7 +97,7 @@ Large outputs must never enter the context window:
 ## Common Mistakes
 
 **Starting a session without loading CONTEXT.md first.**
-Every session begins with `CONTEXT.md` and `AI.md`. An agent that skips this will hallucinate boundaries that were already agreed.
+Every session begins with `CONTEXT.md` and `AGENTS.md`. An agent that skips this will hallucinate boundaries that were already agreed.
 
 **Evaluator using the same system prompt as the Generator.**
 The Evaluator must have an independent system prompt focused on critique. A shared prompt produces agreement bias, not evaluation.

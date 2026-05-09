@@ -18,7 +18,7 @@ A **skill** is a constraint document for AI agents — a reference that prevents
 
 **Owns:** Skill creation standards, SKILL.md template, validation process (baseline → draft → verify), MECE enforcement and split/gap detection against `SKILL_STRUCTURE.md`, routing signal format, update and split guidance, ASO rules.
 
-**Does not own:** Project-specific agent instructions (→ `CONTEXT.md` / `AI.md`), individual skill content.
+**Does not own:** Project-specific agent instructions (→ `CONTEXT.md` / `AGENTS.md`), individual skill content.
 
 **Interfaces with:** All other skills — this skill defines the contract every other skill must follow.
 
@@ -30,7 +30,7 @@ A **skill** is a constraint document for AI agents — a reference that prevents
 - Validating a skill before deploying it
 
 **Do NOT create a skill for:**
-- Project-specific conventions — use `CONTEXT.md` or `AI.md`
+- Project-specific conventions — use `CONTEXT.md` or `AGENTS.md`
 - One-off solutions that won't recur across projects
 - Rules enforceable by a linter, hook, or script
 

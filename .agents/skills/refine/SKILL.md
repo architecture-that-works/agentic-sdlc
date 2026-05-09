@@ -13,11 +13,11 @@ Prevents premature implementation by forcing full alignment on domain language, 
 
 ## Scope
 
-**Owns:** Grill-me protocol, shared language construction, `CONTEXT.md` schema, `AI.md` persistence rules, ADR creation (MADR format), Agent Brief synthesis, context window initialisation.
+**Owns:** Grill-me protocol, shared language construction, `CONTEXT.md` schema, `AGENTS.md` persistence rules, ADR creation (MADR format), Agent Brief synthesis, context window initialisation.
 
 **Does not own:** Architecture mapping and static analysis (→ `architecture`), PRD and issue creation (→ `plan`), code implementation (→ `tdd`).
 
-**Interfaces with:** `architecture` — topology validates boundaries declared in `CONTEXT.md`. `plan` — Agent Brief is the direct input to Lean PRD synthesis. `harness` — `CONTEXT.md` and `AI.md` are loaded at session start.
+**Interfaces with:** `architecture` — topology validates boundaries declared in `CONTEXT.md`. `plan` — Agent Brief is the direct input to Lean PRD synthesis. `harness` — `CONTEXT.md` and `AGENTS.md` are loaded at session start.
 
 ## When to Use
 
@@ -64,9 +64,9 @@ Invariants that must not be violated in any implementation.
 Concepts explicitly deferred or rejected (prevents re-proposal in `plan`).
 ```
 
-### AI.md Persistence Rules
+### AGENTS.md Persistence Rules
 
-`AI.md` holds standing instructions that apply to every session (Claude and Gemini). It is loaded at the top of every conversation before any task begins. Contents: style preferences, response format rules, context initialisation order, provider-specific quirks. Never modify `AI.md` during implementation — changes go through a `refine` session.
+`AGENTS.md` holds standing instructions that apply to every session (Claude and Gemini). It is loaded at the top of every conversation before any task begins. Contents: style preferences, response format rules, context initialisation order, provider-specific quirks. Never modify `AGENTS.md` during implementation — changes go through a `refine` session.
 
 ### ADR Format (MADR)
 
@@ -104,7 +104,7 @@ Store ADRs in `docs/adr/`. Reference by number in `CONTEXT.md` Architectural Con
 | Artefact | Owner | When written |
 |---|---|---|
 | `CONTEXT.md` | `refine` | Start of session; updated by `ship` post-merge |
-| `AI.md` | `refine` | One-time setup; updated only in `refine` sessions |
+| `AGENTS.md` | `refine` | One-time setup; updated only in `refine` sessions |
 | ADR (MADR) | `refine` | One per architectural decision made during grilling |
 | Agent Brief | `refine` | End of grilling; input to `plan` |
 
