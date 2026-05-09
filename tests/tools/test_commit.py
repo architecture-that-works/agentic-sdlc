@@ -147,7 +147,9 @@ def test_main_exits_when_no_staged_changes() -> None:
 
 def test_main_dry_run_skips_commit() -> None:
     with patch("src.tools.commit._staged_diff", return_value="some diff"):
-        with patch("src.tools.commit.generate_commit_message", return_value="feat: thing"):
+        with patch(
+            "src.tools.commit.generate_commit_message", return_value="feat: thing"
+        ):
             with patch("src.tools.commit._commit") as mock_commit:
                 with patch.object(sys, "argv", ["commit", "--dry-run"]):
                     main()
@@ -156,7 +158,9 @@ def test_main_dry_run_skips_commit() -> None:
 
 def test_main_commits_when_not_dry_run() -> None:
     with patch("src.tools.commit._staged_diff", return_value="some diff"):
-        with patch("src.tools.commit.generate_commit_message", return_value="feat: thing"):
+        with patch(
+            "src.tools.commit.generate_commit_message", return_value="feat: thing"
+        ):
             with patch("src.tools.commit._commit") as mock_commit:
                 with patch.object(sys, "argv", ["commit"]):
                     main()

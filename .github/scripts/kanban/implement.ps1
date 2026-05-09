@@ -204,6 +204,10 @@ function Invoke-CommitAndPR {
     param([int]$Number, [string]$Title, [string]$Branch)
     Write-Log "  Phase C — Commit + PR for issue #$Number" -Color Yellow
 
+    # Auto-format before staging so ruff format --check in CI always passes.
+    $fmtOut = uv run ruff format . 2>&1 | Out-String
+    Write-Log "  ruff format: $($fmtOut.Trim())" -Color DarkGray
+
     # Stage only known-safe paths rather than git add . — an agent implementation
     # can create .env files, credentials, or other sensitive artefacts; the allowlist
     # ensures nothing outside these directories ever reaches the index.
