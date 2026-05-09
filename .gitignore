@@ -10,6 +10,10 @@ __pycache__/
 dist/
 *.egg-info/
 
+# Test artefacts
+.coverage
+htmlcov/
+
 # Kanban pipeline logs
 logs/
 

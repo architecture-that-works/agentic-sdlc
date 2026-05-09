@@ -93,6 +93,13 @@ function Invoke-Develop {
 
     $issue = gh issue view $Number --repo $KanbanRepo --json title,body | ConvertFrom-Json
 
+    # Pull the most recent agent review comment (present on retry runs after rejection)
+    $priorReview = gh issue view $Number --repo $KanbanRepo --json comments `
+        --jq '[.comments[] | select(.body | startswith("## 🤖 Agent Review"))] | last | .body' 2>&1 | Out-String
+    $reviewSection = if ($LASTEXITCODE -eq 0 -and $priorReview.Trim() -and $priorReview.Trim() -ne 'null') {
+        "`nPRIOR REVIEW FEEDBACK — you MUST address every finding before finishing:`n$($priorReview.Trim())"
+    } else { '' }
+
     $prompt = @"
 You are implementing GitHub issue #$Number on branch $Branch in this repository.
 
@@ -100,7 +107,7 @@ ISSUE TITLE: $($issue.title)
 
 ISSUE BODY:
 $($issue.body)
-
+$reviewSection
 INSTRUCTIONS:
 1. Read AGENTS.md and CONTEXT.md first to understand the project boundaries and constraints.
 2. Read the relevant parts of the codebase before writing any code.
@@ -197,10 +204,14 @@ function Invoke-CommitAndPR {
     param([int]$Number, [string]$Title, [string]$Branch)
     Write-Log "  Phase C — Commit + PR for issue #$Number" -Color Yellow
 
+    # Auto-format before staging so ruff format --check in CI always passes.
+    $fmtOut = uv run ruff format . 2>&1 | Out-String
+    Write-Log "  ruff format: $($fmtOut.Trim())" -Color DarkGray
+
     # Stage only known-safe paths rather than git add . — an agent implementation
     # can create .env files, credentials, or other sensitive artefacts; the allowlist
     # ensures nothing outside these directories ever reaches the index.
-    git add -- src/ tests/ docs/ .github/ CONTEXT.md AGENTS.md Taskfile.yml pyproject.toml 2>&1 | Out-Null
+    git add -- src/ tests/ docs/ .github/ CONTEXT.md AGENTS.md Taskfile.yml pyproject.toml uv.lock 2>&1 | Out-Null
 
     # Guard: inspect every staged path against a denylist and silently unstage any match.
     $denyPatterns = @('.env', '*.key', '*.pem', '*secret*', '*credential*')
@@ -215,8 +226,14 @@ function Invoke-CommitAndPR {
     if (git status --porcelain) {
         $diff    = git diff --staged 2>&1 | Out-String
         $message = Get-CommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title"
-        git commit -m $message 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "git commit failed for issue #$Number" }
+        $msgFile = New-TemporaryFile
+        try {
+            $message | Out-File $msgFile.FullName -Encoding utf8
+            $commitOut = git commit -F $msgFile.FullName 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) { throw "git commit failed for issue #${Number}:`n$commitOut" }
+        } finally {
+            Remove-Item $msgFile.FullName -ErrorAction SilentlyContinue
+        }
     } else {
         Write-Log "  ✅ Already implemented — no new changes on this branch." -Color Green
         Add-Comment -Number $Number -Body "✅ Issue already fully implemented on this branch — no new changes. Proceeding to PR and review."
