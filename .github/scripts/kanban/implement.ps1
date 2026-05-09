@@ -197,7 +197,21 @@ function Invoke-CommitAndPR {
     param([int]$Number, [string]$Title, [string]$Branch)
     Write-Log "  Phase C — Commit + PR for issue #$Number" -Color Yellow
 
-    git add . 2>&1 | Out-Null
+    # Stage only known-safe paths rather than git add . — an agent implementation
+    # can create .env files, credentials, or other sensitive artefacts; the allowlist
+    # ensures nothing outside these directories ever reaches the index.
+    git add -- src/ tests/ docs/ .github/ CONTEXT.md AGENTS.md Taskfile.yml pyproject.toml 2>&1 | Out-Null
+
+    # Guard: inspect every staged path against a denylist and silently unstage any match.
+    $denyPatterns = @('.env', '*.key', '*.pem', '*secret*', '*credential*')
+    foreach ($file in @(git diff --staged --name-only 2>&1)) {
+        $leaf = Split-Path $file -Leaf
+        if ($denyPatterns | Where-Object { $leaf -like $_ }) {
+            git reset HEAD -- $file 2>&1 | Out-Null
+            Write-Log "  WARNING: sensitive file unstaged from index: $file" -Color Red
+        }
+    }
+
     if (git status --porcelain) {
         $diff    = git diff --staged 2>&1 | Out-String
         $message = Get-CommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title"
