@@ -7,6 +7,7 @@ import src.utils.m_log as m_log
 def reset_logging():
     """Reset logging state between every test to prevent handler accumulation."""
     import logging
+
     m_log._is_configured = False
     m_log._logger.handlers.clear()
     logging.root.handlers.clear()

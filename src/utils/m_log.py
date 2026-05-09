@@ -35,15 +35,15 @@ logging.addLevelName(STAGE, "STAGE")
 
 
 class LogLevel(StrEnum):
-    DEBUG    = "debug"
-    INFO     = "info"
-    WARNING  = "warning"
-    ERROR    = "error"
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
     CRITICAL = "critical"
-    START    = "start"
-    PROCESS  = "process"
-    SUCCESS  = "success"
-    STORE    = "store"
+    START = "start"
+    PROCESS = "process"
+    SUCCESS = "success"
+    STORE = "store"
     REGISTER = "register"
     COMPLETE = "complete"
     GATE_FAIL = "gate_fail"
@@ -51,26 +51,26 @@ class LogLevel(StrEnum):
 
 # Emoji auto-prepended for stage-level entries
 STAGE_EMOJI: dict[LogLevel, str] = {
-    LogLevel.START:     "🚀",
-    LogLevel.PROCESS:   "⚙️",
-    LogLevel.SUCCESS:   "✅",
-    LogLevel.STORE:     "💾",
-    LogLevel.REGISTER:  "📦",
-    LogLevel.COMPLETE:  "🎉",
+    LogLevel.START: "🚀",
+    LogLevel.PROCESS: "⚙️",
+    LogLevel.SUCCESS: "✅",
+    LogLevel.STORE: "💾",
+    LogLevel.REGISTER: "📦",
+    LogLevel.COMPLETE: "🎉",
     LogLevel.GATE_FAIL: "🚫",
 }
 
 _STAGE_LEVELS: set[LogLevel] = set(STAGE_EMOJI)
 
 _PROFILE_LEVELS: dict[str, int] = {
-    "PRD":   STAGE,
-    "TEST":  logging.INFO,
+    "PRD": STAGE,
+    "TEST": logging.INFO,
     "DEBUG": logging.DEBUG,
 }
 
 _PROFILE_FORMATS: dict[str, str] = {
-    "PRD":   "%(message)s",
-    "TEST":  "%(asctime)s - %(levelname)s - %(message)s",
+    "PRD": "%(message)s",
+    "TEST": "%(asctime)s - %(levelname)s - %(message)s",
     "DEBUG": "%(asctime)s - %(levelname)s - %(name)s - %(message)s",
 }
 
@@ -241,6 +241,7 @@ def f_log_calls(separator: str = "-"):
     separator : str
         Character used for separator lines around the log messages.
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -248,7 +249,9 @@ def f_log_calls(separator: str = "-"):
             result = func(*args, **kwargs)
             f_log(f"End   {func.__name__}()", sep_after=separator)
             return result
+
         return wrapper
+
     return decorator
 
 

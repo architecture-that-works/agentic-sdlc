@@ -45,6 +45,7 @@ def _claude_cli(prompt: str) -> str | None:
 def _claude_sdk(prompt: str) -> str | None:
     try:
         import anthropic
+
         client = anthropic.Anthropic()
         response = client.messages.create(
             model="claude-sonnet-4-6",

@@ -18,7 +18,6 @@ from unittest.mock import patch
 
 
 class TestMainE2E(unittest.TestCase):
-
     @classmethod
     def setUpClass(cls) -> None:
         cls.test_dir = Path("tests/tmp_e2e")
@@ -35,6 +34,7 @@ class TestMainE2E(unittest.TestCase):
     def test_main_runs(self, mock_f_log, mock_execution, mock_setup) -> None:
         """Smoke test: main() executes without raising exceptions."""
         from main import main
+
         main()
         mock_setup.assert_called_once()
         mock_f_log.assert_called()
