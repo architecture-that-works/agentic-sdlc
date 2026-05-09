@@ -28,7 +28,7 @@ function Invoke-Refine {
     param([int]$Number)
     Write-Log "  Phase A — Refine issue #$Number" -Color Yellow
 
-    $issue    = gh issue view $Number --json title,body | ConvertFrom-Json
+    $issue    = gh issue view $Number --repo $KanbanRepo --json title,body | ConvertFrom-Json
     $template = Get-IssueTemplate
 
     if ($template) {
@@ -62,7 +62,7 @@ $templateInstruction
     $tmp = New-TemporaryFile
     try {
         $refined.Trim() | Out-File $tmp.FullName -Encoding utf8
-        gh issue edit $Number --body-file $tmp.FullName 2>&1 | Out-Null
+        gh issue edit $Number --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-Null
         Add-Comment -Number $Number -Body "📋 Issue refined using the project template. Starting implementation."
         Write-Log "  Issue #$Number refined." -Color Green
     } finally {
@@ -73,14 +73,14 @@ $templateInstruction
 # ── Phase B: Develop ──────────────────────────────────────────────────────────
 
 function Format-ToolLine {
-    param([string]$Name, $Input)
+    param([string]$Name, $ToolInput)
     switch ($Name) {
-        'Read'  { "📖 Read:  $($Input.file_path)" }
-        'Write' { "✏️  Write: $($Input.file_path)" }
-        'Edit'  { "✏️  Edit:  $($Input.file_path)" }
-        'Glob'  { "🔍 Glob:  $($Input.pattern)" }
-        'Grep'  { "🔍 Grep:  $($Input.pattern)" }
-        'Bash'  { "⚡ Bash:  $([string]$Input.command -replace '\r?\n.*','' -replace '\s+',' ')" }
+        'Read'  { "📖 Read:  $($ToolInput.file_path)" }
+        'Write' { "✏️  Write: $($ToolInput.file_path)" }
+        'Edit'  { "✏️  Edit:  $($ToolInput.file_path)" }
+        'Glob'  { "🔍 Glob:  $($ToolInput.pattern)" }
+        'Grep'  { "🔍 Grep:  $($ToolInput.pattern)" }
+        'Bash'  { "⚡ Bash:  $([string]$ToolInput.command -replace '\r?\n.*','' -replace '\s+',' ')" }
         default { "🔧 $Name" }
     }
 }
@@ -91,7 +91,7 @@ function Invoke-Develop {
     Move-ToLane -IssueNumber $Number -OptionId $KanbanOpt_Implementing -LaneName 'Implementing'
     Add-Comment -Number $Number -Body "🌿 Branch ``$Branch`` checked out. Claude Code starting implementation..."
 
-    $issue = gh issue view $Number --json title,body | ConvertFrom-Json
+    $issue = gh issue view $Number --repo $KanbanRepo --json title,body | ConvertFrom-Json
 
     $prompt = @"
 You are implementing GitHub issue #$Number on branch $Branch in this repository.
@@ -137,7 +137,7 @@ INSTRUCTIONS:
                     'tool_use' {
                         $inputReady = ($block.input.PSObject.Properties | Measure-Object).Count -gt 0
                         if ($inputReady) {
-                            Write-Host "`n  $(Format-ToolLine -Name $block.name -Input $block.input)" -ForegroundColor DarkCyan
+                            Write-Host "`n  $(Format-ToolLine -Name $block.name -ToolInput $block.input)" -ForegroundColor DarkCyan
                         }
 
                         if ($block.name -in @('Read','Glob','Grep') -and -not $explorationPosted) {
@@ -197,7 +197,21 @@ function Invoke-CommitAndPR {
     param([int]$Number, [string]$Title, [string]$Branch)
     Write-Log "  Phase C — Commit + PR for issue #$Number" -Color Yellow
 
-    git add . 2>&1 | Out-Null
+    # Stage only known-safe paths rather than git add . — an agent implementation
+    # can create .env files, credentials, or other sensitive artefacts; the allowlist
+    # ensures nothing outside these directories ever reaches the index.
+    git add -- src/ tests/ docs/ .github/ CONTEXT.md AGENTS.md Taskfile.yml pyproject.toml 2>&1 | Out-Null
+
+    # Guard: inspect every staged path against a denylist and silently unstage any match.
+    $denyPatterns = @('.env', '*.key', '*.pem', '*secret*', '*credential*')
+    foreach ($file in @(git diff --staged --name-only 2>&1)) {
+        $leaf = Split-Path $file -Leaf
+        if ($denyPatterns | Where-Object { $leaf -like $_ }) {
+            git reset HEAD -- $file 2>&1 | Out-Null
+            Write-Log "  WARNING: sensitive file unstaged from index: $file" -Color Red
+        }
+    }
+
     if (git status --porcelain) {
         $diff    = git diff --staged 2>&1 | Out-String
         $message = Get-CommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title"
@@ -261,7 +275,7 @@ function Invoke-Implement {
         throw "No issue found. Pass ISSUE=N, run from a feature branch, or assign agent:start to an issue."
     }
 
-    $meta           = gh issue view $IssueNumber --json title | ConvertFrom-Json
+    $meta           = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
     $expectedBranch = Get-BranchName -Number $IssueNumber -Title $meta.title
     $branch         = git rev-parse --abbrev-ref HEAD
 

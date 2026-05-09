@@ -62,7 +62,7 @@ function Get-OrphanedIssues {
         }
 
     $items | Where-Object {
-        $raw    = gh issue view $_.content.number --json labels `
+        $raw    = gh issue view $_.content.number --repo $KanbanRepo --json labels `
             --jq '[.labels[].name]' 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
         $labels = if ($raw) { $raw } else { @() }
         -not ($labels -contains 'agent:implementing' -or
@@ -76,10 +76,10 @@ function Get-OrphanedIssues {
 function Invoke-Pipeline {
     param([int]$IssueNumber)
 
-    $meta   = gh issue view $IssueNumber --json title | ConvertFrom-Json
+    $meta   = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
+    $jq     = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .status"
     $status = gh project item-list $KanbanProjectNumber `
-        --owner $KanbanProjectOwner --format json --jq `
-        ".items[] | select(.content.number == $IssueNumber) | .status" 2>&1
+        --owner $KanbanProjectOwner --format json --jq $jq 2>&1
 
     Write-Log "━━━ Pipeline: issue #$IssueNumber — $($meta.title)" -Color Cyan
     Write-Log "    Current lane: $status" -Color DarkGray
