@@ -12,3 +12,6 @@ dist/
 
 # Kanban pipeline logs
 logs/
+
+# Claude Code — local overrides (personal paths, machine-specific approvals)
+.claude/settings.local.json
