@@ -27,14 +27,14 @@ def reset_logging_state():
 
 def test_setup_logging_configures_handlers():
     setup_logging(profile="TEST")
-    assert len(logging.root.handlers) >= 2  # console + file
+    assert len(_logger.handlers) >= 2  # console + file
 
 
 def test_setup_logging_idempotent():
     setup_logging(profile="TEST")
-    handler_count = len(logging.root.handlers)
+    handler_count = len(_logger.handlers)
     setup_logging(profile="TEST")
-    assert len(logging.root.handlers) == handler_count
+    assert len(_logger.handlers) == handler_count
 
 
 def test_f_log_info(caplog):
@@ -73,4 +73,4 @@ def test_f_log_execution_timing(caplog):
         f_log_execution("testproject", start=True)
         f_log_execution("testproject", start=False)
     assert "testproject" in caplog.text.lower()
-    assert "seconds" in caplog.text
+    assert "execution time" in caplog.text

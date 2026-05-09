@@ -134,16 +134,17 @@ def setup_logging(profile: str | None = None) -> None:
     if active_profile not in _PROFILE_LEVELS:
         active_profile = "PRD"
 
-    for handler in logging.root.handlers[:]:
-        logging.root.removeHandler(handler)
-    logging.root.setLevel(logging.DEBUG)
+    for handler in _logger.handlers[:]:
+        _logger.removeHandler(handler)
+    _logger.setLevel(logging.DEBUG)
+    _logger.propagate = True
 
     console_handler = logging.StreamHandler()
     console_handler.setLevel(_PROFILE_LEVELS[active_profile])
     console_handler.setFormatter(
         logging.Formatter(fmt=_PROFILE_FORMATS[active_profile], datefmt="%H:%M:%S")
     )
-    logging.root.addHandler(console_handler)
+    _logger.addHandler(console_handler)
 
     settings.log_dir.mkdir(parents=True, exist_ok=True)
     file_handler = logging.FileHandler(
@@ -158,7 +159,7 @@ def setup_logging(profile: str | None = None) -> None:
             datefmt="%Y-%m-%d %H:%M:%S",
         )
     )
-    logging.root.addHandler(file_handler)
+    _logger.addHandler(file_handler)
 
     for noisy in ("httpx", "urllib3", "git"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
