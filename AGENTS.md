@@ -60,7 +60,7 @@ Invoke the relevant skill before implementing manually. Skills are located in `.
 | `src/config.py` | Centralised config (pydantic-settings, loads `.env`) |
 | `src/utils/` | Generic transferable modules (`m_*.py`) |
 | `src/<domain>/` | Domain-specific logic — add folders here as the project grows |
-| `tools/` | Developer utilities — executed directly, never imported by application code |
+| `src/tools/` | Developer utilities — executed directly, never imported by application code |
 | `tests/` | Pytest suite, mirrors `src/` and `tools/` hierarchy |
 | `.agents/skills/` | Skill system — invoke skills before implementing manually |
 | `docs/adr/` | Architecture Decision Records (MADR format) |

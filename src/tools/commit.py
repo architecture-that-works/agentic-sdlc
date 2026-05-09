@@ -1,10 +1,19 @@
 import subprocess
 import sys
 
-from google import genai
-from google.genai import errors as genai_errors
 
-from src.config import settings
+_PROMPT_TEMPLATE = """Generate a conventional commit message for the following diff.
+
+Rules:
+- Format: <type>(<scope>): <description>
+- Types: feat, fix, refactor, test, docs, chore, perf, ci, build, revert
+- Scope: the module, file, or area changed (omit if not obvious)
+- Description: imperative mood, <=72 chars, no period at end
+- Add a blank line + body only if the change is complex or non-obvious
+- Return ONLY the commit message — no explanation, no markdown fences
+
+DIFF:
+{diff}"""
 
 
 def _staged_diff() -> str:
@@ -21,28 +30,49 @@ def _staged_diff() -> str:
         sys.exit(1)
 
 
-def generate_commit_message(diff: str) -> str:
+def _claude_cli(prompt: str) -> str | None:
     try:
-        client = genai.Client(api_key=settings.google_api_key)
-        response = client.models.generate_content(
-            model=settings.google_model,
-            contents=(
-                "Generate a conventional commit message for this diff.\n\n"
-                "Rules:\n"
-                "- Format: <type>(<scope>): <description>\n"
-                "- Types: feat, fix, refactor, test, docs, chore, perf, ci, build, revert\n"
-                "- Scope: the module, file, or area changed (omit if not obvious)\n"
-                "- Description: imperative mood, ≤72 chars, no period at end\n"
-                "- Add a blank line + body only if the change is complex or non-obvious\n"
-                "- If a breaking change, append a footer: BREAKING CHANGE: <explanation>\n"
-                "- Return only the commit message, no explanation, no markdown.\n\n"
-                f"{diff}"
-            ),
+        result = subprocess.run(
+            ["claude", "-p", prompt], capture_output=True, text=True
         )
-        return response.text.strip()
-    except genai_errors.APIError as e:
-        print(f"Google AI error: {e}")
-        sys.exit(1)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except FileNotFoundError:
+        pass
+    return None
+
+
+def _claude_sdk(prompt: str) -> str | None:
+    try:
+        import anthropic
+        client = anthropic.Anthropic()
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=256,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.content[0].text.strip()
+    except Exception:
+        pass
+    return None
+
+
+# Future: add _gemini_cli(prompt) here as a third provider slot.
+
+
+def generate_commit_message(diff: str) -> str:
+    prompt = _PROMPT_TEMPLATE.format(diff=diff)
+
+    msg = _claude_cli(prompt)
+    if msg:
+        return msg
+
+    msg = _claude_sdk(prompt)
+    if msg:
+        return msg
+
+    print("No AI provider available. Install the Claude CLI or set ANTHROPIC_API_KEY.")
+    sys.exit(1)
 
 
 def _commit(message: str) -> None:
@@ -58,15 +88,13 @@ def main() -> None:
 
     diff = _staged_diff()
     if not diff:
-        print("No staged changes. Stage your changes first with `git add`.")
+        print("No staged changes. Stage your changes with `git add`.")
         sys.exit(1)
 
     message = generate_commit_message(diff)
+    print(message)
 
-    if dry_run:
-        print(message)
-    else:
-        print(message)
+    if not dry_run:
         _commit(message)
 
 

@@ -58,10 +58,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $fields      = ($fieldsJson | ConvertFrom-Json).fields
-$statusField = $fields | Where-Object { $_.type -eq 'SINGLE_SELECT' -and $_.name -match 'status|state' } | Select-Object -First 1
+$statusField = $fields | Where-Object { $_.type -eq 'ProjectV2SingleSelectField' -and $_.name -match 'status|state' } | Select-Object -First 1
 
 if (-not $statusField) {
-    $statusField = $fields | Where-Object { $_.type -eq 'SINGLE_SELECT' } | Select-Object -First 1
+    $statusField = $fields | Where-Object { $_.type -eq 'ProjectV2SingleSelectField' } | Select-Object -First 1
 }
 if (-not $statusField) {
     Write-Error "No SINGLE_SELECT field found in project #$ProjectNumber. Add a Status field to the project first."

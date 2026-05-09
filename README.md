@@ -15,11 +15,13 @@ Copier-based Python project scaffold. Generates a production-ready structure wit
 
 ## Quickstart
 
-Get a new project running in under 2 minutes.
+Get a new project running in under 5 minutes.
 
-**1. Install copier** — once, globally:
+**1. Install prerequisites** — once, globally:
 ```bash
-uv tool install copier
+uv tool install copier                        # project generator
+winget install --id Microsoft.PowerShell      # PowerShell 7 (Windows)
+winget install --id Task.Task                 # Taskfile runner
 ```
 
 **2. Generate a new project**
@@ -35,6 +37,28 @@ Copier will prompt for:
 ```bash
 # Drop your m_log.py into src/utils/ — interface: f_log(), setup_logging(), f_log_execution()
 ```
+
+**4. Wire up the Director Workflow** — once per project:
+
+a. Create a GitHub Project (Projects v2, Kanban board) with a **Status** field containing at least: `Backlog`, `Implementing`, `Review`, `Merged`.
+
+b. Set the two required values in `.env`:
+```
+KANBAN_PROJECT_NUMBER=<your project number>
+KANBAN_PROJECT_OWNER=<your GitHub username or org>
+```
+
+c. Run setup — auto-discovers field IDs and sets GitHub Actions variables:
+```bash
+task setup
+```
+
+d. Add GitHub repository secrets:
+
+| Secret | How to obtain |
+|--------|--------------|
+| `GH_TOKEN` | Classic PAT with `repo` + `project` scopes — fine-grained PATs do not support Projects v2 |
+| `CLAUDE_CODE_OAUTH_TOKEN` | From [claude.ai/settings](https://claude.ai/settings) → API keys |
 
 ---
 

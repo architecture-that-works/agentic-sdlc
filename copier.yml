@@ -16,4 +16,5 @@ _exclude:
     - "logs"
 
 _tasks:
+    - "python -c \"import pathlib; p=pathlib.Path('pyproject.toml'); p.write_text(p.read_text().replace('my-template-repo', '{{ project_name }}'))\""
     - "uv sync"
