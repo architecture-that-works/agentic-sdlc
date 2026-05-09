@@ -1,0 +1,43 @@
+version: '3'
+
+vars:
+  ISSUE: '{{default "0" .ISSUE}}'
+  POLL: '{{default "60" .POLL}}'
+  RETRIES: '{{default "3" .RETRIES}}'
+
+tasks:
+
+  setup:
+    desc: "Bootstrap — discover GitHub Project field/option IDs and write to .env + GitHub vars"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/kanban/setup.ps1
+
+  sync:
+    desc: "Parse ISSUES.md and push pending blocks to GitHub Issues + Project board"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/sync-issues.ps1 {{.CLI_ARGS}}
+
+  start:
+    desc: "Queue a Backlog issue for agent pickup — interactive picker (or task start ISSUE=13)"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/kanban/start.ps1 -Issue {{.ISSUE}}
+
+  implement:
+    desc: "Implement an issue via Claude Code: Refine → Develop → PR (or task implement ISSUE=13)"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/kanban/implement.ps1 -Issue {{.ISSUE}}
+
+  review:
+    desc: "Agent self-review of open PR against acceptance criteria (or task review ISSUE=13)"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/kanban/review.ps1 -Issue {{.ISSUE}}
+
+  merge:
+    desc: "Merge PR after CI gate + approval check (or task merge ISSUE=13)"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/kanban/merge.ps1 -Issue {{.ISSUE}}
+
+  run:
+    desc: "Continuous pipeline — polls for agent:start every POLL seconds (default 60)"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/kanban/run.ps1 -Issue {{.ISSUE}} -PollIntervalSeconds {{.POLL}} -MaxRetries {{.RETRIES}}

@@ -7,16 +7,13 @@ description:
     help: "One-line project description"
     default: "Add your description here"
 
-variant:
-    type: str
-    choices:
-        - base
-        - ml
-        - application
-    default: base
-    help: "Project variant — base (general), ml (machine learning), application (FastAPI service)"
-
-_subdirectory: "{{ variant }}"
+_exclude:
+    - ".git"
+    - ".venv"
+    - ".claude"
+    - "uv.lock"
+    - "copier.yml"
+    - "logs"
 
 _tasks:
     - "uv sync"
