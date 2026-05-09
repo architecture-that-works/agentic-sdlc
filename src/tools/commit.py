@@ -45,6 +45,7 @@ def _claude_cli(prompt: str) -> str | None:
 def _claude_sdk(prompt: str) -> str | None:
     try:
         import anthropic
+        from anthropic.types import TextBlock
 
         client = anthropic.Anthropic()
         response = client.messages.create(
@@ -52,7 +53,9 @@ def _claude_sdk(prompt: str) -> str | None:
             max_tokens=256,
             messages=[{"role": "user", "content": prompt}],
         )
-        return response.content[0].text.strip()
+        for block in response.content:
+            if isinstance(block, TextBlock):
+                return block.text.strip()
     except Exception:
         pass
     return None
