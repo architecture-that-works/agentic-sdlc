@@ -7,19 +7,17 @@ description: Use when designing or building APIs, implementing REST endpoints, d
 
 ## Overview
 
-Covers the design and implementation of production APIs and services. Enforces clean request/response contracts, consistent auth patterns, and service boundaries that respect the domain model defined in `design-system`. **FastAPI** is the standard framework for all new Python API development — it is Pydantic-native (the same Pydantic used across data-engineering and mlops), generates OpenAPI documentation automatically, and is the current industry standard for Python services.
+Covers the design and implementation of production APIs and services. Enforces clean request/response contracts, consistent auth patterns, and service boundaries that respect the domain model defined in `refine`. **FastAPI** is the standard framework — Pydantic-native, auto-generates OpenAPI, and async-first. TypeScript is used at system edges only — SDK clients, OpenAPI-generated types, and Zod schemas where type-safe contracts are required by consumers outside the Python codebase.
+
+**Primary artifact:** Production API or service (Python primary; TypeScript at system edges)
 
 ## Scope
 
-**Owns:** API design patterns (REST, request/response contracts, versioning), input validation and serialisation (Pydantic), authentication and authorisation patterns, background task patterns, service-to-service communication, API documentation standards, contract testing for REST APIs.
+**Owns:** REST API design and implementation, input validation and serialisation at request boundaries (Pydantic), authentication and authorisation patterns, background task design, service-to-service communication patterns, contract testing for API consumers. TypeScript at system edges — SDK clients, OpenAPI-generated types, Zod schemas.
 
-**Does not own:** Domain modelling (→ `design-system`), infrastructure and deployment (→ `design-infrastructure`), agent-specific API patterns (→ `agentic-development`), model serving infrastructure (→ `mlops`).
+**Does not own:** Domain modelling and bounded contexts (→ `refine`), infrastructure and deployment (→ `harness`), agent-specific API patterns (→ `agentic-development`), data pipeline design (→ `data-engineering`).
 
-**Interfaces with:**
-- `design-system` — application layer implements ports defined in design-system; no business logic in routers
-- `design-infrastructure` — APIs deploy as Docker containers; container standards and Kubernetes/cloud deployment live there
-- `agentic-development` — agents may call application APIs; agent-specific patterns live in agentic-development
-- `mlops` — model serving endpoints (MLflow-deployed prediction services) follow mlops patterns; custom prediction APIs built on top follow application-development patterns
+**Interfaces with:** `refine` — application layer implements ports defined during alignment; no business logic in routers. `tdd` — contract tests drive the RED phase for API behaviour. `agentic-development` — agents may call application APIs; agent-specific patterns live there.
 
 ## When to Use
 
@@ -28,28 +26,25 @@ Covers the design and implementation of production APIs and services. Enforces c
 - **Trigger:** Setting up authentication or authorisation
 - **Trigger:** Implementing background tasks or async processing
 - **Trigger:** Structuring communication between services
-- **Trigger:** Building a prediction API wrapper around a deployed ML model
+- **Trigger:** Building a prediction API wrapper around a deployed model
 
 **Do NOT use for:**
-- Domain modelling or bounded context design (→ `design-system`)
-- Infrastructure or deployment configuration (→ `design-infrastructure`)
+- Domain modelling or bounded context design (→ `refine`)
+- Infrastructure or deployment configuration (→ `harness`)
 - Agent-specific API patterns (→ `agentic-development`)
-- MLflow model registry or training pipeline (→ `mlops`)
 
 ## Core Pattern
 
 ### FastAPI — Pydantic-Native, OpenAPI by Default
 
-FastAPI is chosen because it uses the same Pydantic models already in use across the stack (data-engineering, mlops). No additional validation library, no separate schema definition step. Request and response models are the same Pydantic `BaseModel` classes used everywhere else.
-
 ```python
 from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 
-app = FastAPI(title="Absenteeism Prediction API", version="1.0.0")
+app = FastAPI(title="Prediction API", version="1.0.0")
 
 class PredictionRequest(BaseModel):
-    quarter: str                        # e.g. "2024Q1"
+    quarter: str
     branch_id: int
     features: dict[str, float]
 
@@ -66,11 +61,11 @@ async def predict(
     return await service.predict(request)
 ```
 
-OpenAPI docs are generated automatically at `/docs` (Swagger UI) and `/redoc`. No manual documentation updates required.
+OpenAPI docs auto-generated at `/docs` (Swagger UI) and `/redoc`.
 
 ### Router → Service → Port (Hexagonal)
 
-Business logic never lives in the router. Routers are thin — they validate input, call a service, and return a response.
+Business logic never lives in the router.
 
 ```
 routers/        # FastAPI routes — input validation + response shaping only
@@ -88,8 +83,8 @@ async def predict(request: PredictionRequest, service: PredictionService = Depen
 # ❌ Business logic in router
 @router.post("/predict")
 async def predict(request: PredictionRequest):
-    model = load_model("model.pkl")           # Domain logic in controller
-    features = engineer_features(request)     # Transformation in controller
+    model = load_model("model.pkl")
+    features = engineer_features(request)
     return model.predict(features)
 ```
 
@@ -100,57 +95,25 @@ async def predict(request: PredictionRequest):
 | Style | When | Framework |
 |---|---|---|
 | **REST** | Transactional operations (CRUD, prediction endpoints, webhooks) | FastAPI |
-| **GraphQL** | Query-heavy clients (dashboards, analytics frontends, multiple clients with different data needs) | Strawberry + FastAPI |
+| **GraphQL** | Query-heavy clients needing flexible access to nested or related data across multiple clients | Strawberry + FastAPI |
 
-**GraphQL is the preferred Query API** when clients need flexible access to nested or related data and different clients query different subsets of the same data. REST is preferred for simple, well-defined request/response contracts such as prediction endpoints.
-
-### GraphQL with Strawberry
-
-Strawberry is the preferred Python GraphQL library — it is type-annotated, Pydantic-compatible, and integrates directly with FastAPI. Schema is generated from Python types, not from a separate SDL file.
-
-```python
-import strawberry
-from strawberry.fastapi import GraphQLRouter
-
-@strawberry.type
-class Prediction:
-    quarter: str
-    branch_id: int
-    predicted_sick_days: float
-    model_version: str
-
-@strawberry.type
-class Query:
-    @strawberry.field
-    def prediction(self, quarter: str, branch_id: int) -> Prediction:
-        return service.get_prediction(quarter, branch_id)
-
-schema = strawberry.Schema(query=Query)
-graphql_router = GraphQLRouter(schema)
-app.include_router(graphql_router, prefix="/graphql")
-```
-
-GraphQL Playground (interactive query UI) is available at `/graphql` — equivalent to Swagger for REST.
+**GraphQL with Strawberry** — preferred when clients need flexible querying. Schema generated from Python types; integrates directly with FastAPI at `/graphql`.
 
 ### Framework Decisions
 
 | Concern | Choice | Reason |
 |---|---|---|
-| REST framework | FastAPI | Pydantic-native, auto OpenAPI, async-first, industry standard |
-| GraphQL framework | Strawberry + FastAPI | Type-annotated, Pydantic-compatible, single app for both REST and GraphQL |
-| Validation | Pydantic `BaseModel` | Same library as data-engineering and mlops — no new dependency |
-| REST docs | Auto-generated `/docs` | OpenAPI Swagger from Pydantic models — no manual updates |
-| GraphQL docs | Auto-generated `/graphql` | GraphQL Playground from Strawberry schema |
+| REST framework | FastAPI | Pydantic-native, auto OpenAPI, async-first |
+| GraphQL framework | Strawberry + FastAPI | Type-annotated, Pydantic-compatible |
+| Validation | Pydantic `BaseModel` | Same library as data-engineering — no new dependency |
 | Auth | OAuth2 + JWT or API key | Choose based on client type (user vs service) |
-| Testing | Contract tests (consumer-driven) | Primary test type for both REST and GraphQL — see `code-quality` for taxonomy |
-| Deployment | Docker container | Follows `design-infrastructure` standards |
+| Testing | Contract tests (consumer-driven) | Primary test type — drives RED phase in `tdd` |
+| Deployment | Dev Container | Follows `harness` environment standards |
 
 ### API Versioning
 
-Always version the API from day one. Prefix all routes with `/v1/`.
-
+Always version from day one:
 ```python
-from fastapi import APIRouter
 router = APIRouter(prefix="/v1", tags=["prediction"])
 ```
 
@@ -162,46 +125,11 @@ router = APIRouter(prefix="/v1", tags=["prediction"])
 | Service-to-service | API key header (`X-API-Key`) validated via dependency |
 | Internal only | Managed Identity (Azure) / Service Account (GCP) — no key in code |
 
-**Self-hosted IAM — Keycloak vs Zitadel (Optional):** When a managed SaaS provider (Azure AD, Auth0) is ruled out by data residency, cost, or open-source requirements, choose between these two based on deployment context:
+For self-hosted IAM selection (Keycloak vs Zitadel) → See `docs/adr/ADR-004-iam-provider-selection.md`
 
-| Criterion | Keycloak | Zitadel |
-|---|---|---|
-| **Default for** | Enterprise / on-premise / LDAP + AD integration | Cloud-native / B2B SaaS / multi-tenant organisations |
-| **Runtime** | Java — higher memory footprint, slower start | Go — low memory, instant startup, Kubernetes-friendly |
-| **Multi-tenancy** | Realms — management overhead at scale | Native organisations — designed for thousands of tenants |
-| **Protocol support** | OAuth2, OIDC, SAML, LDAP, Kerberos, legacy AD | OAuth2, OIDC, SAML |
-| **Customisation** | Java SPIs — powerful, complex | JavaScript Actions + API-first — faster to iterate |
-| **Audit / compliance** | Standard logs | Event sourcing — immutable history of every change |
-| **Community** | 10+ years, vast ecosystem, most problems solved | Smaller but growing fast |
-| **Database** | PostgreSQL / MySQL | PostgreSQL (optimal); CockroachDB for global scale |
-
-**Choose Keycloak when:** managing internal employees — it is the gold standard for corporate identity, sitting in the middle of a private network with deep LDAP/Active Directory integration, employee SSO, and support for legacy enterprise protocols. This is the safe bet for internal IT.
-
-**Choose Zitadel when:** managing external customers or B2B tenant organisations — cloud-native, lightweight, and built specifically for the multi-tenant SaaS problem where each customer needs their own SSO, branding, and user management.
-
-Both integrate identically with FastAPI:
-
-```python
-from fastapi.security import OAuth2AuthorizationCodeBearer
-
-oauth2_scheme = OAuth2AuthorizationCodeBearer(
-    authorizationUrl="https://<iam-host>/oauth/v2/authorize",
-    tokenUrl="https://<iam-host>/oauth/v2/token",
-)
-
-@app.get("/protected")
-async def protected_route(token: str = Depends(oauth2_scheme)) -> dict:
-    user = await verify_token(token)
-    return {"user": user}
-```
-
-IAM server deployment follows `design-infrastructure` patterns.
-
-Never put secrets in code or environment variables — fetch from Key Vault via Managed Identity (→ `design-infrastructure`).
+Never put secrets in code or environment variables — fetch from secrets manager at runtime via managed identity (→ `harness`).
 
 ### Background Tasks
-
-Use FastAPI `BackgroundTasks` for fire-and-forget operations (e.g., logging, notifications). For heavy processing that must complete before responding, use async service calls.
 
 ```python
 from fastapi import BackgroundTasks
@@ -230,15 +158,13 @@ src/
 
 ### Dependency Injection
 
-Services and adapters are injected via FastAPI's `Depends()`. This aligns with the Ports and Adapters pattern from `design-system` and keeps routers testable.
-
 ```python
 from functools import lru_cache
 from fastapi import Depends
 
 @lru_cache
 def get_prediction_service() -> PredictionService:
-    return PredictionService(model_adapter=MlflowModelAdapter())
+    return PredictionService(model_adapter=ModelAdapter())
 
 @router.post("/predict")
 async def predict(
@@ -250,10 +176,7 @@ async def predict(
 
 ### Contract Testing
 
-For REST APIs, contract tests are the primary test type. They verify that the API honours the contract expected by its consumers — not that the internal implementation is correct.
-
 ```python
-# Consumer-side contract: assert the response shape matches what the consumer expects
 def test_predict_response_contract(client: TestClient) -> None:
     response = client.post("/v1/predict", json={
         "quarter": "2024Q1",
@@ -266,8 +189,6 @@ def test_predict_response_contract(client: TestClient) -> None:
     assert "model_version" in body
     assert isinstance(body["prediction"], float)
 ```
-
-Consumer-driven contract tests define what the consumer expects. Producer contract tests verify the API still satisfies all registered consumers after a change.
 
 ### Running with uv
 
@@ -288,10 +209,10 @@ Always prefix with `/v1/`. Retrofitting versioning onto an unversioned API break
 Untyped `dict` responses lose validation, auto-documentation, and type safety. Every request and response must be a typed Pydantic model.
 
 **Secrets in environment variables.**
-Environment variables are visible in process lists and container inspection. Fetch secrets from Key Vault at runtime via Managed Identity (→ `design-infrastructure`).
+Environment variables are visible in process lists and container inspection. Fetch secrets from a secrets manager at runtime via managed identity (→ `harness`).
 
 **Missing contract tests for service-to-service APIs.**
 Internal APIs break silently without contract tests. A producer change that violates the consumer contract won't be caught by unit tests.
 
 **No response model on endpoints.**
-Always set `response_model=` on every endpoint. Without it, FastAPI cannot generate correct OpenAPI docs and will serialise everything, including internal fields that should be hidden.
+Always set `response_model=` on every endpoint. Without it, FastAPI cannot generate correct OpenAPI docs and will serialise internal fields that should be hidden.

@@ -9,14 +9,16 @@ description: Use when creating new skills, editing existing skills, splitting an
 
 A **skill** is a constraint document for AI agents — a reference that prevents hallucinated approaches by encoding proven patterns and hard rules. Skills are reusable across projects and sessions.
 
+**Primary artifact:** Valid, MECE-compliant SKILL.md
+
 **Skills are:** Proven techniques, hard constraints, patterns, tool references.
 **Skills are NOT:** Project-specific conventions, one-off solutions, or rules enforceable by a script or linter.
 
 ## Scope
 
-**Owns:** Skill creation standards, SKILL.md template, validation process, MECE enforcement, routing signal format, update and split guidance, ASO rules.
+**Owns:** Skill creation standards, SKILL.md template, validation process (baseline → draft → verify), MECE enforcement and split/gap detection against `SKILL_STRUCTURE.md`, routing signal format, update and split guidance, ASO rules.
 
-**Does not own:** Project-specific agent instructions (→ `CLAUDE.md` / `AGENT.md`), individual skill content, validation scripts.
+**Does not own:** Project-specific agent instructions (→ `CONTEXT.md` / `AGENTS.md`), individual skill content.
 
 **Interfaces with:** All other skills — this skill defines the contract every other skill must follow.
 
@@ -28,7 +30,7 @@ A **skill** is a constraint document for AI agents — a reference that prevents
 - Validating a skill before deploying it
 
 **Do NOT create a skill for:**
-- Project-specific conventions — use `CLAUDE.md` or `AGENT.md`
+- Project-specific conventions — use `CONTEXT.md` or `AGENTS.md`
 - One-off solutions that won't recur across projects
 - Rules enforceable by a linter, hook, or script
 
@@ -49,7 +51,9 @@ Write skill before baseline? Delete it. Start over. No exceptions: don't keep it
 
 ### The MECE Law
 
-Every skill must be mutually exclusive and collectively exhaustive within the skill system.
+**REQUIRED:** Read → `SKILL_STRUCTURE.md` before writing or updating any skill.
+
+Every skill must be mutually exclusive and collectively exhaustive within the skill system defined there.
 
 - **Mutually exclusive:** No `Owns` entry in one skill duplicates an `Owns` entry in another
 - **Collectively exhaustive:** Every concern in the domain has exactly one skill that owns it

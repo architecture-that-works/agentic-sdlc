@@ -9,3 +9,6 @@ __pycache__/
 # Build
 dist/
 *.egg-info/
+
+# Kanban pipeline logs
+logs/

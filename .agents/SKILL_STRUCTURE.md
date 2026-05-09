@@ -1,135 +1,386 @@
 # Skill Structure
 
-Master reference for the MECE skill system. Check this before writing or updating any skill to verify scope placement and avoid overlap.
+Master reference for the MECE agentic SDLC skill system.
+Check this before writing or updating any skill to verify scope placement and avoid overlap.
+
+---
+
+## Guiding Philosophy
+
+Software engineering fundamentals matter more than ever. These skills are a best effort at
+condensing those fundamentals into repeatable, agent-executable practices. The design rejects
+"vibe coding" — low-fidelity prompting and unverified generation — in favour of disciplined,
+adversarial, interface-first engineering rooted in the Pragmatic Programmer series, Wes McKinney's
+performance hierarchy, and Matt Pocock's type-safe boundary philosophy.
+
+Primary language: **Python**. TypeScript is a secondary boundary language used where type-safe
+contracts are needed at system edges (API schemas, SDK clients); Python remains the implementation
+language throughout.
+
+---
+
+## Context Window Awareness (Cross-Cutting Principle)
+
+Context window fill is not neutral — reasoning quality degrades non-linearly as the window fills.
+This is not a hard rule that prohibits large contexts; it is a calibration guide that every skill
+must respect and surface to the agent at the right moment.
+
+| Zone | Token Range | Reasoning Characteristic | Recommended Action |
+|---|---|---|---|
+| **Smart Zone** | < 100k | High precision; reliable instruction following. | Optimal for alignment, architecture, TDD. |
+| **Transition Zone** | 100k – 250k | Emerging drift; subtle logic errors possible. | Compact before starting new complex tasks. |
+| **Dumb Zone** | > 250k | Coherence degrades; conflict resolution unreliable. | Reset recommended. Exception: reference-only contexts (agent reads large codebases without deep reasoning). |
+
+**Ownership of context hygiene:**
+- `refine` owns the CONTEXT.md schema and initialisation.
+- `harness` owns compact(), reset triggers, and tool-call offloading decisions.
+- Every workflow skill must note when its phase is sensitive to context fill.
 
 ---
 
 ## Structure
 
 ```
-Layer 1 – Foundation        code-quality · git-workflow
-Layer 2 – Design            design-system · design-infrastructure · observability
-Layer 3 – Domain Build      data-engineering · data-science · mlops · application-development · agentic-development
-Meta                        write-skills
+Persistent   version-control
+─────────────────────────────────────────────────────────────────────
+Workflow     refine → architecture → plan → tdd → harness → review → ship
+─────────────────────────────────────────────────────────────────────
+Domain       application-development · data-engineering · agentic-development
+─────────────────────────────────────────────────────────────────────
+Meta         write-skills
 ```
 
----
-
-## Layer 1 — Foundation
-
-### `code-quality`
-**Primary artifact:** Reviewed, compliant Python code
-
-**Owns:** Python syntax standards (PEP-8, type hints, naming), function and module structure (indentation limits, size limits, guard clauses), TDD enforcement (pytest/unittest, mocking, failing test first), testing strategy taxonomy (UI / Contract / Integration / Unit), code review feedback format, standard library vs third-party dependency decisions.
-
-**Does not own:** System or domain model design (→ `design-system`), domain-specific implementation patterns (→ domain skills), git operations or PR creation (→ `git-workflow`).
-
-**Interfaces with:** `design-system` — architectural constraints propagate to code-level enforcement. Domain skills — code-quality applies universally.
+Skills are **Mutually Exclusive** (every concern has exactly one owner) and **Collectively
+Exhaustive** (every phase of the agentic SDLC is covered). The workflow skills are sequential;
+domain skills extend `tdd` with language- and domain-specific implementation patterns.
 
 ---
 
-### `git-workflow`
+## Persistent
+
+### `version-control`
 **Primary artifact:** Linked branch → commit → PR tied to a GitHub Issue
 
-**Owns:** Branch naming (`feature/issue-N`), commit message format (`feat(#N): Title`), PR creation with issue auto-close (`Closes #N`), error handling for git/gh commands, agent-driven automation of the full branch → PR flow.
+**Owns:** Branch naming convention (`feature/issue-N`), commit message format
+(`feat(#N): Title`), PR creation with issue auto-close (`Closes #N`), GitHub CLI (`gh`)
+command patterns and error handling, agent-driven automation of the full branch → commit → PR
+flow, worktree creation for isolated fix branches.
 
-**Does not own:** CI/CD pipeline configuration (→ `design-infrastructure`), code review standards (→ `code-quality`).
+**Does not own:** CI/CD pipeline configuration (→ `harness`), code review standards (→
+`review`), PR merge and governance (→ `ship`).
 
-**Interfaces with:** `design-infrastructure` — CI/CD runs on the branches and PRs this skill creates.
+**Interfaces with:** All workflow skills — every phase that touches git or the GitHub API uses
+the conventions defined here.
 
----
-
-## Layer 2 — Design
-
-### `design-system`
-**Primary artifact:** Domain model with defined boundaries and dependency rules
-
-**Owns:** Domain model design (entities, value objects, aggregates), bounded context definition and anti-corruption layers, dependency direction rules (hexagonal / clean architecture), port and adapter interface definitions, architectural drift detection, foundational data & AI system patterns (Pipes & Filters, Layers, Hub-and-Spoke).
-
-**Does not own:** Container or cloud resource configuration (→ `design-infrastructure`), telemetry instrumentation (→ `observability`), code-level quality rules (→ `code-quality`), domain-specific implementation patterns (→ domain skills).
-
-**Interfaces with:** `design-infrastructure`, `code-quality`, domain skills.
+**Context sensitivity:** Low. Version-control operations are stateless and safe at any context
+fill level.
 
 ---
 
-### `design-infrastructure`
-**Primary artifact:** Deployable, secure execution environment (containers, IaC, CI/CD)
+## Workflow
 
-**Owns:** Dockerfile construction (multi-stage, rootless, health checks), Terraform module structure and remote state management, CI/CD pipeline configuration (including ML pipeline CI/CD), Azure and GCP identity/networking/secrets standards, multi-cloud placement decisions (Azure default, GCP for ML/BigQuery), Traefik reverse proxy for self-managed container environments, Marquez server deployment, IAM server deployment (Keycloak, Zitadel).
+### `refine`
+**Primary artifact:** CONTEXT.md (domain glossary + architectural boundaries) and Agent Brief
+(interface-first specification)
 
-**Does not own:** Application domain modelling (→ `design-system`), telemetry SDK instrumentation (→ `observability`), model serving infrastructure (→ `mlops`).
+**Owns:**
+- Adversarial Senior Architect persona and the "grill-me" protocol — relentless questioning
+  down every decision-tree branch before any code is written.
+- Shared language construction: building a project glossary that reduces ambiguous terms to
+  concise, agreed tokens (e.g., "materialization cascade").
+- CONTEXT.md schema — the source of truth ingested by every agent at session start: glossary,
+  bounded contexts, architectural constraints, and out-of-scope declarations.
+- AGENTS.md persistence rules — style preferences and standing instructions that sit at the top
+  of every conversation.
+- ADR (Architectural Decision Record) creation and referencing — prevents regressions during
+  grilling sessions.
+- Agent Brief synthesis — durable specification written in terms of interfaces and contracts,
+  never volatile file paths or line numbers.
+- Pragmatic Programmer integration during grilling: dig for requirements (PP-51), think like a
+  user (PP-52), prioritise long-lived abstractions over implementation details (PP-53), surface
+  broken windows (PP-4), propose options not excuses (PP-3).
+- Context window initialisation: CONTEXT.md is loaded first in every new session; the agent
+  must flag if current context fill would push into the Transition Zone before alignment begins.
 
-**Interfaces with:** `design-system`, `observability`, `mlops`.
+**Does not own:** Architecture mapping or static analysis (→ `architecture`), PRD or issue
+creation (→ `plan`), code implementation (→ `tdd`).
 
----
+**Interfaces with:** `architecture` — the architectural map validates and refines the shared
+language. `plan` — the Agent Brief is the direct input to Lean PRD synthesis. `harness` — 
+CONTEXT.md and AGENTS.md are loaded by the harness at session initialisation.
 
-### `observability`
-**Primary artifact:** Instrumented system emitting correlated logs, traces, and metrics
-
-**Owns:** OpenTelemetry SDK setup and configuration, structured logging standards and field conventions, trace and span instrumentation patterns, metrics collection and naming conventions, log-trace-metric correlation, OpenLineage instrumentation pattern (how to emit lineage events — not the Marquez deployment or pipeline emission logic).
-
-**Does not own:** Log storage, routing, or alerting infrastructure (→ `design-infrastructure`), business metric definitions (defined in domain skills, instrumented here), model performance thresholds and drift trigger logic (→ `mlops`), OpenLineage event emission from pipeline steps (→ `data-engineering`), Marquez server deployment (→ `design-infrastructure`).
-
-**Interfaces with:** `design-infrastructure`, `mlops`, `data-engineering`.
-
----
-
-## Layer 3 — Domain Build
-
-### `data-engineering`
-**Primary artifact:** Validated, ML-ready datasets and feature tables
-
-**Owns:** ELT pipeline design and implementation (Raw → Bronze → Silver → Gold Medallion), SQLAlchemy Core (Bronze bulk inserts) and ORM (Silver/Gold), SQLModel for unified Pydantic + SQLAlchemy models, Pydantic boundary validation (Sandwich pattern), Polars for pipeline data transformations (single-machine), PySpark for distributed pipeline transformations, DuckDB query engine, DuckLake storage backend (PostgreSQL catalog + Parquet), data quality gates and schema validation, feature pipeline *implementation* (computing features at scale), OpenLineage event emission from pipeline steps, Dagster Software-Defined Assets (optional, mature setup), integration testing for ETL outputs (row counts, unique IDs, date ranges).
-
-**Does not own:** Feature *design* — which features to compute (→ `data-science`), feature *serving* at inference time (→ `mlops`), model training pipelines (→ `mlops`), statistical analysis or EDA (→ `data-science`), Marquez server deployment (→ `design-infrastructure`).
-
-**Interfaces with:** `data-science`, `mlops`, `design-system`, `design-infrastructure`, `observability`.
-
----
-
-### `data-science`
-**Primary artifact:** Model prototypes, evaluation results, and analytical insights
-
-**Owns:** Exploratory data analysis (EDA), feature selection and design (deciding what to compute, not how to compute it at scale), model prototyping and evaluation, statistical analysis and hypothesis testing, Marimo notebooks (default format — `.py`, reactive, agent-readable), Pandas for EDA/prototyping (single-machine default), notebook-to-module refactoring patterns, experiment tracking *usage* (running experiments, logging metrics, comparing runs).
-
-**Does not own:** Feature pipeline *implementation* at scale (→ `data-engineering`), production model deployment or serving (→ `mlops`), experiment tracking *infrastructure* (→ `mlops`), data pipeline orchestration (→ `data-engineering`).
-
-**Interfaces with:** `data-engineering`, `mlops`, `code-quality`.
+**Context sensitivity:** High. Alignment requires the agent to be in the Smart Zone. If context
+fill is already in the Transition Zone, compact before starting a new alignment session. Never
+begin a grill-me session in the Dumb Zone.
 
 ---
 
-### `mlops`
-**Primary artifact:** Production ML system (training pipeline, serving endpoint, monitoring)
+### `architecture`
+**Primary artifact:** Architecture map with fragility scores, coupling metrics, and blast-radius
+report
 
-**Owns:** Production training pipeline design and automation (Google MLOps Level 1 target), model registry, versioning, and promotion gates (experiment → staging → production), model serving and inference infrastructure, ONNX as standard model serialisation format, MLflow infrastructure (remote tracking server, model registry), feature store serving, model monitoring, drift detection, and retraining triggers, data/model validation *gates* (automated pipeline stop/continue decisions), ML metadata management (lineage, artifact pointers, reproducibility), pipeline triggers (scheduled, on new data, on degradation, on drift).
+**Owns:**
+- Codeflow CLI integration: generating JSON exports of file and module dependency graphs.
+- Dependency visualisation: identifying circular dependencies, layer boundary violations, and
+  structural anti-patterns (God Objects, anemic domain models).
+- Deep module identification: locating components that encapsulate significant complexity behind
+  a simple, testable interface — the target state for all refactoring.
+- Shallow module detection: flagging components where interface complexity approaches
+  implementation complexity — a refactoring trigger.
+- Metric interpretation: fragility score (probability of side-effects), coupling metric
+  (inter-layer dependency degree), churn data (historical modification frequency), pattern
+  grade (A–F design pattern adherence).
+- Blast-radius computation: quantifying the surface area of a proposed change before any code
+  is committed. Output as a "thermal receipt" in PR comments.
+- GitHub CLI research loop: piping Codeflow JSON through `jq` to cross-reference topology
+  findings with existing GitHub Issues and architectural discussions.
+- Refactoring demand: blocking progress when pattern grade or fragility score violates layer
+  boundaries established in `refine`.
 
-**Does not own:** Raw data pipeline management (→ `data-engineering`), model prototyping (→ `data-science`), general container and cloud infrastructure primitives (→ `design-infrastructure`), data validation *implementation* — schema enforcement, Pydantic models (→ `data-engineering`), general telemetry instrumentation (→ `observability`).
+**Does not own:** Domain model design decisions (→ `refine`), infrastructure dependency mapping
+(→ domain skills), CI/CD topology (→ `harness`).
 
-**Interfaces with:** `data-engineering`, `data-science`, `design-infrastructure`, `observability`.
+**Interfaces with:** `refine` — topology validates the architectural boundaries declared in
+CONTEXT.md. `plan` — blast-radius findings inform scope decisions in the Lean PRD. `review` —
+thermal receipts are surfaced in the PR review cycle.
+
+**Context sensitivity:** Medium. Codeflow JSON exports can be large. Pipe outputs to the
+filesystem; only load summary metrics into context. Safe to run in the Transition Zone if raw
+outputs are offloaded.
+
+---
+
+### `plan`
+**Primary artifact:** Lean PRD published as a GitHub Issue, decomposed into labelled grabbable
+issues
+
+**Owns:**
+- Lean PRD synthesis (`to-prd`): consuming the Agent Brief and architecture map to produce a
+  structured specification.
+- PRD components: problem statement (user perspective), long list of user stories
+  ("As a [role], I want [action], so that [value]"), implementation decisions (schema changes
+  and API contracts — no file paths), testing decisions (what makes a good test for this
+  module), out-of-scope boundaries.
+- Tracer bullet framing: every PRD prioritises narrow, end-to-end vertical slices that cut
+  through all system layers (schema → API → consumer) over horizontal slices that deliver one
+  layer at a time.
+- Deduplication: `gh search issues` check against existing issues and the `.out-of-scope/`
+  knowledge base before finalising the PRD. Rejected "wontfix" concepts must not be re-proposed.
+- Issue decomposition (`to-issues`): breaking the approved PRD into individual GitHub Issues,
+  each labelled HITL (Human-in-the-Loop) or AFK (Away-from-Keyboard).
+- `.out-of-scope/` knowledge base reads: ensuring prior architectural rejections are respected.
+
+**Does not own:** Domain glossary or shared language (→ `refine`), static analysis or
+dependency data (→ `architecture`), code implementation (→ `tdd`), issue merging or PR creation
+(→ `version-control`, `ship`).
+
+**Interfaces with:** `refine` — the Agent Brief is the primary input. `architecture` — blast-radius
+findings gate scope decisions. `tdd` — testing decisions in the PRD define the acceptance
+criteria for the TDD loop. `version-control` — issues created here are the targets for
+feature branches.
+
+**Context sensitivity:** Medium. PRD synthesis requires coherent reasoning; run in the Smart
+Zone when possible. Deduplication queries are stateless and safe at any fill level.
+
+---
+
+### `tdd`
+**Primary artifact:** Passing test suite with minimal, refactored implementation code
+
+**Owns:**
+- Red-Green-Refactor loop enforcement:
+  - **RED:** Write one failing test that verifies a specific behaviour through a public
+    interface. Mocking is restricted to system boundaries (external APIs, databases, time).
+    Internal collaborators must never be mocked.
+  - **GREEN:** Write only enough code to pass the current test. Anticipating future tests or
+    writing horizontal slices is prohibited.
+  - **REFACTOR:** Remove duplication, deepen shallow modules, apply SOLID principles. Complexity
+    moves behind simple interfaces; the public surface shrinks or stays constant.
+- Acceptance criteria traceability: every test maps to a user story or testing decision from
+  the Lean PRD.
+- TypeScript type-safe boundaries (when TypeScript is the target language at system edges):
+  simple interfaces with compile-time guarantees; no deep generic wizardry that overwhelms the
+  compiler or the agent.
+- Test suite ergonomics: fast, isolated unit tests; external boundaries mocked; suite must
+  remain a low-latency feedback loop for the agent.
+
+**Does not own:** Test infrastructure provisioning (→ `harness`), PR creation (→
+`version-control`), code review (→ `review`), performance infrastructure (→ domain skills).
+
+**Interfaces with:** `plan` — acceptance criteria from the Lean PRD drive the RED phase.
+`harness` — the TDD loop runs inside managed sessions; large test logs are offloaded by the
+harness. Domain skills — extend the REFACTOR phase with domain-specific patterns (e.g.,
+Medallion pipeline structure in `data-engineering`).
+
+**Context sensitivity:** High during RED and GREEN phases (precise instruction following
+required). REFACTOR is lower sensitivity. If context fill reaches Transition Zone mid-loop,
+compact before the next RED phase begins.
+
+---
+
+### `harness`
+**Primary artifact:** Configured managed agent session with Planner/Generator/Evaluator split
+and durable event log
+
+**Owns:**
+- Managed Agents primitives: Agents (model + system prompt + skills), Environments (secure
+  cloud containers with pre-installed toolchain), Sessions (stateful, persistent filesystem
+  across multi-hour tasks), Events (real-time human steering and interruption stream).
+- `provision()`: container initialisation using standard toolchain recipes. Environments are
+  disposable ("cattle, not pets") — one per task.
+- `emitEvent()`: durable event log enabling resume-on-crash and full task accountability.
+- Planner/Generator/Evaluator split: the agent must never grade its own work. The Evaluator
+  is a separate agent instance (often using Playwright or equivalent for live-page verification)
+  that provides a detached critique triggering iterative refinement in the Generator.
+- Tool-call offloading: large outputs (test logs, Codeflow JSON, build artefacts) are written
+  to the filesystem. Only head and tail tokens enter the context window.
+- `compact()`: context organisation for prompt cache hits; used to reduce latency and cost for
+  long sessions.
+- Context reset protocol: when context fill reaches the Dumb Zone and the task requires deep
+  reasoning, the harness initiates a structured handoff — writing a handoff artefact to disk,
+  resetting the session, and re-initialising from CONTEXT.md. Exception: reference-only
+  contexts (agent reads large codebases without synthesising novel solutions) may safely exceed
+  250k tokens.
+- CONTEXT.md and AGENTS.md loading at session start.
+
+**Does not own:** CONTEXT.md content or the grill-me protocol (→ `refine`), TDD loop logic (→
+`tdd`), PR review (→ `review`), merge and governance (→ `ship`).
+
+**Interfaces with:** `refine` — CONTEXT.md and AGENTS.md are the harness initialisation inputs.
+`tdd` — the TDD loop runs inside harness sessions; log offloading keeps the loop fast.
+`review` — the Evaluator agent in the harness feeds findings to the review cycle.
+
+**Context sensitivity:** This skill manages context for all other skills. The harness itself
+must always operate in the Smart Zone; it is the last line of defence before a Dumb Zone reset.
+
+---
+
+### `review`
+**Primary artifact:** Multi-agent review report with auto-applied fixes and a verified clean
+PR
+
+**Owns:**
+- Multi-agent parallel review: running Claude, and or Gemini reviewers in parallel;
+  consolidating findings into a single actionable report.
+- Auto-fix and refine loop: `review refine` feeds findings to a Generator agent in an
+  isolated worktree. The loop (fix → re-review → fix) continues until all findings are
+  resolved or the iteration limit is reached.
+- Verification and compaction: `review compact` filters false positives by verifying findings
+  against the current code state; related issues are consolidated before reporting.
+- PR-level batch orchestration: `ci_pr_batches` tracks review status across the full PR, not
+  just individual commits.
+- Senior Architect standard enforcement: if a review finding maps to a principle established
+  during `refine` (e.g., a module encapsulation leak, a tracer-bullet violation), the PR is
+  blocked and an automated fix cycle is triggered.
+- Review database accountability: every finding and fix attempt is persisted (jobs, reviews,
+  responses tables) for full traceability of generated code.
+
+**Does not own:** Code implementation (→ `tdd`), static topology analysis (→ `architecture`),
+merge and security governance (→ `ship`).
+
+**Interfaces with:** `tdd` — review validates that GREEN and REFACTOR phases produced
+compliant code. `architecture` — thermal receipts from topology are surfaced in the review report.
+`ship` — a clean review is the gate for the `ship` phase.
+
+**Context sensitivity:** Low for individual commit reviews (stateless). High for the fix loop
+— each fix iteration should start from a compact context to avoid compounding drift.
+
+---
+
+### `ship`
+**Primary artifact:** Squash-merged PR with clean history, closed GitHub Issue, updated
+knowledge base
+
+**Owns:**
+- `gh pr merge --squash`: final merge command; enforces a clean, linear commit history.
+- Auto-close enforcement: PR body must contain `Closes #N`; the skill validates this before
+  merge is attempted.
+- Security governance:
+  - Sandboxing verification: confirms agent-generated code ran inside the managed container
+    with no access to host credentials.
+  - Credential scoping audit: tokens used during development must never be reachable from the
+    agent's execution sandbox.
+  - Supply chain integrity: dependency manifest review for new third-party packages introduced
+    in the PR; flag unpinned or unvetted additions.
+  - CI/CD workflow permission review: check for over-permissioned tokens or misconfigured
+    workflow triggers.
+  - Prompt injection checklist: verify that any user-controlled input flowing through the
+    system cannot alter agent instructions.
+- Knowledge persistence (post-merge cleanup turn):
+  - `.out-of-scope/` update: any improvement deferred during review is recorded so it cannot
+    be re-proposed in a future `plan` session.
+  - CONTEXT.md update: new architectural lessons, revised glossary terms, or boundary
+    clarifications discovered during the task are committed back to the root CONTEXT.md.
+
+**Does not own:** Code review findings (→ `review`), branch or commit operations (→
+`version-control`), container and environment teardown (→ `harness`).
+
+**Interfaces with:** `review` — a passing review is the prerequisite for ship. `version-control`
+— merge uses the branch and PR conventions established there. `refine` — CONTEXT.md updates
+feed back into the next session's initialisation.
+
+**Context sensitivity:** Low. Merge operations and knowledge persistence writes are stateless
+and safe at any context fill level.
+
+---
+
+## Domain
+
+Domain skills extend `tdd`'s REFACTOR phase with implementation patterns specific to a
+problem space. They do not own the TDD loop itself, version-control conventions, or the
+workflow phases — those are inherited from the workflow skills.
 
 ---
 
 ### `application-development`
-**Primary artifact:** Production API or service
+**Primary artifact:** Production API or service (Python primary; TypeScript at system edges)
 
-**Owns:** REST API design (FastAPI, Pydantic-native, auto OpenAPI), GraphQL Query API (Strawberry + FastAPI), input validation and serialisation (Pydantic / SQLModel), authentication and authorisation patterns, IAM backend selection (Keycloak for internal employees, Zitadel for B2B SaaS tenants), background task patterns, service-to-service communication, contract testing for REST and GraphQL APIs.
+**Owns:** REST API design and implementation, input validation and serialisation at request
+boundaries, authentication and authorisation patterns, background task design,
+service-to-service communication patterns, contract testing for API consumers. TypeScript is
+used at system edges — SDK clients, OpenAPI-generated types, Zod schemas — where type-safe
+contracts are required by consumers outside the Python codebase.
 
-**Does not own:** Domain modelling (→ `design-system`), infrastructure and deployment (→ `design-infrastructure`), agent-specific API patterns (→ `agentic-development`), model serving infrastructure (→ `mlops`), IAM server deployment (→ `design-infrastructure`).
+**Does not own:** Domain modelling (→ `refine`), infrastructure and deployment (→ `harness`),
+agent-specific API patterns (→ `agentic-development`), data pipeline design (→
+`data-engineering`).
 
-**Interfaces with:** `design-system`, `design-infrastructure`, `agentic-development`.
+**Interfaces with:** `refine`, `tdd`, `agentic-development`.
+
+---
+
+### `data-engineering`
+**Primary artifact:** Validated, query-ready datasets produced by a layered pipeline
+
+**Owns:** ELT pipeline design and implementation (Raw → Bronze → Silver → Gold Medallion
+architecture), data validation and schema enforcement at layer boundaries, data quality gates,
+feature pipeline implementation (computing features at scale), storage backend selection
+(local/prototype vs. production scale), pipeline orchestration patterns, lineage event
+emission from pipeline steps.
+
+**Does not own:** Feature design — which features to compute (→ `refine` or domain knowledge),
+model training pipelines (→ `agentic-development` if ML-driven, or out of current scope),
+general telemetry instrumentation patterns (→ `harness` or cross-cutting).
+
+**Interfaces with:** `refine`, `tdd`, `application-development`.
 
 ---
 
 ### `agentic-development`
-**Primary artifact:** Functioning agent (tool use, multi-agent coordination, structured outputs)
+**Primary artifact:** Functioning agent — tool use, structured outputs, multi-agent
+coordination — built on the Anthropic SDK
 
-**Owns:** Plan-Act-Observe loop design and state management, tool definition standard (Pydantic → JSON Schema), structured output enforcement (Pydantic + Correction Observation on parse failure), provider-agnostic action executor, multi-agent coordination (Orchestrator + Handoff patterns), context window management (sliding window, prompt caching), agent state persistence (Checkpointer: Firestore for prod, SQLite for dev), agent testing patterns.
+**Owns:** Plan-Act-Observe loop design and state management, tool definition standard (Pydantic
+→ JSON Schema), structured output enforcement with correction on parse failure, provider-agnostic
+action executor, multi-agent coordination (Orchestrator + Handoff patterns), context window
+management within agent loops (sliding window, prompt caching), agent state persistence
+(Checkpointer pattern), agent testing patterns.
 
-**Does not own:** General API development patterns (→ `application-development`), agent deployment infrastructure and Firestore provisioning (→ `design-infrastructure`), Vertex AI Vector Search provisioning (→ `design-infrastructure`), data pipeline patterns used by agents (→ `data-engineering`), model serving infrastructure (→ `mlops`), telemetry instrumentation for agent spans (→ `observability`).
+**Does not own:** General API development patterns (→ `application-development`), agent
+deployment infrastructure (→ `harness`), data pipeline patterns used by agents (→
+`data-engineering`).
 
-**Interfaces with:** `application-development`, `design-infrastructure`, `observability`, `git-workflow`.
-
-**Primary compute:** Vertex AI / Google AI Studio (Gemini); Claude API maintained for parity. All patterns are provider-agnostic.
+**Interfaces with:** `application-development`, `harness`, `tdd`.
 
 ---
 
@@ -138,50 +389,59 @@ Meta                        write-skills
 ### `write-skills`
 **Primary artifact:** Valid, MECE-compliant SKILL.md
 
-**Owns:** Skill creation standards and SKILL.md template, validation process (baseline → draft → verify), MECE enforcement and split detection, routing signal format, ASO (Agent Search Optimization) rules.
+**Owns:** Skill creation standards and SKILL.md template, validation process (baseline → draft
+→ verify), MECE enforcement and split/gap detection against this SKILL_STRUCTURE.md, routing
+signal format for agent skill selection, ASO (Agent Search Optimisation) rules for skill
+discoverability.
 
-**Does not own:** Project-specific agent instructions (→ `CLAUDE.md` / `AGENT.md`), individual skill content.
+**Does not own:** Project-specific agent instructions (→ CONTEXT.md / AGENTS.md), individual
+skill content.
 
-**Interfaces with:** All other skills — defines the contract every skill must follow.
+**Interfaces with:** All skills — defines the contract every skill must follow.
 
 ---
 
 ## Explicit Boundary Rules
 
-Shared concerns that appear across multiple domains. Ownership is fixed here to prevent duplication.
+Shared concerns that appear across multiple skills. Ownership is fixed here to prevent duplication.
 
 | Concern | Owner | Notes |
 |---|---|---|
-| Feature design (what to compute) | `data-science` | |
-| Feature pipeline (computing at scale) | `data-engineering` | |
-| Feature serving (at inference time) | `mlops` | |
-| Experiment tracking usage (running experiments) | `data-science` | |
-| Experiment tracking infrastructure (MLflow setup, registry) | `mlops` | |
-| Model evaluation during prototyping | `data-science` | |
-| Model promotion gates (staging → production) | `mlops` | |
-| Training data pipeline | `data-engineering` | It's a pipeline; model training is mlops |
-| Batch inference pipeline | `mlops` | Executes a model; data movement patterns from data-engineering apply |
-| Container and cloud primitives | `design-infrastructure` | |
-| Model serving infrastructure | `mlops` | General container patterns from design-infrastructure |
-| Business metric definitions | Domain skill that owns the domain | Instrumentation pattern from observability |
-| Telemetry SDK instrumentation | `observability` | Routing/storage infrastructure from design-infrastructure |
-| Pipeline data transformation (single-machine) | `data-engineering` | Polars — must-have; never Pandas in pipelines |
-| Pipeline data transformation (distributed) | `data-engineering` | PySpark — optional; adopt when data exceeds single-machine capacity |
-| EDA / notebook data processing | `data-science` | Pandas default; switch to Polars only when Pandas is a memory/speed bottleneck |
-| Polars ↔ Pandas bridge | Boundary only | `df.to_pandas()` acceptable solely when a downstream library strictly requires `pd.DataFrame` |
-| Storage backend selection | `data-engineering` | SQLite for local/prototype; DuckLake (PostgreSQL catalog + Parquet + DuckDB) for production scale |
-| DuckLake query access from notebooks | `data-science` | Reading Gold via DuckDB in Marimo; setup and config live in data-engineering |
-| OpenLineage event emission | `data-engineering` | Emit per Medallion tier; instrumentation pattern defined in observability |
-| OpenLineage instrumentation pattern | `observability` | How to emit events; emission logic in data-engineering; Marquez deployment in design-infrastructure |
-| Pipeline orchestration (mature, SDA) | `data-engineering` | Dagster — optional; for multi-pipeline production with built-in lineage and scheduling |
-| Pipeline orchestration (multi-system) | `data-engineering` + `design-infrastructure` | Airflow — optional; DAG logic in data-engineering, server deployment in design-infrastructure |
-| IAM backend — internal employees | `application-development` | Keycloak — LDAP/AD, corporate network, legacy protocol support |
-| IAM backend — B2B SaaS tenants | `application-development` | Zitadel — cloud-native, multi-tenant organisations, event-sourced audit trail |
-| IAM server deployment | `design-infrastructure` | Keycloak and Zitadel server setup follows design-infrastructure container/IaC patterns |
-| GraphQL vs REST selection | `application-development` | GraphQL for query-heavy clients; REST for transactional APIs and prediction endpoints |
-| Foundational architectural patterns | `design-system` | Pipes & Filters (batch), Layers (service), Hub-and-Spoke (federated systems) |
-| Agent loop design and tool definitions | `agentic-development` | Pydantic → JSON Schema; provider-agnostic executor |
-| Agent state persistence logic | `agentic-development` | Checkpointer pattern; Firestore/SQLite backends |
-| Agent runtime deployment (Firestore, Vector Search provisioning) | `design-infrastructure` | Infrastructure follows general container/IaC patterns |
-| Agent loop OTel spans | `observability` | One span per iteration; agent-specific dashboards (Vertex AI Service Runtime / LangSmith) are visualisation alternatives |
-| Multi-agent coordination patterns | `agentic-development` | Orchestrator + Handoff (transfer_to_agent); sub-agent context must be self-contained |
+| CONTEXT.md schema and authoring | `refine` | Loaded by `harness` at session start; updated by `ship` post-merge |
+| AGENTS.md persistence rules | `refine` | Loaded by `harness`; not modified during implementation |
+| Domain glossary construction | `refine` | Shared language reduces token cost across all phases |
+| ADR creation and referencing | `refine` | Referenced in `architecture` and `plan` to prevent regressions |
+| Agent Brief (interface-first spec) | `refine` | Input to `plan`; never contains file paths |
+| Architecture map and metrics | `architecture` | Fragility, coupling, churn, pattern grade |
+| Blast-radius computation | `architecture` | Surfaced in PR comments; gates `plan` scope decisions |
+| GitHub Issue research loop | `architecture` | Cross-references topology findings with existing issues via `gh` + `jq` |
+| Lean PRD synthesis | `plan` | Consumes Agent Brief + architecture map |
+| Tracer bullet framing | `plan` | End-to-end vertical slices; never horizontal |
+| HITL / AFK labelling | `plan` | Applied to every issue during decomposition |
+| `.out-of-scope/` reads | `plan` | Prevents re-proposing rejected concepts |
+| `.out-of-scope/` writes | `ship` | Deferred improvements recorded post-merge |
+| TDD loop (Red-Green-Refactor) | `tdd` | Domain skills extend REFACTOR; they do not own the loop |
+| Mocking rules | `tdd` | System boundaries only; internal collaborators never mocked |
+| Python performance hierarchy | `tdd` | Applied in REFACTOR when profiling reveals a bottleneck |
+| TypeScript type-safe boundaries | `tdd` + `application-development` | TypeScript at system edges; Python for implementation |
+| Container and environment setup | `harness` | Disposable per task; provisioned via standard recipes |
+| Planner/Generator/Evaluator split | `harness` | Evaluator is always a separate agent instance |
+| Tool-call offloading | `harness` | Large outputs to filesystem; head+tail in context |
+| Context reset protocol | `harness` | Triggered when Dumb Zone is reached and deep reasoning is required |
+| compact() usage | `harness` | For prompt cache hits and Transition Zone management |
+| Multi-agent PR review | `review` | Claude + Codex + Gemini in parallel |
+| Auto-fix and refine loop | `review` | Isolated worktree; iteration-limited |
+| Senior Architect standard enforcement at PR | `review` | Maps findings to `refine` principles |
+| Squash merge and auto-close | `ship` | `gh pr merge --squash`; `Closes #N` required |
+| Security governance | `ship` | Sandboxing, credential scoping, supply chain, prompt injection |
+| CONTEXT.md post-session update | `ship` | New lessons committed back after merge |
+| Branch and commit conventions | `version-control` | Used by all workflow phases |
+| PR creation with issue link | `version-control` | `Closes #N` format; validated by `ship` |
+| REST API design | `application-development` | FastAPI primary; Pydantic validation at boundaries |
+| TypeScript SDK clients and schemas | `application-development` | Zod / OpenAPI-generated types at consumer edges |
+| Medallion pipeline architecture | `data-engineering` | Raw → Bronze → Silver → Gold |
+| Data validation at layer boundaries | `data-engineering` | Schema enforcement per Medallion tier |
+| Plan-Act-Observe loop | `agentic-development` | State management and tool execution |
+| Anthropic SDK usage | `agentic-development` | Primary agent runtime; provider-agnostic executor pattern |
+| Agent state persistence (Checkpointer) | `agentic-development` | Pattern owned here; infrastructure in `harness` |
+| Skill MECE validation | `write-skills` | All new skills checked against this document before publishing |

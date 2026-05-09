@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\" log --oneline -5)",
+      "Bash(Get-Content 'c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\\\\.agents\\\\skills$skill\\\\SKILL.md' -TotalCount 6)",
+      "Bash(mkdir -p \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\\\\.agents\\\\skills\\\\refine\")",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\\\\.agents\\\\skills\\\\tdd\" -Force)",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\\\\.agents\\\\skills\\\\harness\" -Force)",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\\\\.agents\\\\skills\\\\review\" -Force)",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\\\\.agents\\\\skills\\\\ship\" -Force)",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\\\\.agents\\\\skills\\\\version-control\" -Force)",
+      "PowerShell(git -C \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\" commit -m $msg)",
+      "PowerShell(git -C \"c:\\\\Users\\\\Yanni\\\\Github\\\\my_template_repo\" add -A)",
+      "Bash(git -C \"c:/Users/Yanni/Github/my_template_repo\" mv AI.md AGENTS.md)",
+      "Bash(pwsh -NoProfile -File .github/scripts/kanban/setup.ps1)",
+      "PowerShell(gh project field-list 5 --owner ysuurme --format json)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\Yanni\\Github\\my_template_repo\\.agents\\skills"
+    ]
+  }
+}

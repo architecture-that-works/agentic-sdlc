@@ -7,19 +7,17 @@ description: Use when designing or implementing data pipelines, structuring Meda
 
 ## Overview
 
-ELT pipelines following a Mini-Medallion architecture (Raw → Bronze → Silver → Gold). Two storage backends are supported: **SQLite + SQLAlchemy** for local, single-machine prototyping; **DuckLake (PostgreSQL catalog + Parquet files + DuckDB)** for production-scale data lakes. **Polars** is the default data processing library for all pipeline transformations. The primary output is Gold tables or Parquet datasets that are ML-ready, null-free, and correctly shaped for downstream consumption.
+ELT pipelines following a Mini-Medallion architecture (Raw → Bronze → Silver → Gold). Two storage backends: **SQLite + SQLAlchemy** for local/prototype; **DuckLake (PostgreSQL catalog + Parquet + DuckDB)** for production scale. **Polars** is the default transformation library. Primary output: Gold tables or Parquet datasets that are ML-ready, null-free, and correctly shaped.
+
+**Primary artifact:** Validated, query-ready datasets produced by a layered Medallion pipeline.
 
 ## Scope
 
-**Owns:** ELT pipeline design and implementation, Medallion tier definitions and boundaries, SQLAlchemy Core (Bronze bulk inserts) and ORM (Silver/Gold transformations), Polars for pipeline data transformations, DuckLake storage backend configuration (PostgreSQL catalog, Parquet files, DuckDB query engine), storage backend selection (SQLite vs DuckLake), Pydantic boundary validation (the Sandwich), upsert logic, data quality gates, schema contracts, feature pipeline implementation (computing features at scale — not designing them).
+**Owns:** ELT pipeline design and implementation, Medallion tier definitions and boundaries, SQLAlchemy Core (Bronze bulk inserts) and ORM (Silver/Gold transformations), Polars for pipeline data transformations, DuckLake storage backend configuration, storage backend selection (SQLite vs DuckLake), Pydantic boundary validation (the Sandwich), upsert logic, data quality gates, schema contracts, feature pipeline implementation (computing features at scale — not designing them), lineage event emission from pipeline steps (OpenLineage).
 
-**Does not own:** Feature design — which features to compute and why (→ `data-science`), feature serving at inference time (→ `mlops`), model training pipelines (→ `mlops`), statistical analysis or EDA (→ `data-science`), pipeline execution infrastructure (→ `design-infrastructure`), Pandas for EDA/prototyping (→ `data-science`).
+**Does not own:** Feature design — which features to compute and why (→ `refine`), model training pipelines (→ `agentic-development`), general telemetry instrumentation (→ `harness`).
 
-**Interfaces with:**
-- `data-science` — data-science specifies feature requirements; data-engineering implements the Gold pipeline
-- `mlops` — Gold tables / Parquet datasets are the contract; mlops triggers on them
-- `design-system` — Medallion tiers map to domain trust tiers (Raw=untrusted, Gold=invariant-enforced)
-- `design-infrastructure` — pipeline execution environments, scheduling, and container patterns
+**Interfaces with:** `refine` — feature requirements and domain boundaries are specified there; data-engineering implements the Gold pipeline against those specs. `tdd` — integration tests for each pipeline stage drive the RED phase. `application-development` — Gold tables / Parquet datasets are the contract for downstream APIs.
 
 ## When to Use
 
@@ -27,14 +25,13 @@ ELT pipelines following a Mini-Medallion architecture (Raw → Bronze → Silver
 - **Trigger:** Writing SQLAlchemy models, Core inserts, or ORM transformations
 - **Trigger:** Writing Polars transformation logic for pipeline stages
 - **Trigger:** Configuring or querying a DuckLake storage backend
-- **Trigger:** Deciding storage backend — SQLite (local prototype) vs DuckLake (production scale)
+- **Trigger:** Deciding storage backend — SQLite vs DuckLake
 - **Trigger:** Adding or modifying data quality gates or schema validation
-- **Trigger:** Implementing a feature pipeline from a data-science specification
+- **Trigger:** Implementing a feature pipeline from a `refine` specification
 
 **Do NOT use for:**
-- Deciding which features to engineer (→ `data-science`)
-- Model training pipelines (→ `mlops`)
-- EDA or statistical analysis (→ `data-science`)
+- Deciding which features to engineer (→ `refine`)
+- Model training pipelines (→ `agentic-development`)
 
 ## Core Pattern
 
@@ -43,32 +40,27 @@ ELT pipelines following a Mini-Medallion architecture (Raw → Bronze → Silver
 Load first, transform in-place. Never write intermediate files to disk — all state lives in the database or object storage.
 
 **Raw** — Source Zone
-- Local files (`.json`, `.csv`) exactly as received — source of truth for reprocessing
+- Local files exactly as received — source of truth for reprocessing
 - Excluded from version control (`.gitignore`)
 - No transformation — read-only input layer
 
 **Bronze** — Landing Zone
-- Technology: **SQLAlchemy Core** (bulk inserts, speed-optimised, minimal ORM overhead)
-- Structure: Star Schema — Fact tables (main numerical data) + Dimension tables (lookup data)
+- Technology: **SQLAlchemy Core** (bulk inserts, speed-optimised)
+- Structure: Star Schema — Fact tables + Dimension tables
 - Upsert logic: process only new files in Raw; never reprocess the entire dataset
-- No transformation — structural representation of raw data only
 
 **Silver** — Clean Zone
-- Technology: **SQLAlchemy ORM** (complex logic, joins) or **Polars** (large-scale transformation)
+- Technology: **SQLAlchemy ORM** (complex joins) or **Polars** (large-scale transformation)
 - Flatten nested structures, cast types, standardise strings
 - JOIN Fact + Dimension tables to replace codes with human-readable values
-- Output: one meaningful flat table per domain
 
 **Gold** — ML Zone
 - Technology: **SQLAlchemy ORM** (SQLite backend) or **Polars → Parquet** (DuckLake backend)
 - **Target datasets (Fact):** preserve composite key (e.g., `Quarter + Branch`) — **NEVER pivot**
 - **Feature datasets (Dimension):** pivot/flatten to exactly 1 row per `Quarter` for clean `LEFT JOIN`
 - Zero-Null policy: enforce via interpolation before the ML handoff gate
-- Gold must pass all quality gates before `mlops` can trigger
 
 ### Polars as Default Processing Library
-
-Polars is the default for all pipeline data transformations. It is lazy, multi-threaded, Arrow-native, and memory-efficient. Pandas is not used in pipelines — its eager, single-threaded execution is a bottleneck at pipeline scale.
 
 ```python
 import polars as pl
@@ -86,56 +78,42 @@ df_gold.write_parquet("data/gold/sick_leave/2024Q1.parquet")
 
 # ❌ Pandas in pipelines — single-threaded, eager, memory-heavy
 import pandas as pd
-df = pd.read_sql("SELECT * FROM silver_sick_leave", connection)
 ```
 
-Exception: Pandas is acceptable as a bridge when a downstream library strictly requires a `pd.DataFrame` (e.g., a scikit-learn pipeline that hasn't been updated to accept Polars). Convert at the boundary: `df.to_pandas()`.
+Exception: Pandas is acceptable as a boundary conversion when a downstream library strictly requires `pd.DataFrame`. Convert at the boundary: `df.to_pandas()`.
 
 ### The Pydantic Sandwich
 
-Validate at the boundary — before data touches a SQLAlchemy session or Polars write. Do not use SQLAlchemy `@validates` for business validation; those fire on flush, not on input.
-
-The preferred ORM stack is **SQLAlchemy + Pydantic + SQLModel**. SQLModel (from the creator of FastAPI) unifies SQLAlchemy and Pydantic into a single model definition, eliminating the boilerplate of maintaining two separate classes for the same data shape.
+Validate at the boundary — before data touches a SQLAlchemy session or Polars write. Use **SQLModel** (unifies SQLAlchemy + Pydantic in one class) when validation and storage shapes are identical.
 
 ```python
-from sqlmodel import SQLModel, Field, Session, create_engine
-from pydantic import field_validator
+from sqlmodel import SQLModel, Field, Session
 
-class SickLeaveRecord(SQLModel, table=True):         # One class = Pydantic model + SQLAlchemy table
+class SickLeaveRecord(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     period: str = Field(pattern=r'^\d{4}Q[1-4]$')
     value: float
 
-# Boundary validation still happens before hitting the session
-record = SickLeaveRecord.model_validate(raw_data)    # Raises ValidationError if invalid
+record = SickLeaveRecord.model_validate(raw_data)  # Raises ValidationError if invalid
 with Session(engine) as session:
     session.add(record)
     session.commit()
 ```
 
-**When to use SQLModel vs separate SQLAlchemy + Pydantic models:**
-
-| Case | Approach |
-|---|---|
-| Models are identical between validation and storage | SQLModel — single class, no duplication |
-| Bronze and Silver models must diverge significantly (different field sets, transformations) | Pydantic Sandwich — separate `RawRecord(BaseModel)` + `BronzeRecord(Base)` for explicit control |
-
-For most Medallion tiers where the shape is stable, SQLModel eliminates boilerplate. Use the explicit Pydantic Sandwich only when the validation model and the storage model genuinely need to differ.
+Use separate `Pydantic(BaseModel)` + `SQLAlchemy(Base)` only when the validation and storage shapes genuinely diverge between tiers.
 
 ## Quick Reference
 
 ### Technology Tiers
-
-Technologies are classified as **must-have** (required in every project) or **optional** (adopted when project maturity, scale, or team context justifies the added complexity).
 
 #### Must-Have (Every Project)
 
 | Task | Tool |
 |---|---|
 | Dependency management | `uv` |
-| Single-machine pipeline transformation | `polars` |
+| Pipeline transformation | `polars` |
 | ORM / SQL abstraction | SQLAlchemy Core (Bronze) + ORM (Silver/Gold) |
-| Boundary validation | Pydantic (Sandwich pattern) |
+| Boundary validation | Pydantic (Sandwich / SQLModel) |
 | Data lake query engine | `duckdb` |
 | Storage backend | SQLite (local/prototype) |
 | Architecture | Medallion (Raw → Bronze → Silver → Gold) |
@@ -144,65 +122,18 @@ Technologies are classified as **must-have** (required in every project) or **op
 
 | Tool | Adopt when |
 |---|---|
-| **PySpark** | Data exceeds single-machine capacity; Databricks environment |
 | **DuckLake** | Production data lake with multi-consumer access (PostgreSQL catalog + Parquet) |
 | **PySpark** | Data exceeds single-machine capacity; Databricks environment |
-| **DuckLake** | Production data lake with multi-consumer access (PostgreSQL catalog + Parquet) |
-| **Dagster** | Mature orchestration with Software-Defined Assets, built-in lineage, and scheduling |
+| **Dagster** | Mature orchestration with Software-Defined Assets, built-in lineage, scheduling — see `docs/adr/ADR-005-pipeline-orchestration.md` |
 | **OpenLineage + Marquez** | Data lineage tracking at scale across pipeline stages |
 | **dbt** | Team is strongly SQL-heavy and Python transformations are not preferred |
-| **Airflow** | Complex multi-system orchestration where Spark DAGs are insufficient |
-
-### Processing Framework Selection
-
-| Scale | Framework | When |
-|---|---|---|
-| Single-machine (prototype, local dev) | **Polars** | Data fits in memory; default for Medallion pipeline development |
-| Distributed (production, cluster) | **PySpark** | Data exceeds single-machine capacity; Databricks environment |
-| Mature orchestration with SDA | **Dagster** | Declarative assets, built-in lineage, partitioning, backfills |
-| SQL-centric team (good reason required) | dbt | Team strongly prefers SQL over Python; transformations are pure SQL; integrates with Dagster |
-| Multi-system orchestration (good reason required) | Airflow | Orchestrating across heterogeneous systems where Spark/Dagster are insufficient |
-
-**Default rule:** Polars for single-machine work, PySpark for distributed work. dbt and Airflow require an explicit reason — they are not the default.
-
-**Why Spark over dbt:** PySpark is Python-native — the same language used across the entire stack. dbt is SQL-only, limiting expressiveness for complex transformations. Spark pipelines also run natively on Databricks.
-
-**Why Spark over Airflow:** Spark handles pipeline execution via its own DAG model. Airflow adds orchestration infrastructure only justified when Spark alone cannot coordinate the full system.
-
-### Dagster Software-Defined Assets (Optional — Mature Setup)
-
-Dagster shifts orchestration from *task execution* (run this job) to *asset production* (produce this dataset). Each Medallion tier becomes a declared asset; Dagster handles execution, scheduling, and lineage automatically.
-
-**When to adopt:** Multiple Medallion pipelines in production, need for built-in partitioning/backfills, or when observability into asset state (which assets are stale, which are fresh) becomes a primary concern.
-
-```python
-from dagster import asset, AssetIn
-
-@asset                              # Bronze — loads from Raw
-def bronze_sick_leave(context) -> pl.DataFrame:
-    return load_raw_files(RAW_PATH)
-
-@asset(ins={"bronze": AssetIn("bronze_sick_leave")})   # Silver
-def silver_sick_leave(bronze: pl.DataFrame) -> pl.DataFrame:
-    return transform_to_silver(bronze)
-
-@asset(ins={"silver": AssetIn("silver_sick_leave")})   # Gold
-def gold_sick_leave(silver: pl.DataFrame) -> pl.DataFrame:
-    return build_gold(silver)
-```
-
-Key properties of Dagster SDAs relevant to this stack:
-- **Environment agnosticism** — same asset definitions run in dev and production without code changes (mirrors experimental-operational symmetry in `mlops`)
-- **Built-in data lineage** — asset dependency graph is the lineage graph; no separate OpenLineage emission needed when Dagster is the orchestrator
-- **Partitioning and backfills** — time-partitioned assets (per Quarter) and historical backfills are first-class, not workarounds
-- **dbt integration** — dbt models can be declared as Dagster assets, unifying SQL and Python transformations in one lineage graph
 
 ### Storage Backend Selection
 
-| Backend | When to use | Catalog | Storage | Query |
+| Backend | When | Catalog | Storage | Query |
 |---|---|---|---|---|
-| SQLite + SQLAlchemy | Local dev, single-machine prototype, portable | Embedded `.db` file | `.db` file | SQLAlchemy / DuckDB |
-| DuckLake | Production scale, cloud, multi-consumer access | PostgreSQL | Parquet on object storage | DuckDB |
+| SQLite + SQLAlchemy | Local dev, prototype, portable | Embedded `.db` | `.db` file | SQLAlchemy / DuckDB |
+| DuckLake | Production scale, cloud, multi-consumer | PostgreSQL | Parquet on object storage | DuckDB |
 
 ### SQLAlchemy API Selection
 
@@ -236,10 +167,10 @@ uv run main.py --refresh-data  # Full pipeline — Raw → Gold → ML
 src/
   data_engineering/     # Medallion pipeline (Raw, Bronze, Silver, Gold)
   utils/                # Shared SQLAlchemy session handlers, DB utilities
-  config.py             # Pipeline configuration (metrics enabled, paths, storage backend)
+  config.py             # Pipeline configuration (metrics enabled, paths, backend)
 data/
   0_Raw/                # Source files — excluded from Git
-  *.db                  # SQLite databases per tier — excluded from Git
+  *.db                  # SQLite databases — excluded from Git
   gold/                 # Parquet files (DuckLake backend) — excluded from Git
 ```
 
@@ -249,7 +180,6 @@ data/
 import duckdb
 import polars as pl
 
-# Attach DuckLake (PostgreSQL catalog + Parquet on object storage)
 conn = duckdb.connect()
 conn.execute("INSTALL ducklake; LOAD ducklake;")
 conn.execute("""
@@ -257,10 +187,7 @@ conn.execute("""
     AS lake (DATA_PATH 's3://bucket/data/')
 """)
 
-# Write Gold tier as Parquet (via Polars)
 df_gold.write_parquet("s3://bucket/data/gold/sick_leave/2024Q1.parquet")
-
-# Query via DuckDB — returns Polars DataFrame
 result = conn.execute("SELECT * FROM lake.gold.sick_leave").pl()
 ```
 
@@ -278,66 +205,50 @@ session.commit()
 ### Gold Layer Shape Rules
 
 1. **Target tables:** rows indexed on composite key `(Quarter, Branch)` — one row per prediction unit
-2. **Feature tables:** rows indexed on `(Quarter,)` only — exactly one row per time period
+2. **Feature tables:** rows indexed on `(Quarter,)` — exactly one row per time period
 3. **Structural join:** `LEFT JOIN feature ON target.quarter = feature.quarter`
-4. **Zero-Null gate:** run interpolation before exposing Gold to `mlops` — no nulls may pass
+4. **Zero-Null gate:** run interpolation before exposing Gold to downstream — no nulls may pass
 
-### Open Standards
+### Data Lineage (OpenLineage)
 
-| Standard | Role |
-|---|---|
-| OpenLineage | Data lineage metadata — records what data flows through which pipeline steps, with input/output dataset pointers |
-| Pydantic | Boundary validation (Pydantic Sandwich) |
-| SQLAlchemy | Storage abstraction — Core for Bronze, ORM for Silver/Gold |
-
-**OpenLineage for data lineage:** Emit OpenLineage events from each Medallion tier so that pipeline lineage (what data came from where, which pipeline version produced it) is machine-readable. OpenLineage is the open standard — compatible with OpenMetadata, Apache Atlas, and Marquez.
+Emit OpenLineage events from each Medallion tier for machine-readable lineage:
 
 ```python
 from openlineage.client import OpenLineageClient, RunEvent, RunState
-from openlineage.client.facet import DataSourceDatasetFacet
 
 client = OpenLineageClient.from_environment()
 client.emit(RunEvent(
     eventType=RunState.COMPLETE,
-    job=Job(namespace="sick_leave_pipeline", name="silver_transformation"),
+    job=Job(namespace="pipeline", name="silver_transformation"),
     inputs=[Dataset(namespace="sqlite", name="bronze_sick_leave")],
     outputs=[Dataset(namespace="sqlite", name="silver_sick_leave")],
 ))
 ```
 
+Compatible with OpenMetadata, Apache Atlas, and Marquez.
+
 ### Integration Testing for ETL Pipelines
 
-Integration tests — not unit tests — are the primary test type for ETL pipelines. Test the output of each pipeline stage, not the transformation logic.
+Integration tests — not unit tests — are the primary test type. Test the output of each stage, not the transformation logic.
 
 ```python
 def test_silver_row_count(session: Session) -> None:
     count = session.execute(select(func.count()).select_from(SilverSickLeave)).scalar()
-    assert count > 0, "Silver table must not be empty after pipeline run"
+    assert count > 0
 
 def test_gold_no_nulls(session: Session) -> None:
     nulls = session.execute(
         select(func.count()).select_from(GoldSickLeave).where(GoldSickLeave.avg_value.is_(None))
     ).scalar()
     assert nulls == 0, "Gold Zero-Null policy violated"
-
-def test_gold_date_range(session: Session) -> None:
-    min_q, max_q = session.execute(
-        select(func.min(GoldSickLeave.quarter), func.max(GoldSickLeave.quarter))
-    ).one()
-    assert min_q == "2020Q1"
-    assert max_q >= "2024Q4"
 ```
 
-Standard integration checks per pipeline stage:
-- **Row count** — does the output have the expected number of rows?
-- **Unique IDs** — are all expected branch IDs / entity keys present?
-- **Date range** — does the time span cover the expected quarters/periods?
-- **Zero-Null** — Gold tier: no nulls in any column (Zero-Null policy)
+Standard checks per stage: row count, unique IDs, date range, Zero-Null (Gold only).
 
 ## Common Mistakes
 
 **Using Pandas for pipeline transformations.**
-Pandas is not used in data-engineering pipelines. Polars is the default — lazy, multi-threaded, Arrow-native. The only exception is a boundary conversion (`df.to_pandas()`) when a downstream library strictly requires it.
+Pandas is not used in data-engineering pipelines. Polars is the default. The only exception is a boundary conversion when a downstream library strictly requires `pd.DataFrame`.
 
 **Using SQLAlchemy ORM at Bronze for bulk inserts.**
 ORM overhead is unnecessary at the loading stage. Use SQLAlchemy Core for Bronze.
@@ -349,7 +260,7 @@ ORM overhead is unnecessary at the loading stage. Use SQLAlchemy Core for Bronze
 Target datasets must preserve the composite key. Pivoting creates Cartesian explosions.
 
 **Writing intermediate files to disk.**
-Zero-Artifact policy is absolute. State lives in the database (SQLite) or registered Parquet files (DuckLake). No temporary CSVs or JSONs between tiers.
+Zero-Artifact policy is absolute. State lives in the database or registered Parquet files. No temporary CSVs or JSONs between tiers.
 
 **Running `python` directly instead of `uv run`.**
 Always use `uv run` — correct environment and interpreter are guaranteed.

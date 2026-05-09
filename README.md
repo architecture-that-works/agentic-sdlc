@@ -1,25 +1,27 @@
 # python-uv-template
 
-Copier-based Python project scaffold for UV projects. Three variants: general-purpose, machine learning, and FastAPI application. Generates a production-ready structure with structured logging, typed config, AI-assisted commit messages, test coverage mirroring `src/`, and GitHub Actions CI — ready to `uv sync` and go.
+Copier-based Python project scaffold. Generates a production-ready structure with structured logging, typed config, AI-assisted commit messages, test coverage mirroring `src/`, and GitHub Actions CI — ready to `uv sync` and go.
 
 ---
 
 ## Table of Contents
 
 - [Quickstart](#quickstart)
-- [Variants](#variants)
 - [Repository Structure](#repository-structure)
 - [Conventions](#conventions)
+- [AI Workflow](#ai-workflow)
 
 ---
 
 ## Quickstart
 
-Get a new project running in under 2 minutes.
+Get a new project running in under 5 minutes.
 
-**1. Install copier** — once, globally:
+**1. Install prerequisites** — once, globally:
 ```bash
-uv tool install copier
+uv tool install copier                        # project generator
+winget install --id Microsoft.PowerShell      # PowerShell 7 (Windows)
+winget install --id Task.Task                 # Taskfile runner
 ```
 
 **2. Generate a new project**
@@ -30,56 +32,33 @@ uvx copier copy gh:your-username/my_template_repo path/to/new-project
 Copier will prompt for:
 - `project_name` — hyphenated name (e.g. `my-new-project`)
 - `description` — one-line project description
-- `variant` — `base`, `ml`, or `application`
 
 **3. Replace the logging stub**
 ```bash
 # Drop your m_log.py into src/utils/ — interface: f_log(), setup_logging(), f_log_execution()
 ```
 
----
+**4. Wire up the Director Workflow** — once per project:
 
-## Variants
+a. Create a GitHub Project (Projects v2, Kanban board) with a **Status** field containing at least: `Backlog`, `Implementing`, `Review`, `Merged`.
 
-### `base` — General-purpose Python project
-The foundation. Use for scripts, automation, CLI tools, or anything that doesn't fit a specialised variant.
-
+b. Set the two required values in `.env`:
 ```
-src/
-└── utils/                        m_log.py, m_commit.py
+KANBAN_PROJECT_NUMBER=<your project number>
+KANBAN_PROJECT_OWNER=<your GitHub username or org>
 ```
 
-### `ml` — Machine Learning project
-Adds MLflow experiment tracking, data directory structure, and model artifact storage.
-
-```
-src/
-├── data/                         Data loading and preprocessing
-├── models/                       Model definitions and training
-└── utils/                        m_log.py, m_commit.py
-data/
-├── raw/                          Immutable source data
-├── processed/                    Cleaned and transformed
-└── features/                     Feature-engineered datasets
-notebooks/                        Exploratory analysis
-models/                           Serialized model artifacts
+c. Run setup — auto-discovers field IDs and sets GitHub Actions variables:
+```bash
+task setup
 ```
 
-Extra deps: `pandas`, `scikit-learn`, `matplotlib`, `mlflow`
-Extra `.env` vars: `MLFLOW_TRACKING_URI`, `EXPERIMENT_NAME`
+d. Add GitHub repository secrets:
 
-### `application` — FastAPI service
-Adds API routing, Pydantic schema layer, and application config (host, port, debug).
-
-```
-src/
-├── api/                          Route handlers and middleware
-├── schemas/                      Pydantic request/response models
-└── utils/                        m_log.py, m_commit.py
-```
-
-Extra deps: `fastapi`, `uvicorn[standard]`
-Extra `.env` vars: `HOST`, `PORT`, `DEBUG`
+| Secret | How to obtain |
+|--------|--------------|
+| `GH_TOKEN` | Classic PAT with `repo` + `project` scopes — fine-grained PATs do not support Projects v2 |
+| `CLAUDE_CODE_OAUTH_TOKEN` | From [claude.ai/settings](https://claude.ai/settings) → API keys |
 
 ---
 
@@ -87,24 +66,77 @@ Extra `.env` vars: `HOST`, `PORT`, `DEBUG`
 
 ```
 my_template_repo/
-├── copier.yml                    Variant selector + post-generation tasks
+├── copier.yml                    Prompt definitions and generation config
 ├── LICENSE
 ├── README.md                     This file
-├── base/                         General-purpose variant
-├── ml/                           Machine learning variant
-└── application/                  FastAPI application variant
+├── main.py                       Entry point (templated)
+├── pyproject.toml                Project metadata and dependencies
+├── src/
+│   ├── config.py                 Centralised config (pydantic-settings, loads .env)
+│   └── utils/                    Generic transferable modules (m_*.py)
+├── tests/                        Pytest suite, mirrors src/ hierarchy
+├── .agents/skills/               Skill system — AI workflow for every generated project
+├── .github/workflows/            CI: lint + typecheck + test
+├── docs/adr/                     Architecture Decision Records (MADR format)
+├── CONTEXT.md                    Domain glossary template (filled at generation time)
+└── AGENTS.md                     Agent standing instructions (filled at generation time)
 ```
-
-Each variant contains a complete, self-contained scaffold. Shared files (logging, commit helper, CI, gitignore) are duplicated by design — variants evolve independently.
 
 ---
 
 ## Conventions
 
-- **Variant selection**: answered at generation time via `copier.yml` prompt
 - **Utility modules**: `m_*.py` naming in `src/utils/` — generic, no project-specific logic
 - **Domain folders**: add `src/<domain>/` as the project grows — never pollute `src/utils/`
 - **Test parity**: every `src/**/*.py` gets a matching `tests/**/test_*.py`
 - **UV only**: `uv add`, `uv sync`, `uv run` — never `pip install`
-- **Shared file drift**: when updating a shared file (e.g. `m_log.py`), update it in all three variants
-- **Native Secret Management; uses local vault named 'LocalStore' for secret management
+- **Native Secret Management**: uses local vault named 'LocalStore' for secret management
+
+---
+
+## AI Workflow
+
+Every generated project ships with a structured AI engineering workflow. It is not optional scaffolding — it is the primary mechanism for keeping agents aligned, context-efficient, and audit-ready across the full development lifecycle.
+
+### How it works
+
+The workflow is a sequential skill chain: **refine → architecture → plan → tdd → harness → review → ship**. Each skill is a constraint document that prevents a specific class of agent failure. Skills live in `.agents/skills/`.
+
+| Phase | Skill | What it prevents |
+|-------|-------|-----------------|
+| Align | `refine` | Premature implementation without shared language or agreed boundaries |
+| Map | `architecture` | Blind changes with unknown blast-radius |
+| Specify | `plan` | Coding without acceptance criteria or re-proposing rejected ideas |
+| Build | `tdd` | Untested code and shallow module design |
+| Run | `harness` | Context degradation, unverified output, environment drift |
+| Verify | `review` | Uncaught regressions and principle violations before merge |
+| Merge | `ship` | Security gaps, supply chain risk, lost architectural decisions |
+
+**Persistent across all phases:** `version-control` — branch naming, commit format, PR conventions.
+
+**Domain extensions** (extend the `tdd` REFACTOR phase with implementation patterns):
+- `application-development` — REST APIs, FastAPI, Pydantic, auth
+- `data-engineering` — Medallion pipeline, SQLAlchemy, Polars, DuckLake
+- `agentic-development` — Plan-Act-Observe loops, tool use, multi-agent coordination
+
+### Key files in every generated project
+
+| File | Purpose |
+|------|---------|
+| `CONTEXT.md` | Domain glossary, bounded contexts, architectural constraints — read first every session |
+| `AGENTS.md` | Standing instructions and skill index — loaded after `CONTEXT.md` |
+| `docs/adr/` | Architecture Decision Records (MADR format) — one per significant technology choice |
+
+### Starting a new feature
+
+```
+1. Open CONTEXT.md — read the glossary and constraints
+2. Invoke refine skill — align on requirements and boundaries
+3. Invoke architecture skill — understand blast-radius before touching code
+4. Invoke plan skill — decompose into labelled GitHub Issues
+5. Invoke tdd skill — Red-Green-Refactor loop
+6. Invoke review skill — auto-fix and validate before merge
+7. Invoke ship skill — security checks, squash merge, update CONTEXT.md
+```
+
+ADRs for tool selection decisions are in `docs/adr/`. See `ADR-000` for the template format.
