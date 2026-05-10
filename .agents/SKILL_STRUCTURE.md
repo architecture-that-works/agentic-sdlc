@@ -51,6 +51,38 @@ Meta         version-control · write-skills
 Skills are **Mutually Exclusive** (every concern has exactly one owner) and **Collectively
 Exhaustive** (every phase of the agentic SDLC is covered).
 
+---
+
+## File Layout
+
+Each skill lives in its own subdirectory under `.agents/skills/`. The subdirectory is the unit
+of ownership — it can grow to contain tools, scripts, templates, and other artefacts that
+belong to that skill without polluting the parent directory.
+
+```
+.agents/skills/
+├── tdd/
+│   └── SKILL.md          ← constraint document (required)
+├── refine/
+│   └── SKILL.md
+├── application-engineering/
+│   └── SKILL.md
+│   └── tools/            ← optional: skill-specific tooling
+│   └── scripts/          ← optional: helper scripts
+└── …
+```
+
+**Rules:**
+- Every skill directory **must** contain a `SKILL.md` at its root — this is the constraint
+  document an agent reads before starting work in that skill's phase.
+- Flat `.md` files directly inside `.agents/skills/` are not permitted; all skill content lives
+  inside a named subdirectory.
+- New skill directories must be registered in the `## Structure` diagram above and in the
+  Explicit Boundary Rules table.
+- The pre-flight check in `implement.ps1` uses `Get-ChildItem .agents/skills -Recurse -Filter *.md`
+  to detect an empty or missing skill set — keep at least one `SKILL.md` per skill directory
+  committed so generated projects pass the check.
+
 **Workflow skills** are sequential phases — load the relevant phase skill before starting work
 in that phase. Each skill is a constraint document that prevents a specific class of agent failure.
 

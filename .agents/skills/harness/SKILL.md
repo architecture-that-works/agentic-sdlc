@@ -28,6 +28,19 @@ Prevents context degradation and unverified agent output by managing the executi
 
 **Do NOT use for:** Writing `CONTEXT.md` content (→ `refine`), running the TDD loop (→ `tdd`), reviewing PR code quality (→ `review`).
 
+## Required Inputs
+
+- `CONTEXT.md` and `AGENTS.md` (loaded in this order at session start)
+- Task description or GitHub Issue
+- Toolchain requirements for the Dev Container
+
+## Primary Outputs
+
+- Provisioned Dev Container environment (disposable — one per task)
+- Configured Planner/Generator/Evaluator agent split
+- Event log entries for every significant state transition
+- Tool-call outputs offloaded to filesystem (head + tail in context only)
+
 ## Core Pattern
 
 ### Environment Provisioning (Dev Container / GitHub Codespaces)

@@ -27,6 +27,19 @@ Prevents premature implementation by forcing full alignment on domain language, 
 
 **Do NOT use for:** Architecture mapping or dependency analysis (→ `architecture`), decomposing requirements into issues (→ `plan`).
 
+## Required Inputs
+
+- Existing codebase (read before asking any questions)
+- Raw user request or problem statement
+- Current `CONTEXT.md` (if it exists)
+
+## Primary Outputs
+
+- `CONTEXT.md` with glossary, bounded contexts, architectural constraints, and out-of-scope declarations
+- `AGENTS.md` persistence rules (one-time setup; updated only in `refine` sessions)
+- ADRs (one per architectural decision made during grilling)
+- Agent Brief (interface-first specification; input to `plan`)
+
 ## Core Pattern
 
 ### The Grill-Me Protocol

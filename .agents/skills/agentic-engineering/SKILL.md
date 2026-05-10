@@ -36,6 +36,31 @@ Covers the design and implementation of autonomous AI agents. An agent is distin
 - Agent deployment and infrastructure (→ `harness`)
 - Data pipelines that agents consume (→ `data-engineering`)
 
+## Required Inputs
+
+- Goal specification and tool definitions (from `refine` or Lean PRD)
+- Pydantic models for structured final response
+- Acceptance criteria for agent behaviour (from `plan` testing decisions)
+
+## Primary Outputs
+
+- Plan-Act-Observe loop implementation with `MAX_ITERATIONS` cap
+- Tool registry with `execute_tool` that never raises
+- Structured output enforcement with correction-on-failure
+- `AgentCheckpoint` persistence after every iteration
+- Agent behaviour tests (mock at the LLM boundary, not at tool execution)
+
+## tdd REFACTOR Phase Patterns
+
+When the GREEN phase is complete, extend the REFACTOR phase with these agentic-engineering patterns:
+
+- **`execute_tool` never raises:** If any tool implementation can raise an exception, wrap it. The agent loop must always receive a string result — errors are observations, not crashes.
+- **Provider-agnostic executor isolation:** The `execute_tool` function must not import from `anthropic` or any other provider SDK. If it does, extract the provider coupling to the loop level.
+- **Checkpointer completeness:** State is persisted after every iteration. If the Checkpointer only saves on success, add saves for `"running"` and `"awaiting_approval"` states.
+- **Sliding window correctness:** The message history trim must preserve the system message and at least one user/assistant pair. If the trim removes the system prompt, fix the filter logic.
+- **Termination coverage:** The test suite must cover all three termination paths — (1) successful parse, (2) `max_iterations` exceeded, (3) non-recoverable tool error. Missing coverage = missing termination guarantee.
+- **OTel span per iteration:** Each loop iteration must emit a span. If spans are missing after GREEN, add them in REFACTOR — agent latency is invisible without per-iteration traces.
+
 ---
 
 ## Core Patterns

@@ -17,7 +17,7 @@ Prevents implementation drift and untested code by enforcing a strict Red-Green-
 
 **Does not own:** Test infrastructure provisioning (→ `harness`), PR creation (→ `version-control`), code review (→ `review`), performance infrastructure (→ domain skills).
 
-**Interfaces with:** `plan` — testing decisions in the PRD drive the RED phase. `harness` — the TDD loop runs inside managed sessions; large test logs are offloaded. Domain skills (`application-development`, `data-engineering`, `agentic-development`) — extend the REFACTOR phase with domain-specific patterns.
+**Interfaces with:** `plan` — testing decisions in the PRD drive the RED phase. `harness` — the TDD loop runs inside managed sessions; large test logs are offloaded. Domain skills (`application-engineering`, `data-engineering`, `agentic-engineering`) — extend the REFACTOR phase with domain-specific patterns.
 
 ## When to Use
 
@@ -26,6 +26,18 @@ Prevents implementation drift and untested code by enforcing a strict Red-Green-
 - Refactoring a shallow module into a deep module
 
 **Do NOT use for:** Setting up test infrastructure (→ `harness`), reviewing completed code (→ `review`).
+
+## Required Inputs
+
+- GitHub Issue with acceptance criteria or testing decisions from the Lean PRD
+- Existing test suite (read before writing new tests)
+- Domain skill loaded for the REFACTOR phase (`application-engineering`, `data-engineering`, or `agentic-engineering`)
+
+## Primary Outputs
+
+- Passing pytest suite (`uv run pytest` exits 0)
+- Minimal implementation code that satisfies acceptance criteria
+- Refactored modules with deeper interfaces and less duplication
 
 ## Core Pattern
 

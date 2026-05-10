@@ -27,6 +27,19 @@ Prevents insecure or incomplete merges by running mandatory security gates, enfo
 
 **Do NOT use for:** Running code review (→ `review`), creating commits or branches (→ `version-control`).
 
+## Required Inputs
+
+- Open PR with all review BLOCKs resolved
+- `Closes #N` present in the PR body
+- Access to `gh` CLI and git
+
+## Primary Outputs
+
+- Squash-merged PR with deleted branch
+- Closed GitHub Issue (via `Closes #N` auto-close)
+- Updated `CONTEXT.md` with architectural lessons
+- Updated `.out-of-scope/` with deferred improvements
+
 ## Core Pattern
 
 ### Pre-Merge Checklist

@@ -27,6 +27,19 @@ Prevents unbounded scope and re-proposed rejected ideas by turning the Agent Bri
 
 **Do NOT use for:** Glossary or boundary decisions (→ `refine`), topology or dependency analysis (→ `architecture`), writing any code (→ `tdd`).
 
+## Required Inputs
+
+- Signed-off Agent Brief (from `refine`)
+- Blast-radius report (from `architecture`)
+- Access to `gh` CLI for deduplication and issue creation
+- `.out-of-scope/` knowledge base
+
+## Primary Outputs
+
+- Lean PRD published as a GitHub Issue
+- Decomposed child issues, each labelled `HITL` or `AFK`
+- `.out-of-scope/` entries for explicitly deferred concepts
+
 ## Core Pattern
 
 ### Step 1 — Deduplicate

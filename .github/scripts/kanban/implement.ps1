@@ -91,6 +91,10 @@ function Invoke-Develop {
     Move-ToLane -IssueNumber $Number -OptionId $KanbanOpt_Implementing -LaneName 'Implementing'
     Add-Comment -Number $Number -Body "🌿 Branch ``$Branch`` checked out. Claude Code starting implementation..."
 
+    if ((Get-ChildItem .agents/skills -Recurse -Filter *.md -ErrorAction SilentlyContinue).Count -eq 0) {
+        Write-Log "⚠️ Skills directory is empty — agent constraints will not be applied." -Color Yellow
+    }
+
     $issue = gh issue view $Number --repo $KanbanRepo --json title,body | ConvertFrom-Json
 
     # Pull the most recent agent review comment (present on retry runs after rejection)
@@ -112,7 +116,7 @@ INSTRUCTIONS:
 1. Read AGENTS.md and CONTEXT.md first to understand the project boundaries and constraints.
 2. Read the relevant parts of the codebase before writing any code.
 3. Implement every requirement listed in the issue body completely.
-4. Follow all conventions in AGENTS.md and the skills in .agents/skills/.
+4. Follow all conventions in AGENTS.md. The skill files in ``.agents/skills/`` are your constraint documents — read the relevant skill before implementing, navigate relevant skills via ``.agents/SKILL_STRUCTURE.md``.
 5. After implementation run ``uv run pytest`` to verify the test suite passes.
 6. If tests fail, diagnose and fix the root cause before stopping.
 7. Do NOT commit any changes — only implement.
@@ -212,7 +216,7 @@ function Invoke-CommitAndPR {
     # can create .env files, credentials, or other sensitive artefacts; the allowlist
     # ensures nothing outside these directories ever reaches the index.
     # Only include entries that actually exist to avoid git exit-code 128 on missing pathspecs.
-    $safeRoots = @('src/', 'tests/', 'docs/', '.github/', 'CONTEXT.md', 'AGENTS.md',
+    $safeRoots = @('src/', 'tests/', 'docs/', '.github/', '.agents/', 'CONTEXT.md', 'AGENTS.md',
         'Taskfile.yml', 'pyproject.toml', 'uv.lock', '.gitignore', 'copier.yml',
         '.gitattributes', 'copier.yaml', 'README.md', 'CHANGELOG.md', 'Makefile') |
         Where-Object { Test-Path $_ }
