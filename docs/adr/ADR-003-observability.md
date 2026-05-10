@@ -9,7 +9,7 @@ applies_to: "all project types"
 > **Applies to:** All project types — instrument every service and agent loop with OTel from day one.
 
 ## Status
-Proposed
+Accepted
 
 ## Context and Problem Statement
 

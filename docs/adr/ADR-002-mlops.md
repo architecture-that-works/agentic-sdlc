@@ -9,7 +9,7 @@ applies_to: "project_type: ml"
 > **Applies to:** `project_type: ml` — skip for `application` and `agent` projects.
 
 ## Status
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
