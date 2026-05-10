@@ -33,18 +33,21 @@ Enforces consistent branch, commit, and PR conventions so that every piece of wo
 ### Branch Naming
 
 ```
-feature/<short-description>     # New feature
-fix/<short-description>         # Bug fix
-refactor/<short-description>    # Refactoring with no behaviour change
-docs/<short-description>        # Documentation only
+feature/{issue-number}-{dense-slug}     # New feature linked to a GitHub Issue
+fix/{issue-number}-{dense-slug}         # Bug fix linked to a GitHub Issue
+docs/{issue-number}-{dense-slug}        # Documentation only
+refactor/{issue-number}-{dense-slug}    # Refactoring with no behaviour change
 ```
 
-Use kebab-case. Keep descriptions under 5 words. No issue numbers in branch names.
+Use kebab-case. Slug: 2–4 words maximum, describing the change densely. Issue number is required — it is the traceability anchor that links the branch to the kanban pipeline and enables auto-branch detection in `implement.ps1`.
 
 ```bash
-git checkout -b feature/user-auth
-git checkout -b fix/order-total-rounding
+git checkout -b feature/42-user-auth-endpoint
+git checkout -b fix/17-gitignore-secret-patterns
+git checkout -b docs/16-sdlc-prd
 ```
+
+The Director Workflow (`implement.ps1`) auto-generates branch names as `feature/{number}-{word1}-{word2}-{word3}` from the issue title. Manual branches must follow the same pattern so `Get-CurrentIssueNumber` can parse the issue number from the branch name.
 
 ### Commit Message Format
 

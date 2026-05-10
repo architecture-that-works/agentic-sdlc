@@ -1,9 +1,12 @@
 ---
 name: ADR-006-agent-observability
 description: Use when selecting an agent-specific observability tool for loop replay and failure analysis beyond raw OpenTelemetry spans
+applies_to: "project_type: agent"
 ---
 
 # ADR-006: Agent Observability Tooling
+
+> **Applies to:** `project_type: agent` — extends ADR-003 (OTel baseline) with agent-specific loop replay and failure analysis. Review ADR-003 first.
 
 ## Status
 Accepted
@@ -24,7 +27,7 @@ Chosen: **Context-dependent** — see decision drivers below.
 **Choose Vertex AI Service Runtime when:** agents are deployed on GCP and Gemini is the primary LLM provider.
 **Choose LangSmith when:** provider-agnostic observability is needed, or the codebase uses LangChain patterns.
 
-Both are compatible with the OTel span emission pattern in `agentic-development`. General OTel setup follows `harness`.
+Both are compatible with the OTel span emission pattern in `agentic-engineering`. General OTel setup follows `harness`.
 
 ### Confirmation
 

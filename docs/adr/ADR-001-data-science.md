@@ -1,9 +1,12 @@
 ---
 name: ADR-001-data-science
 description: Use when selecting data science tooling — notebook format, EDA library, or ML framework for tabular data
+applies_to: "project_type: ml"
 ---
 
 # ADR-001: Data Science Tooling Selection
+
+> **Applies to:** `project_type: ml` — skip for `application` and `agent` projects.
 
 ## Status
 Proposed

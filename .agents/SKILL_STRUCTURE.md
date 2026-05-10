@@ -41,28 +41,46 @@ must respect and surface to the agent at the right moment.
 ## Structure
 
 ```
-Persistent   version-control
-─────────────────────────────────────────────────────────────────────
 Workflow     refine → architecture → plan → tdd → harness → review → ship
 ─────────────────────────────────────────────────────────────────────
-Domain       application-development · data-engineering · agentic-development
+Domain       application-engineering · data-engineering · agentic-engineering
 ─────────────────────────────────────────────────────────────────────
-Meta         write-skills
+Meta         version-control · write-skills
 ```
 
 Skills are **Mutually Exclusive** (every concern has exactly one owner) and **Collectively
-Exhaustive** (every phase of the agentic SDLC is covered). The workflow skills are sequential;
-domain skills extend `tdd` with language- and domain-specific implementation patterns.
+Exhaustive** (every phase of the agentic SDLC is covered).
+
+**Workflow skills** are sequential phases — load the relevant phase skill before starting work
+in that phase. Each skill is a constraint document that prevents a specific class of agent failure.
+
+**Domain skills** follow the `*-engineering` naming convention. They extend `tdd`'s REFACTOR
+phase with implementation patterns specific to a problem space. The default domain is
+`application-engineering` (matches `project_type: application`). Load exactly one domain skill
+per implementation session — do not load domain skills for project types that do not apply.
+
+**Meta skills** are project-type agnostic and cross-cutting. `version-control` defines branch,
+commit, and PR conventions used by every workflow phase that touches git. `write-skills` defines
+the standard for creating and validating new skills. Meta skills are loaded on demand, not
+automatically at session start.
+
+**Domain skill boundary — application-engineering vs agentic-engineering:**
+- `application-engineering`: Claude makes **one** `messages.create` call per API request. The
+  service calls Claude as a dependency and returns a structured or streamed result to the client.
+- `agentic-engineering`: Claude makes **multiple** tool calls across iterations in a Plan-Act-Observe
+  loop before returning a final result. State is managed across iterations.
+- A FastAPI endpoint that *invokes* an agent belongs in `application-engineering`. The agent loop
+  itself belongs in `agentic-engineering`.
 
 ---
 
-## Persistent
+## Meta
 
 ### `version-control`
 **Primary artifact:** Linked branch → commit → PR tied to a GitHub Issue
 
-**Owns:** Branch naming convention (`feature/issue-N`), commit message format
-(`feat(#N): Title`), PR creation with issue auto-close (`Closes #N`), GitHub CLI (`gh`)
+**Owns:** Branch naming convention (`feature/{issue-number}-{dense-slug}`), commit message
+format (`feat(#N): Title`), PR creation with issue auto-close (`Closes #N`), GitHub CLI (`gh`)
 command patterns and error handling, agent-driven automation of the full branch → commit → PR
 flow, worktree creation for isolated fix branches.
 
@@ -70,7 +88,8 @@ flow, worktree creation for isolated fix branches.
 `review`), PR merge and governance (→ `ship`).
 
 **Interfaces with:** All workflow skills — every phase that touches git or the GitHub API uses
-the conventions defined here.
+the conventions defined here. The Director Workflow auto-generates branch names as
+`feature/{number}-{word1}-{word2}-{word3}`; manual branches must follow the same pattern.
 
 **Context sensitivity:** Low. Version-control operations are stateless and safe at any context
 fill level.
@@ -332,20 +351,22 @@ workflow phases — those are inherited from the workflow skills.
 
 ---
 
-### `application-development`
-**Primary artifact:** Production API or service (Python primary; TypeScript at system edges)
+### `application-engineering`
+**Primary artifact:** Production AI-backed API or service — Claude as a replaceable port, OTel-instrumented, Pydantic-contracted.
 
 **Owns:** REST API design and implementation, input validation and serialisation at request
-boundaries, authentication and authorisation patterns, background task design,
-service-to-service communication patterns, contract testing for API consumers. TypeScript is
-used at system edges — SDK clients, OpenAPI-generated types, Zod schemas — where type-safe
-contracts are required by consumers outside the Python codebase.
+boundaries (Pydantic), Claude API integration as a service dependency (single-turn completions,
+structured outputs via tool_use, SSE streaming to client), AI port/adapter pattern,
+OTel instrumentation at the request boundary, AI error handling (rate limits, timeouts,
+exponential backoff), authentication and authorisation patterns, background task design,
+service-to-service communication, contract testing for API consumers.
 
-**Does not own:** Domain modelling (→ `refine`), infrastructure and deployment (→ `harness`),
-agent-specific API patterns (→ `agentic-development`), data pipeline design (→
-`data-engineering`).
+**Does not own:** Plan-Act-Observe loops and multi-turn autonomous agents (→ `agentic-engineering`),
+agent state persistence and multi-step orchestration (→ `agentic-engineering`), infrastructure
+and deployment (→ `harness`), data pipeline design (→ `data-engineering`), domain modelling
+(→ `refine`).
 
-**Interfaces with:** `refine`, `tdd`, `agentic-development`.
+**Interfaces with:** `refine`, `tdd`, `agentic-engineering`.
 
 ---
 
@@ -359,28 +380,27 @@ feature pipeline implementation (computing features at scale), storage backend s
 emission from pipeline steps.
 
 **Does not own:** Feature design — which features to compute (→ `refine` or domain knowledge),
-model training pipelines (→ `agentic-development` if ML-driven, or out of current scope),
+model training pipelines (→ `agentic-engineering` if AI-driven, or out of current scope),
 general telemetry instrumentation patterns (→ `harness` or cross-cutting).
 
-**Interfaces with:** `refine`, `tdd`, `application-development`.
+**Interfaces with:** `refine`, `tdd`, `application-engineering`.
 
 ---
 
-### `agentic-development`
-**Primary artifact:** Functioning agent — tool use, structured outputs, multi-agent
-coordination — built on the Anthropic SDK
+### `agentic-engineering`
+**Primary artifact:** Functioning autonomous agent — Plan-Act-Observe loop, tool use, structured outputs, multi-agent coordination — provider-agnostic, Anthropic SDK primary.
 
 **Owns:** Plan-Act-Observe loop design and state management, tool definition standard (Pydantic
 → JSON Schema), structured output enforcement with correction on parse failure, provider-agnostic
 action executor, multi-agent coordination (Orchestrator + Handoff patterns), context window
 management within agent loops (sliding window, prompt caching), agent state persistence
-(Checkpointer pattern), agent testing patterns.
+(Checkpointer pattern), agent testing patterns, OTel span emission per loop iteration.
 
-**Does not own:** General API development patterns (→ `application-development`), agent
-deployment infrastructure (→ `harness`), data pipeline patterns used by agents (→
-`data-engineering`).
+**Does not own:** Single-turn Claude API calls and AI-backed REST endpoints (→ `application-engineering`),
+agent deployment infrastructure and environment provisioning (→ `harness`), data pipeline
+patterns used by agents (→ `data-engineering`).
 
-**Interfaces with:** `application-development`, `harness`, `tdd`.
+**Interfaces with:** `application-engineering`, `harness`, `tdd`.
 
 ---
 
@@ -423,7 +443,7 @@ Shared concerns that appear across multiple skills. Ownership is fixed here to p
 | TDD loop (Red-Green-Refactor) | `tdd` | Domain skills extend REFACTOR; they do not own the loop |
 | Mocking rules | `tdd` | System boundaries only; internal collaborators never mocked |
 | Python performance hierarchy | `tdd` | Applied in REFACTOR when profiling reveals a bottleneck |
-| TypeScript type-safe boundaries | `tdd` + `application-development` | TypeScript at system edges; Python for implementation |
+| TypeScript type-safe boundaries | `tdd` + `application-engineering` | TypeScript at system edges; Python for implementation |
 | Container and environment setup | `harness` | Disposable per task; provisioned via standard recipes |
 | Planner/Generator/Evaluator split | `harness` | Evaluator is always a separate agent instance |
 | Tool-call offloading | `harness` | Large outputs to filesystem; head+tail in context |
@@ -437,11 +457,11 @@ Shared concerns that appear across multiple skills. Ownership is fixed here to p
 | CONTEXT.md post-session update | `ship` | New lessons committed back after merge |
 | Branch and commit conventions | `version-control` | Used by all workflow phases |
 | PR creation with issue link | `version-control` | `Closes #N` format; validated by `ship` |
-| REST API design | `application-development` | FastAPI primary; Pydantic validation at boundaries |
-| TypeScript SDK clients and schemas | `application-development` | Zod / OpenAPI-generated types at consumer edges |
+| REST API design | `application-engineering` | FastAPI primary; Pydantic validation at boundaries |
+| TypeScript SDK clients and schemas | `application-engineering` | Zod / OpenAPI-generated types at consumer edges |
 | Medallion pipeline architecture | `data-engineering` | Raw → Bronze → Silver → Gold |
 | Data validation at layer boundaries | `data-engineering` | Schema enforcement per Medallion tier |
-| Plan-Act-Observe loop | `agentic-development` | State management and tool execution |
-| Anthropic SDK usage | `agentic-development` | Primary agent runtime; provider-agnostic executor pattern |
-| Agent state persistence (Checkpointer) | `agentic-development` | Pattern owned here; infrastructure in `harness` |
+| Plan-Act-Observe loop | `agentic-engineering` | State management and tool execution |
+| Anthropic SDK usage | `agentic-engineering` | Primary agent runtime; provider-agnostic executor pattern |
+| Agent state persistence (Checkpointer) | `agentic-engineering` | Pattern owned here; infrastructure in `harness` |
 | Skill MECE validation | `write-skills` | All new skills checked against this document before publishing |

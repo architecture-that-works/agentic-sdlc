@@ -1,9 +1,12 @@
 ---
 name: ADR-003-observability
 description: Use when selecting an observability stack — telemetry instrumentation, tracing, metrics, or data lineage tracking across services or pipelines
+applies_to: "all project types"
 ---
 
 # ADR-003: Observability Stack Selection
+
+> **Applies to:** All project types — instrument every service and agent loop with OTel from day one.
 
 ## Status
 Proposed

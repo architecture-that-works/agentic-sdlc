@@ -1,9 +1,12 @@
 ---
 name: ADR-005-pipeline-orchestration
-description: Use when evaluating pipeline orchestration tooling beyond a script entrypoint — scheduling, declarative asset management, partitioned backfills, or built-in lineage requirements
+description: Use when evaluating data pipeline orchestration beyond a script entrypoint — scheduling, declarative asset management, partitioned backfills, or built-in lineage requirements
+applies_to: "project_type: ml, project_type: agent (data-intensive)"
 ---
 
-# ADR-005: Pipeline Orchestration
+# ADR-005: Data Pipeline Orchestration
+
+> **Applies to:** `project_type: ml` (Medallion pipelines) and `project_type: agent` when the agent consumes or produces structured datasets requiring scheduling or lineage. Not applicable to `project_type: application`.
 
 ## Status
 Proposed

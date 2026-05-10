@@ -33,7 +33,7 @@ def _staged_diff() -> str:
 def _claude_cli(prompt: str) -> str | None:
     try:
         result = subprocess.run(
-            ["claude", "-p", prompt], capture_output=True, text=True
+            ["claude", "-p", "-"], input=prompt, capture_output=True, text=True
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()

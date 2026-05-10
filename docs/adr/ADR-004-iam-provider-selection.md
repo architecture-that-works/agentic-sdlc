@@ -1,9 +1,12 @@
 ---
 name: ADR-004-iam-provider-selection
 description: Use when selecting a self-hosted IAM provider for identity management — internal employees with LDAP/AD, or external customers with multi-tenant SSO requirements
+applies_to: "project_type: application, project_type: agent"
 ---
 
 # ADR-004: IAM Provider Selection
+
+> **Applies to:** `project_type: application` and `project_type: agent` — any project that exposes authenticated endpoints or manages user identity.
 
 ## Status
 Proposed

@@ -1,9 +1,12 @@
 ---
 name: ADR-002-mlops
-description: Use when selecting experiment tracking tooling or defining the target MLOps maturity level for a machine learning project
+description: Use when selecting experiment tracking tooling or defining AI model delivery maturity for a machine learning project
+applies_to: "project_type: ml"
 ---
 
-# ADR-002: MLOps Maturity and Tooling
+# ADR-002: Experiment Tracking and AI Model Delivery Maturity
+
+> **Applies to:** `project_type: ml` — skip for `application` and `agent` projects.
 
 ## Status
 Proposed
@@ -12,7 +15,7 @@ Proposed
 
 A machine learning project needs experiment tracking, model versioning, and a path to automated continuous training (CT). The choice of tooling and target maturity level determines the operational overhead and the level of automation achievable without significant re-architecture.
 
-Current state: **Level 0** — MLflow logs to a local SQLite database (`data/4_eval/eval_data.db`), training runs via `uv run main.py`, execution is manual. Target: **Google MLOps Level 1** — automated CT pipeline, remote tracking server, governed model registry.
+Current state: **Level 0** — MLflow logs to a local SQLite database (`data/4_eval/eval_data.db`), training runs via `uv run main.py`, execution is manual. Target: **Google AI Engineering Level 1** — automated CT pipeline, remote tracking server, governed model registry.
 
 ## Considered Options
 

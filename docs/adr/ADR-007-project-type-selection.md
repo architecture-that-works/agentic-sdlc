@@ -37,12 +37,12 @@ The base scaffold (config, logging, test harness, CI, Director Workflow) is iden
 | ADR-006 | Agent Observability Tooling | Trace tooling for Plan-Act-Observe loops |
 | ADR-003 | Observability Stack Selection | OTel spans per loop iteration |
 
-Invoke the `agentic-development` domain skill during the `tdd` REFACTOR phase.
+Invoke the `agentic-engineering` domain skill during the `tdd` REFACTOR phase.
 {% elif project_type == 'ml' -%}
 | ADR | Title | Relevance |
 |-----|-------|-----------|
 | ADR-001 | Data Science Tooling Selection | Notebook format, EDA library, ML framework |
-| ADR-002 | MLOps Maturity and Tooling | Experiment tracking and CT pipeline |
+| ADR-002 | Experiment Tracking and AI Model Delivery Maturity | Experiment tracking and CT pipeline |
 | ADR-003 | Observability Stack Selection | OTel telemetry across pipeline steps |
 | ADR-005 | Pipeline Orchestration | Medallion pipeline scheduling and assets |
 
@@ -53,7 +53,7 @@ Invoke the `data-engineering` domain skill during the `tdd` REFACTOR phase.
 | ADR-003 | Observability Stack Selection | OTel + OpenLineage telemetry |
 | ADR-004 | IAM Provider Selection | Self-hosted identity management |
 
-Invoke the `application-development` domain skill during the `tdd` REFACTOR phase.
+Invoke the `application-engineering` domain skill during the `tdd` REFACTOR phase.
 {% endif %}
 
 ### Confirmation

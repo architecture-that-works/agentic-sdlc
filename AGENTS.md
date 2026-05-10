@@ -39,19 +39,22 @@ Invoke the relevant skill before implementing manually. Skills are located in `.
 | `review` | Code review, auto-fix loop, PR validation |
 | `ship` | Pre-merge security checks, squash merge, knowledge base update |
 
-**Persistent** (used throughout all workflow phases):
+**Meta** (project-type agnostic, cross-cutting — load on demand):
 
 | Skill | When to invoke |
 |-------|----------------|
-| `version-control` | Branching, commits, PRs — follows every workflow phase that touches git |
+| `version-control` | Branching (`feature/{number}-{slug}`), commits, PRs — any phase that touches git |
+| `write-skills` | Creating or updating skills in `.agents/skills/` |
 
-**Domain** (extend `tdd` REFACTOR with implementation patterns):
+**Domain** (extend `tdd` REFACTOR with implementation patterns — named `*-engineering`):
 
 | Skill | When to invoke |
 |-------|----------------|
-| `application-development` | REST APIs, FastAPI, Pydantic validation, auth patterns |
+| `application-engineering` | AI-backed REST APIs, Claude single-call integration, OTel instrumentation, SSE streaming, auth patterns |
 | `data-engineering` | Medallion pipeline, SQLAlchemy, Polars, DuckLake |
-| `agentic-development` | Plan-Act-Observe loops, tool use, multi-agent coordination |
+| `agentic-engineering` | Plan-Act-Observe loops, multi-turn tool use, agent state, multi-agent coordination |
+
+Load exactly one domain skill per session. `application-engineering` is the default for `project_type: application`. If an endpoint invokes an agent loop, load both: `application-engineering` for the endpoint, `agentic-engineering` for the loop internals.
 
 Domain-specific information for this **{{ project_type }}** project is captured in ADRs matching this type — see `docs/adr/ADR-007-project-type-selection.md` and any domain ADRs with `Status: Accepted`.
 

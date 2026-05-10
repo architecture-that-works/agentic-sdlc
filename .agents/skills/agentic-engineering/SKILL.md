@@ -1,40 +1,44 @@
 ---
-name: agentic-development
-description: Use when building agents with the Claude API or Gemini API, implementing tool use, designing Plan-Act-Observe loops, coordinating multi-agent systems, managing context windows, or testing agent behaviour
+name: agentic-engineering
+description: Use when building autonomous AI agents with the Claude API — Plan-Act-Observe loops, tool use, multi-agent coordination, context window management, agent state persistence, or testing agent behaviour
 ---
 
-# Agentic Development
+# Agentic Engineering
 
 ## Overview
 
-Covers the design and implementation of AI agents. All patterns are **provider-agnostic** — tool definitions, loop logic, and output validation are decoupled from the LLM provider to prevent vendor lock-in. Both Claude (Anthropic SDK) and Gemini (Google AI SDK) are supported. Core loop: **Plan → Act → Observe**.
+Covers the design and implementation of autonomous AI agents. An agent is distinguished from an AI-backed API by its loop structure: it calls Claude multiple times across iterations, selects tools, observes results, and continues until a goal is achieved or the iteration cap is reached. All patterns are **provider-agnostic** — tool definitions, loop logic, and output validation are decoupled from the LLM provider. Core loop: **Plan → Act → Observe**.
 
-**Primary artifact:** Functioning agent — tool use, structured outputs, multi-agent coordination — provider-agnostic, supporting Anthropic SDK and Google AI SDK.
+**Primary artifact:** Functioning autonomous agent — tool use, structured outputs, multi-agent coordination — built provider-agnostically on the Anthropic SDK (primary) with the Google AI SDK as the secondary slot.
+
+**Boundary with `application-engineering`:** If Claude makes **one call per API request**, that is an AI-backed API — load `application-engineering`. If Claude makes **multiple tool calls in a loop** before returning a final result, that is an agent — load this skill. A FastAPI endpoint that invokes an agent lives in `application-engineering`; the agent loop itself lives here.
 
 ## Scope
 
-**Owns:** Plan-Act-Observe loop design and state management, tool definition standard (Pydantic → JSON Schema), structured output enforcement with correction on parse failure, provider-agnostic action executor, multi-agent coordination (Orchestrator + Handoff patterns), context window management within agent loops (sliding window, prompt caching), agent state persistence (Checkpointer pattern), agent testing patterns, agent-driven ML pipeline orchestration (training, evaluation, model promotion).
+**Owns:** Plan-Act-Observe loop design and state management, tool definition standard (Pydantic → JSON Schema), structured output enforcement with correction on parse failure, provider-agnostic action executor, multi-agent coordination (Orchestrator + Handoff patterns), context window management within agent loops (sliding window, prompt caching), agent state persistence (Checkpointer pattern), agent testing patterns, OTel span emission per loop iteration.
 
-**Does not own:** General API development patterns (→ `application-development`), agent deployment infrastructure (→ `harness`), data pipeline patterns used by agents (→ `data-engineering`).
+**Does not own:** Single-turn Claude API calls and AI-backed REST endpoints (→ `application-engineering`), agent deployment infrastructure and environment provisioning (→ `harness`), data pipeline patterns used by agents (→ `data-engineering`), domain model design (→ `refine`).
 
-**Interfaces with:** `application-development` — agents often expose or consume APIs; general API patterns live there. `harness` — agent runtime deployment, environment provisioning, and Planner/Generator/Evaluator split. `tdd` — agent behaviour is verified via the RED-GREEN-REFACTOR loop; domain-specific testing patterns extend REFACTOR here.
+**Interfaces with:** `application-engineering` — agents are exposed to clients via thin API endpoints; single-call AI patterns and streaming SSE to client live there. `harness` — agent runtime deployment, Planner/Generator/Evaluator split, environment provisioning. `tdd` — agent behaviour verified via RED-GREEN-REFACTOR; domain-specific testing patterns extend REFACTOR here.
 
 ## When to Use
 
-- **Trigger:** Building an agent with Gemini, Claude, or any LLM API
-- **Trigger:** Implementing tool use or structured outputs
-- **Trigger:** Designing a Plan-Act-Observe loop or multi-turn conversation flow
+- **Trigger:** Building an agent that calls Claude with tools across multiple iterations
+- **Trigger:** Implementing structured output enforcement with correction on parse failure
+- **Trigger:** Designing a Plan-Act-Observe loop or multi-turn autonomous flow
 - **Trigger:** Coordinating multiple agents (Orchestrator + Handoff)
-- **Trigger:** Managing context window limits or prompt structure
-- **Trigger:** Writing tests for agent behaviour
-- **Trigger:** Implementing agent-driven ML training, evaluation, or model promotion
+- **Trigger:** Managing context window limits within an agent loop
+- **Trigger:** Writing tests for agent behaviour (not API contracts)
+- **Trigger:** Persisting agent state for HITL approvals or crash recovery
 
 **Do NOT use for:**
-- General API endpoint development (→ `application-development`)
+- Single-turn Claude calls within an API request (→ `application-engineering`)
 - Agent deployment and infrastructure (→ `harness`)
 - Data pipelines that agents consume (→ `data-engineering`)
 
-## Core Pattern
+---
+
+## Core Patterns
 
 ### The Plan-Act-Observe Loop
 
@@ -95,7 +99,7 @@ The `execute_tool` function is the critical isolation layer. Tool execution must
 from collections.abc import Callable
 
 TOOL_REGISTRY: dict[str, Callable] = {
-    "get_metrics": get_metrics,
+    "search_documents": search_documents,
     "transfer_to_agent": transfer_to_agent,
 }
 
@@ -111,6 +115,8 @@ def execute_tool(tool_name: str, tool_input: dict) -> str:
 
 **Rule:** `execute_tool` never raises. It always returns a string. This prevents the agent from halting on recoverable errors.
 
+---
+
 ## Quick Reference
 
 ### Tool Definition Template (Pydantic → JSON Schema)
@@ -118,27 +124,24 @@ def execute_tool(tool_name: str, tool_input: dict) -> str:
 ```python
 from pydantic import BaseModel, Field
 
-class GetMetrics(BaseModel):
+class SearchDocuments(BaseModel):
     """
-    Fetches metrics for a specific entity and period.
-    Use this tool when the user requests entity-level metric data.
-    Returns: float representing the metric value.
+    Searches the document store for relevant content.
+    Use when the user asks for information that requires document retrieval.
+    Returns: list of matching document excerpts as a JSON string.
     """
-    entity_id: str = Field(..., description="The entity identifier")
-    quarter: str = Field(..., pattern=r"^\d{4}Q[1-4]$", description="Quarter in YYYYQ[1-4] format")
+    query: str = Field(..., description="The search query")
+    max_results: int = Field(5, ge=1, le=20, description="Maximum number of results to return")
 ```
 
 **Convert to provider format:**
 
 ```python
-# Gemini / OpenAI-compatible
-tool_schema = GetMetrics.model_json_schema()
-
 # Claude format
 claude_tool = {
-    "name": "get_metrics",
-    "description": GetMetrics.__doc__,
-    "input_schema": GetMetrics.model_json_schema(),
+    "name": "search_documents",
+    "description": SearchDocuments.__doc__,
+    "input_schema": SearchDocuments.model_json_schema(),
 }
 ```
 
@@ -150,7 +153,7 @@ claude_tool = {
 |---|---|
 | Short-term | Thread-local message histories trimmed via sliding window |
 | Long-term | Vector search (RAG-based retrieval for cross-session knowledge) |
-| Prompt cache | Cache system prompt + tool defs for iterative loops (Claude: `cache_control`; Gemini: context caching) |
+| Prompt cache | Cache system prompt + tool defs for iterative loops (Claude: `cache_control`) |
 
 **Sliding window:**
 
@@ -208,6 +211,8 @@ class AgentCheckpoint:
 | **Firestore (GCP)** | Production; HITL approval workflows |
 | **SQLite** | Local development and testing |
 
+---
+
 ## Implementation
 
 ### Full Agent Loop (Claude API)
@@ -224,7 +229,7 @@ def run_agent(goal: str, tools: list[dict], response_model: type[BaseModel], sys
 
     for iteration in range(MAX_ITERATIONS):
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-opus-4-5",
             max_tokens=4_096,
             system=system,
             tools=tools,
@@ -250,11 +255,11 @@ def run_agent(goal: str, tools: list[dict], response_model: type[BaseModel], sys
     raise AgentMaxIterationsError(f"Agent did not complete within {MAX_ITERATIONS} iterations")
 ```
 
-### Streaming with SSE
+### Streaming with SSE (Internal — Accumulate Before Executing)
 
 ```python
 # Accumulate partial tool call JSON before executing — never execute on a fragment
-with client.messages.stream(model="claude-sonnet-4-6", tools=tools, messages=messages) as stream:
+with client.messages.stream(model="claude-opus-4-5", tools=tools, messages=messages) as stream:
     accumulated: dict[str, str] = {}
 
     for event in stream:
@@ -266,11 +271,11 @@ with client.messages.stream(model="claude-sonnet-4-6", tools=tools, messages=mes
     final = stream.get_final_message()
 ```
 
-**Rule:** Always accumulate `partial_json` deltas before execution. Executing on partial JSON raises a parse error that silently corrupts the loop.
+For streaming agent text output **to a client** (SSE to browser/CLI) → `application-engineering`.
 
 ### Agent Observability
 
-Emit OpenTelemetry spans — one span per loop iteration. General OTel setup → `harness`.
+Emit OpenTelemetry spans — one span per loop iteration. General OTel setup → `harness`. For agent-specific visualisation tooling → `docs/adr/ADR-006-agent-observability.md`.
 
 ```python
 from opentelemetry import trace
@@ -281,9 +286,10 @@ for iteration in range(MAX_ITERATIONS):
     with tracer.start_as_current_span("agent.iteration") as span:
         span.set_attribute("agent.iteration", iteration)
         span.set_attribute("agent.stop_reason", response.stop_reason)
+        span.set_attribute("agent.tool_calls", len([b for b in response.content if b.type == "tool_use"]))
 ```
 
-For agent-specific visualisation tool selection (Vertex AI Service Runtime vs LangSmith) → `docs/adr/ADR-006-agent-observability.md`.
+---
 
 ## Common Mistakes
 
@@ -297,3 +303,4 @@ For agent-specific visualisation tool selection (Vertex AI Service Runtime vs La
 | Provider-coupled tool logic | Vendor lock-in | Keep `execute_tool` provider-agnostic; registry is the only coupling point |
 | No state persistence | Crash = lost work; HITL impossible | Checkpoint after every iteration |
 | Passing full history to sub-agent | Irrelevant context; performance degrades | Pass only a `context: dict` with the specific state the sub-agent needs |
+| Building agent loop inside a router | Untestable, blocks the request thread | Agent loop runs in a service or background task; thin endpoint triggers it |
