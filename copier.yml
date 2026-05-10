@@ -13,6 +13,8 @@ project_type:
     default: application
     help: "Target project type — determines starter directory structure and accepted ADRs"
 
+_templates_suffix: ".jinja2"
+
 # .gitignore intentionally absent from _exclude — generated projects must inherit it
 # .template/.agents/skills/ intentionally absent from _exclude — skill files travel with every generated project
 _exclude:
@@ -24,6 +26,4 @@ _exclude:
     - "logs"
     - "tests/test_copier_template.py"
 
-_tasks:
-    - "python -c \"import pathlib; p=pathlib.Path('pyproject.toml'); p.write_text(p.read_text().replace('my-template-repo', '{{ project_name }}'))\""
-    - "uv sync"
+# project_name substituted via pyproject.toml.jinja2 — no post-task required

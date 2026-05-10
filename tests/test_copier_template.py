@@ -24,6 +24,11 @@ def test_generated_project_passes_tests(project_type: str, tmp_path: Path) -> No
         overwrite=True,
     )
 
+    pyproject = (tmp_path / "pyproject.toml").read_text()
+    assert f'name = "smoke-{project_type}"' in pyproject, (
+        f"pyproject.toml has wrong project name for project_type={project_type!r}:\n{pyproject}"
+    )
+
     result = subprocess.run(
         ["uv", "run", "pytest", "--tb=short", "-q"],
         cwd=tmp_path,
