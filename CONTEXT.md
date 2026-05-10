@@ -1,10 +1,11 @@
-# CONTEXT.md — {{ project_name }}
+<!-- Values populated by task setup — run after copier copy -->
+# CONTEXT.md — __PROJECT_NAME__
 
-{{ description }}
+__PROJECT_DESCRIPTION__
 
 | Key | Value |
 |-----|-------|
-| Project Type | {{ project_type }} |
+| Project Type | __PROJECT_TYPE__ |
 
 ---
 
