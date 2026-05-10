@@ -38,6 +38,7 @@ at the same time — never merge an ADR without a corresponding index update.
 | [ADR-005](ADR-005-pipeline-orchestration.md) | Data Pipeline Orchestration | Proposed | `project_type: ml`, `project_type: agent` (data-intensive) | Dagster (Software-Defined Assets) when multiple production pipelines or backfill requirements emerge — not applicable to `application` |
 | [ADR-006](ADR-006-agent-observability.md) | Agent Observability Tooling | Accepted | `project_type: agent` | Vertex AI Service Runtime (GCP + Gemini) or LangSmith (provider-agnostic) — context-dependent; extends ADR-003, does not replace OTel span emission |
 | [ADR-007](ADR-007-project-type-selection.md) | Project Type Selection | Accepted | all | `{{ project_type }}` — determines relevant domain ADRs and the domain skill to invoke during `tdd` REFACTOR |
+| [ADR-008](ADR-008-secrets-management.md) | Secrets Management | Accepted | all | `.env` (local dev) + GitHub Secrets (CI) + Azure Key Vault / GCP Secret Manager (production) |
 
 ---
 
@@ -47,10 +48,10 @@ Use this to determine which ADRs to load at session start. ADR-000 is always a t
 reference — load it only when creating a new ADR.
 
 ### `project_type: application` (default)
-Load: **ADR-003**, **ADR-004**, **ADR-007**
+Load: **ADR-003**, **ADR-004**, **ADR-007**, **ADR-008**
 
 ### `project_type: agent`
-Load: **ADR-003**, **ADR-004**, **ADR-006**, **ADR-007**
+Load: **ADR-003**, **ADR-004**, **ADR-006**, **ADR-007**, **ADR-008**
 
 ### `project_type: ml`
-Load: **ADR-001**, **ADR-002**, **ADR-003**, **ADR-005**, **ADR-007**
+Load: **ADR-001**, **ADR-002**, **ADR-003**, **ADR-005**, **ADR-007**, **ADR-008**
