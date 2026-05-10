@@ -57,9 +57,26 @@ $ProjectName = if ($ProjectNumber -gt 0) {
 } else { $null }
 if (-not $ProjectName) { $ProjectName = if ($ProjectNumber -gt 0) { "#$ProjectNumber" } else { '(no project configured)' } }
 
+# ── Label registry — known labels with canonical colours ─────────────────────
+# Add entries here for any label that sync-issues.ps1 should be able to create.
+# Labels not listed here fall back to colour 'ededed' (light grey).
+
+$script:LabelRegistry = @{
+    'AFK'         = @{ Color = '0075ca'; Description = 'Agent executes start-to-finish without interruption' }
+    'HITL'        = @{ Color = 'e4e669'; Description = 'Requires human decision or approval before closing' }
+    'planning'    = @{ Color = 'c5def5'; Description = 'Planning artifact — PRD or Agent Brief' }
+    'enhancement' = @{ Color = 'a2eeef'; Description = 'New feature or request' }
+    'bug'         = @{ Color = 'd73a4a'; Description = 'Something is not working' }
+}
+
 # ── Ensure repo label ────────────────────────────────────────────────────────
 
-function Ensure-Label([string]$Name, [string]$Color, [string]$Description) {
+function Ensure-Label([string]$Name, [string]$Color = 'ededed', [string]$Description = '') {
+    # Prefer registry values when the caller passes no colour.
+    if ($Color -eq 'ededed' -and $script:LabelRegistry.ContainsKey($Name)) {
+        $Color       = $script:LabelRegistry[$Name].Color
+        $Description = $script:LabelRegistry[$Name].Description
+    }
     $existing = gh label list --repo $Repo --json name | ConvertFrom-Json | Where-Object { $_.name -eq $Name }
     if (-not $existing) {
         Write-Host "  Creating label '$Name'" -ForegroundColor Cyan
@@ -96,8 +113,21 @@ foreach ($match in $Found) {
     $FullBlock = $match.Value
     $Title     = $match.Groups[1].Value.Trim()
     $Body      = $match.Groups[2].Value.Trim()
-    $Labels    = @($RepoLabel)
-    $LabelCsv  = $Labels -join ','
+
+    # Parse optional LABELS: line — must be the first line of the body.
+    # Format:  LABELS: AFK, enhancement
+    # Backward-compatible: issues without LABELS: work unchanged.
+    $ExtraLabels = @()
+    $BodyLines   = $Body -split '\r?\n'
+    if ($BodyLines.Count -gt 0 -and $BodyLines[0] -match '^LABELS:\s*(.+)') {
+        $ExtraLabels = ($Matches[1] -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        $Body        = ($BodyLines | Select-Object -Skip 1) -join "`n"
+        $Body        = $Body.TrimStart()
+        foreach ($lbl in $ExtraLabels) { Ensure-Label $lbl }
+    }
+
+    $Labels   = @($RepoLabel) + $ExtraLabels
+    $LabelCsv = $Labels -join ','
 
     Write-Host ""
     Write-Host "  Processing: '$Title'  [labels: $LabelCsv]" -ForegroundColor Yellow
