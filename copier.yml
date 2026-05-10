@@ -13,6 +13,7 @@ project_type:
     default: application
     help: "Target project type — determines starter directory structure and accepted ADRs"
 
+# .gitignore intentionally absent from _exclude — generated projects must inherit it
 _exclude:
     - ".git"
     - ".venv"

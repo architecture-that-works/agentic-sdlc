@@ -52,7 +52,7 @@ function Get-StartTriggeredIssues {
 
 function Get-OrphanedIssues {
     $items = gh project item-list $KanbanProjectNumber `
-        --owner $KanbanProjectOwner --format json |
+        --owner $KanbanProjectOwner --format json --limit 200 |
         ConvertFrom-Json |
         Select-Object -ExpandProperty items |
         Where-Object {
@@ -79,7 +79,7 @@ function Invoke-Pipeline {
     $meta   = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
     $jq     = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .status"
     $status = gh project item-list $KanbanProjectNumber `
-        --owner $KanbanProjectOwner --format json --jq $jq 2>&1
+        --owner $KanbanProjectOwner --format json --limit 200 --jq $jq 2>&1
 
     Write-Log "━━━ Pipeline: issue #$IssueNumber — $($meta.title)" -Color Cyan
     Write-Log "    Current lane: $status" -Color DarkGray

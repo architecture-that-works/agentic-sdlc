@@ -164,7 +164,7 @@ function Get-ProjectId {
 function Get-ProjectItemId {
     param([int]$IssueNumber)
     $jq = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .id"
-    gh project item-list $KanbanProjectNumber --owner $KanbanProjectOwner --format json --jq $jq 2>&1
+    gh project item-list $KanbanProjectNumber --owner $KanbanProjectOwner --format json --limit 200 --jq $jq 2>&1
 }
 
 function Move-ToLane {
