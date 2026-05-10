@@ -17,6 +17,18 @@ _templates_suffix: ".jinja2"
 
 # .gitignore intentionally absent from _exclude — generated projects must inherit it
 # .template/.agents/skills/ intentionally absent from _exclude — skill files travel with every generated project
+#
+# Template source layout note: this repo uses the default Copier behaviour where the
+# template source is the repository root (no _subdirectory setting). Moving all source
+# files into .template/ is deferred — it would require separating the repo's own src/
+# package (used by tests/conftest.py and tool tests) from the generated-project src/.
+# See CONTEXT.md "Out of Scope" for the recorded decision.
+#
+# pyproject.toml intentionally absent from _exclude: adding it also suppresses the
+# pyproject.toml.jinja2 rendering (Copier matches _exclude against rendered output
+# names). Both files coexist safely — Copier renders the .jinja2 template and the
+# smoke test in tests/test_copier_template.py asserts the generated pyproject.toml
+# carries the correct project_name.
 _exclude:
     - ".git"
     - ".venv"
@@ -25,6 +37,5 @@ _exclude:
     - "copier.yml"
     - "logs"
     - "tests/test_copier_template.py"
-    - "pyproject.toml"
 
 # project_name substituted via pyproject.toml.jinja2 — no post-task required

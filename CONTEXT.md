@@ -48,3 +48,4 @@ Concepts explicitly deferred or rejected. Prevents re-proposal in planning sessi
 |---------|-----------------|------|
 | Multi-variant template (separate per-type scaffolds) | Single template with project_type prompt; specialised directory stubs deferred | 2026-05-10 |
 | Gemini as primary AI provider | Claude-first; Gemini reserved as future secondary slot | 2026-05-09 |
+| Move template source into `.template/` subdirectory (`_subdirectory: ".template"` in copier.yml) | Repo's own `src/` package is imported by `tests/conftest.py` and all tool tests. Moving it to `.template/src/` would break those imports without a full path-isolation refactor. The `.template/` directory currently holds skills only (`.template/.agents/`). Template source files (`src/`, `Dockerfile`, `.devcontainer/`, etc.) live at the repository root until a full subdirectory migration is planned. | 2026-05-11 |
