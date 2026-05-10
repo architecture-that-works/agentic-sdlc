@@ -1,3 +1,7 @@
+Preference
+.agents/skills/microsoft-foundry
+.agents/.skill-lock.json
+
 # Python
 __pycache__/
 *.py[cod]
