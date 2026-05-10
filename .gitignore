@@ -1,6 +1,6 @@
 Preference
-.agents/skills/microsoft-foundry
-.agents/.skill-lock.json
+.template/.agents/skills/microsoft-foundry
+.template/.agents/.skill-lock.json
 
 # Python
 __pycache__/
