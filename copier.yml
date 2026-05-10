@@ -14,6 +14,7 @@ project_type:
     help: "Target project type — determines starter directory structure and accepted ADRs"
 
 # .gitignore intentionally absent from _exclude — generated projects must inherit it
+# .agents/skills/ intentionally absent from _exclude — skill files travel with every generated project
 _exclude:
     - ".git"
     - ".venv"
