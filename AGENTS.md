@@ -85,6 +85,7 @@ Domain-specific information for this **{{ project_type }}** project is captured 
 5. **Standard library first.** Prefer stdlib over third-party packages.
 6. **`src/utils/` stays generic.** No project-specific logic in `m_*.py` files.
 7. **Never modify `AGENTS.md` during implementation.** Changes go through a `refine` session.
+8. **Sizing and priority rules** — Fibonacci estimate anchor, scale, and priority definitions — are defined in the `ISSUES.md` header.
 
 ## Safety & Boundaries
 

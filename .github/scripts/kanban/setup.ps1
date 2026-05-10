@@ -75,6 +75,22 @@ Write-Host ""
 Write-Host "  Options:" -ForegroundColor Cyan
 $options | ForEach-Object { Write-Host ("    [{0}] {1}" -f $_.id, $_.name) -ForegroundColor White }
 
+$estimateField = $fields | Where-Object { $_.name -match '^estimate$' } | Select-Object -First 1
+$priorityField = $fields | Where-Object { $_.type -eq 'ProjectV2SingleSelectField' -and $_.name -match '^priority$' } | Select-Object -First 1
+
+if ($estimateField) {
+    Write-Host "  Found field: '$($estimateField.name)' (ID: $($estimateField.id))" -ForegroundColor Green
+} else {
+    Write-Host "  ⚠️  No 'Estimate' field found — Estimate sync will be skipped." -ForegroundColor Yellow
+}
+if ($priorityField) {
+    Write-Host "  Found field: '$($priorityField.name)' (ID: $($priorityField.id))" -ForegroundColor Green
+    Write-Host "  Priority options:" -ForegroundColor Cyan
+    $priorityField.options | ForEach-Object { Write-Host ("    [{0}] {1}" -f $_.id, $_.name) -ForegroundColor White }
+} else {
+    Write-Host "  ⚠️  No 'Priority' field found — Priority sync will be skipped." -ForegroundColor Yellow
+}
+
 # ── Auto-detect lane options ──────────────────────────────────────────────────
 
 function Find-Option([string[]]$Patterns) {
@@ -141,18 +157,31 @@ Set-EnvVar $_EnvPath 'KANBAN_OPT_IMPLEMENTING' $laneImplementing.id
 Set-EnvVar $_EnvPath 'KANBAN_OPT_REVIEW'       $laneReview.id
 Set-EnvVar $_EnvPath 'KANBAN_OPT_MERGED'       $laneMerged.id
 
+if ($estimateField) { Set-EnvVar $_EnvPath 'KANBAN_ESTIMATE_FIELD_ID' $estimateField.id }
+if ($priorityField) {
+    Set-EnvVar $_EnvPath 'KANBAN_PRIORITY_FIELD_ID' $priorityField.id
+    foreach ($opt in $priorityField.options) {
+        Set-EnvVar $_EnvPath "KANBAN_PRIORITY_OPT_$($opt.name)" $opt.id
+    }
+}
+
 # ── Set GitHub Actions repository variables ───────────────────────────────────
 
 Write-Host "  Setting GitHub Actions repository variables..." -ForegroundColor Cyan
 
 $ghVars = @{
-    KANBAN_PROJECT_NUMBER  = "$ProjectNumber"
-    KANBAN_PROJECT_OWNER   = $ProjectOwner
-    KANBAN_STATUS_FIELD_ID = $statusField.id
-    KANBAN_OPT_BACKLOG     = $laneBacklog.id
+    KANBAN_PROJECT_NUMBER   = "$ProjectNumber"
+    KANBAN_PROJECT_OWNER    = $ProjectOwner
+    KANBAN_STATUS_FIELD_ID  = $statusField.id
+    KANBAN_OPT_BACKLOG      = $laneBacklog.id
     KANBAN_OPT_IMPLEMENTING = $laneImplementing.id
-    KANBAN_OPT_REVIEW      = $laneReview.id
-    KANBAN_OPT_MERGED      = $laneMerged.id
+    KANBAN_OPT_REVIEW       = $laneReview.id
+    KANBAN_OPT_MERGED       = $laneMerged.id
+}
+if ($estimateField) { $ghVars['KANBAN_ESTIMATE_FIELD_ID'] = $estimateField.id }
+if ($priorityField) {
+    $ghVars['KANBAN_PRIORITY_FIELD_ID'] = $priorityField.id
+    foreach ($opt in $priorityField.options) { $ghVars["KANBAN_PRIORITY_OPT_$($opt.name)"] = $opt.id }
 }
 
 foreach ($kv in $ghVars.GetEnumerator()) {

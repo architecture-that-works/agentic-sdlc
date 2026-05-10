@@ -83,7 +83,7 @@ First line of your response MUST be exactly APPROVED or REJECTED (all caps).
 Follow with your detailed reasoning.
 "@
 
-    $review   = claude -p $prompt --allowedTools "Read,Glob,Grep" 2>&1 | Out-String
+    $review   = $prompt | claude --allowedTools "Read,Glob,Grep" 2>&1 | Out-String
     $approved = $review -match '(?im)^APPROVED'
     $verdict  = if ($approved) { 'APPROVED' } else { 'REJECTED' }
 

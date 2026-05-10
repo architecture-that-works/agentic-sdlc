@@ -50,6 +50,13 @@ if (-not $Repo) { Write-Error "Could not resolve current repo via gh."; exit 1 }
 $RepoName  = ($Repo -split '/')[-1]
 $RepoLabel = "repo:$RepoName"
 
+# Resolve project node ID once — needed for gh project item-edit field updates
+$ProjectId = $null
+if ($ProjectNumber -gt 0) {
+    $ProjectId = gh project list --owner $ProjectOwner --format json --jq ".projects[] | select(.number == $ProjectNumber) | .id" 2>&1 |
+                 Out-String | ForEach-Object { $_.Trim() }
+}
+
 # ── Resolve project name for display ─────────────────────────────────────────
 
 $ProjectName = if ($ProjectNumber -gt 0) {
@@ -114,17 +121,23 @@ foreach ($match in $Found) {
     $Title     = $match.Groups[1].Value.Trim()
     $Body      = $match.Groups[2].Value.Trim()
 
-    # Parse optional LABELS: line — must be the first line of the body.
-    # Format:  LABELS: AFK, enhancement
-    # Backward-compatible: issues without LABELS: work unchanged.
+    # Parse optional header fields — LABELS, ESTIMATE, PRIORITY — before the body.
+    # Fields may appear in any order; parsing stops at the first non-header line.
+    # Backward-compatible: blocks without any header fields work unchanged.
     $ExtraLabels = @()
+    $Estimate    = $null
+    $Priority    = $null
     $BodyLines   = $Body -split '\r?\n'
-    if ($BodyLines.Count -gt 0 -and $BodyLines[0] -match '^LABELS:\s*(.+)') {
-        $ExtraLabels = ($Matches[1] -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-        $Body        = ($BodyLines | Select-Object -Skip 1) -join "`n"
-        $Body        = $Body.TrimStart()
-        foreach ($lbl in $ExtraLabels) { Ensure-Label $lbl }
+    $headerCount = 0
+    foreach ($line in $BodyLines) {
+        if     ($line -match '^LABELS:\s*(.+)')       { $ExtraLabels = ($Matches[1] -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }; $headerCount++ }
+        elseif ($line -match '^ESTIMATE:\s*(\d+)')    { $Estimate = [int]$Matches[1]; $headerCount++ }
+        elseif ($line -match '^PRIORITY:\s*(P[0-4])') { $Priority = $Matches[1]; $headerCount++ }
+        else   { break }
     }
+    $Body = ($BodyLines | Select-Object -Skip $headerCount) -join "`n"
+    $Body = $Body.TrimStart()
+    foreach ($lbl in $ExtraLabels) { Ensure-Label $lbl }
 
     $Labels   = @($RepoLabel) + $ExtraLabels
     $LabelCsv = $Labels -join ','
@@ -133,19 +146,24 @@ foreach ($match in $Found) {
     Write-Host "  Processing: '$Title'  [labels: $LabelCsv]" -ForegroundColor Yellow
 
     if ($DryRun) {
-        Write-Host "  [DRY RUN] Would create issue and add to project '$ProjectName'" -ForegroundColor DarkGray
+        $dryFields = @("labels: $LabelCsv")
+        if ($null -ne $Estimate) { $dryFields += "estimate: $Estimate" }
+        if ($Priority)           { $dryFields += "priority: $Priority" }
+        Write-Host "  [DRY RUN] Would create issue and add to project '$ProjectName' [$($dryFields -join ', ')]" -ForegroundColor DarkGray
         continue
     }
 
     # Idempotent: reuse existing issue with same title
-    $IssueUrl = $null
-    $Existing = gh issue list --repo $Repo --state all --json number,title,url --limit 200 |
+    $IssueUrl    = $null
+    $IssueNumber = 0
+    $Existing    = gh issue list --repo $Repo --state all --json number,title,url --limit 200 |
         ConvertFrom-Json |
         Where-Object { $_.title -eq $Title } |
         Select-Object -First 1
 
     if ($Existing) {
-        $IssueUrl = $Existing.url
+        $IssueUrl    = $Existing.url
+        $IssueNumber = $Existing.number
         Write-Host "  ♻️  Reusing existing issue: $IssueUrl" -ForegroundColor DarkYellow
     } else {
         $tmp = [System.IO.Path]::GetTempFileName()
@@ -154,7 +172,8 @@ foreach ($match in $Found) {
         Remove-Item $tmp -ErrorAction SilentlyContinue
 
         if ($LASTEXITCODE -eq 0) {
-            $IssueUrl = ($result | Out-String).Trim()
+            $IssueUrl    = ($result | Out-String).Trim()
+            $IssueNumber = [int](($IssueUrl -split '/')[-1])
             Write-Host "  ✅ Created: $IssueUrl" -ForegroundColor Green
         } else {
             Write-Host "  ❌ Failed to create issue '$Title': $result" -ForegroundColor Red
@@ -162,13 +181,50 @@ foreach ($match in $Found) {
         }
     }
 
-    # Add to project board
+    # Add to project board, capture item ID, then set Estimate and Priority fields
     if ($IssueUrl -and $ProjectNumber -gt 0) {
-        $addResult = gh project item-add $ProjectNumber --owner $ProjectOwner --url $IssueUrl 2>&1
+        $addJson = gh project item-add $ProjectNumber --owner $ProjectOwner --url $IssueUrl --format json 2>&1 | Out-String
+        $itemId  = $null
         if ($LASTEXITCODE -eq 0) {
+            try { $itemId = ($addJson.Trim() | ConvertFrom-Json).id } catch {}
             Write-Host "  📌 Added to project '$ProjectName'" -ForegroundColor Green
         } else {
-            Write-Host "  ⚠️  Could not add to project (may already be present): $addResult" -ForegroundColor Yellow
+            Write-Host "  ⚠️  Could not add to project (may already be present)" -ForegroundColor Yellow
+        }
+
+        # Fallback: resolve item ID via item-list when add returned non-zero (item already in project)
+        if ((-not $itemId) -and ($null -ne $Estimate -or $Priority) -and $IssueNumber -gt 0) {
+            $jq     = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$Repo`") | .id"
+            $itemId = gh project item-list $ProjectNumber --owner $ProjectOwner --format json --limit 200 --jq $jq 2>&1 |
+                      Out-String | ForEach-Object { $_.Trim() }
+        }
+
+        if ($itemId -and $ProjectId) {
+            if ($null -ne $Estimate) {
+                $fid = $env:KANBAN_ESTIMATE_FIELD_ID
+                if ($fid) {
+                    gh project item-edit --id $itemId --project-id $ProjectId --field-id $fid --number $Estimate 2>&1 | Out-Null
+                    Write-Host "  📊 Estimate → $Estimate" -ForegroundColor DarkGray
+                } else {
+                    Write-Host "  ⚠️  KANBAN_ESTIMATE_FIELD_ID not set — skipping. Run: task setup" -ForegroundColor Yellow
+                }
+            }
+            if ($Priority) {
+                $fid   = $env:KANBAN_PRIORITY_FIELD_ID
+                $optId = switch ($Priority) {
+                    'P0' { $env:KANBAN_PRIORITY_OPT_P0 }
+                    'P1' { $env:KANBAN_PRIORITY_OPT_P1 }
+                    'P2' { $env:KANBAN_PRIORITY_OPT_P2 }
+                    'P3' { $env:KANBAN_PRIORITY_OPT_P3 }
+                    'P4' { $env:KANBAN_PRIORITY_OPT_P4 }
+                }
+                if ($fid -and $optId) {
+                    gh project item-edit --id $itemId --project-id $ProjectId --field-id $fid --single-select-option-id $optId 2>&1 | Out-Null
+                    Write-Host "  🎯 Priority → $Priority" -ForegroundColor DarkGray
+                } else {
+                    Write-Host "  ⚠️  KANBAN_PRIORITY_FIELD_ID or option not set — skipping. Run: task setup" -ForegroundColor Yellow
+                }
+            }
         }
     }
 
