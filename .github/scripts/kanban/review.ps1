@@ -9,7 +9,7 @@
     comment on both the PR and the issue.
 
     APPROVED → label agent:review; leaves item in Review lane.
-    REJECTED → post feedback; label agent:implementing; move item back to Implementing.
+    REJECTED → post feedback; label agent:start; move item back to Implementing for pipeline re-pickup.
 
 .PARAMETER Issue
     Issue number. Defaults to 0 — auto-detected from the current branch.
@@ -101,8 +101,10 @@ Follow with your detailed reasoning.
         Set-IssueLabel -Number $IssueNumber -Remove 'agent:implementing' -Add 'agent:review'
         Write-Log "✅ Review APPROVED — PR #$PRNumber ready for human merge." -Color Green
     } else {
-        Set-IssueLabel -Number $IssueNumber -Remove 'agent:review' -Add 'agent:implementing'
-        Write-Log "❌ Review REJECTED — issue #$IssueNumber returned to Implementing." -Color Red
+        Set-IssueLabel -Number $IssueNumber -Remove 'agent:review'
+        Set-IssueLabel -Number $IssueNumber -Remove 'agent:implementing' -Add 'agent:start'
+        Move-ToLane -IssueNumber $IssueNumber -OptionId $KanbanOpt_Implementing -LaneName 'Implementing'
+        Write-Log "❌ Review REJECTED — issue #$IssueNumber queued for re-pickup (agent:start)." -Color Red
     }
 
     return $approved
