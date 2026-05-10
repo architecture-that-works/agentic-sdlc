@@ -8,8 +8,8 @@
     Claude Code to review the implementation, and posts the verdict as a
     comment on both the PR and the issue.
 
-    APPROVED → label agent:review; leaves item in Review lane.
-    REJECTED → post feedback; label agent:start; move item back to Backlog for pipeline re-pickup.
+    APPROVED → label agent:review; item stays in Review lane.
+    REJECTED → post feedback; label agent:implementing; move item back to Implementing for re-pickup.
 
 .PARAMETER Issue
     Issue number. Defaults to 0 — auto-detected from the current branch.
@@ -56,6 +56,7 @@ function Invoke-Review {
 
     Write-Log "▶ Review — issue #$IssueNumber / PR #$PRNumber" -Color Cyan
     Ensure-AgentLabels
+    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:review'
     Add-Comment -Number $IssueNumber -Body "🔍 Agent reviewing PR #$PRNumber against acceptance criteria..."
 
     $issue = gh issue view $IssueNumber --repo $KanbanRepo --json title,body | ConvertFrom-Json
@@ -98,13 +99,10 @@ Follow with your detailed reasoning.
     gh pr review $PRNumber --comment --body $prComment 2>&1 | Out-Null
 
     if ($approved) {
-        Set-IssueLabel -Number $IssueNumber -Remove 'agent:implementing' -Add 'agent:review'
         Write-Log "✅ Review APPROVED — PR #$PRNumber ready for human merge." -Color Green
     } else {
-        Set-IssueLabel -Number $IssueNumber -Remove 'agent:review'
-        Set-IssueLabel -Number $IssueNumber -Remove 'agent:implementing' -Add 'agent:start'
-        Move-ToLane -IssueNumber $IssueNumber -OptionId $KanbanOpt_Backlog -LaneName 'Backlog'
-        Write-Log "❌ Review REJECTED — issue #$IssueNumber queued for re-pickup (agent:start)." -Color Red
+        Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
+        Write-Log "❌ Review REJECTED — issue #$IssueNumber returned to Implementing." -Color Red
     }
 
     return $approved

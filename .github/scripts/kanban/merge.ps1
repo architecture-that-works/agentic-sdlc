@@ -205,8 +205,7 @@ function Invoke-Merge {
     gh pr merge $PRNumber --merge --delete-branch 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "gh pr merge failed for PR #$PRNumber" }
 
-    Set-IssueLabel -Number $IssueNumber -Remove 'agent:review' -Add 'agent:merged'
-    Move-ToLane -IssueNumber $IssueNumber -OptionId $KanbanOpt_Merged -LaneName 'Merged'
+    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:merged'
     Add-Comment -Number $IssueNumber -Body "✅ PR #$PRNumber merged. Issue complete."
 
     $default = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'

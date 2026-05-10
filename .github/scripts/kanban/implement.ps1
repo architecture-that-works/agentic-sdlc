@@ -283,7 +283,6 @@ Closes #$Number
         Write-Log "  PR created: $prUrl" -Color Green
     }
 
-    Move-ToLane -IssueNumber $Number -OptionId $KanbanOpt_Review -LaneName 'Review'
     Add-Comment -Number $Number -Body "🔗 PR ready for review: $prUrl"
     return $prUrl
 }
@@ -295,7 +294,7 @@ function Invoke-Implement {
 
     if ($IssueNumber -eq 0) { $IssueNumber = Get-CurrentIssueNumber }
     if ($IssueNumber -eq 0) {
-        $queued = gh issue list --repo $KanbanRepo --state open --label 'agent:start' `
+        $queued = gh issue list --repo $KanbanRepo --state open --label 'agent:backlog' `
             --json number --limit 1 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
         if ($queued -and $queued.Count -gt 0) { $IssueNumber = $queued[0].number }
     }
@@ -309,7 +308,7 @@ function Invoke-Implement {
 
     if ($branch -ne $expectedBranch) {
         Write-Log "  Creating feature branch for issue #$IssueNumber..." -Color DarkGray
-        Add-Comment -Number $IssueNumber -Body "🚀 Picked up via agent:start — creating branch ``$expectedBranch``."
+        Add-Comment -Number $IssueNumber -Body "🚀 Picked up via agent:backlog — creating branch ``$expectedBranch``."
         $branch = New-FeatureBranch -Number $IssueNumber -Title $meta.title
     }
 
@@ -325,19 +324,18 @@ function Invoke-Implement {
     Ensure-AgentLabels
 
     $calledDirectly = $MyInvocation.InvocationName -ne '.'
-    if ($calledDirectly) { Set-IssueLabel -Number $IssueNumber -Add 'agent:implementing' }
+    if ($calledDirectly) { Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing' }
 
     try {
         Invoke-Refine      -Number $IssueNumber
         Invoke-Develop     -Number $IssueNumber -Branch $branch
         $prUrl = Invoke-CommitAndPR -Number $IssueNumber -Title $meta.title -Branch $branch
 
-        if ($calledDirectly) { Set-IssueLabel -Number $IssueNumber -Remove 'agent:implementing' }
         Write-Log "✅ Implement complete — PR at $prUrl" -Color Green
         return $prUrl
     } catch {
         if ($calledDirectly) {
-            Set-IssueLabel -Number $IssueNumber -Remove 'agent:implementing' -Add 'agent:failed'
+            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
         }
         Add-Comment -Number $IssueNumber -Body "❌ **Implement stage failed**`n``````$_``````"
         throw

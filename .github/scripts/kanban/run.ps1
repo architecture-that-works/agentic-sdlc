@@ -5,8 +5,8 @@
 
 .DESCRIPTION
     Default: polls GitHub every PollIntervalSeconds for issues labelled
-    agent:start and runs the full pipeline on each (implement → review loop →
-    merge). Also recovers orphaned Implementing-lane items from interrupted runs.
+    agent:backlog and runs the full pipeline on each (implement → review loop →
+    merge). Also resumes stalled Implementing-lane items from interrupted runs.
 
     Direct mode (-Issue N): runs the pipeline once for the given issue and exits.
 
@@ -41,8 +41,8 @@ $ErrorActionPreference = 'Stop'
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-function Get-StartTriggeredIssues {
-    $raw = gh issue list --repo $KanbanRepo --state open --label 'agent:start' `
+function Get-BacklogIssues {
+    $raw = gh issue list --repo $KanbanRepo --state open --label 'agent:backlog' `
         --json number,title --limit 50 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -or -not $raw.Trim()) { return @() }
     $issues = $raw | ConvertFrom-Json -ErrorAction SilentlyContinue
@@ -50,7 +50,7 @@ function Get-StartTriggeredIssues {
     return $issues
 }
 
-function Get-OrphanedIssues {
+function Get-StalledIssues {
     $items = gh project item-list $KanbanProjectNumber `
         --owner $KanbanProjectOwner --format json --limit 200 |
         ConvertFrom-Json |
@@ -65,16 +65,14 @@ function Get-OrphanedIssues {
         $raw    = gh issue view $_.content.number --repo $KanbanRepo --json labels `
             --jq '[.labels[].name]' 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
         $labels = if ($raw) { $raw } else { @() }
-        -not ($labels -contains 'agent:implementing' -or
-              $labels -contains 'agent:review'       -or
-              $labels -contains 'agent:failed')
+        $labels -contains 'agent:implementing'
     }
 }
 
 # ── Full pipeline for one issue ───────────────────────────────────────────────
 
 function Invoke-Pipeline {
-    param([int]$IssueNumber)
+    param([int]$IssueNumber, [switch]$Force)
 
     $meta   = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
     $jq     = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .status"
@@ -85,19 +83,13 @@ function Invoke-Pipeline {
     Write-Log "    Current lane: $status" -Color DarkGray
 
     Ensure-AgentLabels
-    Set-IssueLabel -Number $IssueNumber -Remove 'agent:start' -Add 'agent:implementing'
+    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
 
     $stash   = git stash 2>&1
     $stashed = $stash -notmatch 'No local changes'
 
-    # Force re-implementation when picking up an issue that was previously rejected,
-    # so the agent addresses review feedback rather than skipping straight to review.
-    $rejCount = [int](gh issue view $IssueNumber --repo $KanbanRepo --json comments `
-        --jq '[.comments[] | select(.body | startswith("## 🤖 Agent Review — REJECTED"))] | length' `
-        2>&1 | Out-String).Trim()
-
     try {
-        Invoke-Implement -IssueNumber $IssueNumber -Force:($rejCount -gt 0) | Out-Null
+        Invoke-Implement -IssueNumber $IssueNumber -Force:$Force | Out-Null
 
         $branch = Get-BranchName -Number $IssueNumber -Title $meta.title
         $prList = gh pr list --head $branch --json number --limit 1 | ConvertFrom-Json
@@ -118,21 +110,18 @@ function Invoke-Pipeline {
         }
 
         if (-not $approved) {
-            Set-IssueLabel -Number $IssueNumber -Remove 'agent:implementing' -Add 'agent:failed'
-            Move-ToLane -IssueNumber $IssueNumber -OptionId $KanbanOpt_Backlog -LaneName 'Backlog'
+            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
             Add-Comment -Number $IssueNumber -Body "⛔ Pipeline gave up after $MaxRetries review cycles. Manual intervention required."
             Write-Log "⛔ Gave up after $MaxRetries cycles for issue #$IssueNumber." -Color Red
             return
         }
 
-        Set-IssueLabel -Number $IssueNumber -Remove 'agent:implementing'
         Invoke-Merge -IssueNumber $IssueNumber -PRNumber $prNum
 
         Write-Log "🎉 Issue #$IssueNumber complete." -Color Green
 
     } catch {
-        Set-IssueLabel -Number $IssueNumber -Remove 'agent:implementing' -Add 'agent:failed'
-        Move-ToLane -IssueNumber $IssueNumber -OptionId $KanbanOpt_Backlog -LaneName 'Backlog'
+        Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
         Add-Comment -Number $IssueNumber -Body "❌ **Pipeline error**`n``````$_``````"
         Write-Log "❌ Pipeline error for issue #$IssueNumber : $_" -Color Red
     } finally {
@@ -145,22 +134,23 @@ function Invoke-Pipeline {
 if ($Issue -gt 0) {
     Invoke-Pipeline -IssueNumber $Issue
 } else {
-    Write-Log "▶ run — polling every ${PollIntervalSeconds}s for agent:start. Ctrl+C to stop." -Color Cyan
+    Write-Log "▶ run — polling every ${PollIntervalSeconds}s for agent:backlog. Ctrl+C to stop." -Color Cyan
     while ($true) {
         try {
-            $triggered = @(Get-StartTriggeredIssues)
-            foreach ($issue in $triggered) {
-                Write-Log "  🎯 agent:start on #$($issue.number) '$($issue.title)' — picking up." -Color Cyan
-                Invoke-Pipeline -IssueNumber $issue.number
+            $backlog = @(Get-BacklogIssues)
+            $stalled = @(Get-StalledIssues)
+
+            $backlog | Sort-Object { $_.number } | ForEach-Object {
+                Write-Log "  🎯 agent:backlog on #$($_.number) '$($_.title)' — picking up." -Color Cyan
+                Invoke-Pipeline -IssueNumber $_.number
             }
 
-            $orphaned = @(Get-OrphanedIssues)
-            foreach ($item in $orphaned) {
-                Write-Log "  ⚠️ Orphaned #$($item.content.number) in Implementing — resuming." -Color Yellow
-                Invoke-Pipeline -IssueNumber $item.content.number
+            $stalled | Sort-Object { $_.content.number } | ForEach-Object {
+                Write-Log "  ⚠️ Stalled #$($_.content.number) in Implementing — resuming." -Color Yellow
+                Invoke-Pipeline -IssueNumber $_.content.number -Force:$true
             }
 
-            if ($triggered.Count -eq 0 -and $orphaned.Count -eq 0) {
+            if ($backlog.Count -eq 0 -and $stalled.Count -eq 0) {
                 Write-Log "  Idle." -Color DarkGray
             }
         } catch {

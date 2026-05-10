@@ -1,12 +1,12 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Queue a Backlog issue for agent pickup by assigning the agent:start label.
+    Queue a Backlog issue for agent pickup by assigning the agent:backlog label.
 
 .DESCRIPTION
     Lists all Backlog issues in the GitHub Project filtered to this repo.
     Prompts for selection (or accepts -Issue <N> directly), then assigns
-    the agent:start label. Branch creation and implementation are handled
+    the agent:backlog label. Branch creation and implementation are handled
     by 'task implement' or 'task run'.
 
 .PARAMETER Issue
@@ -65,11 +65,11 @@ function Invoke-Start {
     $num = $selected.content.number
     $url = $selected.content.url
 
-    Set-IssueLabel -Number $num -Remove 'agent:failed' -Add 'agent:start'
+    Set-AgentState -IssueNumber $num -Label 'agent:backlog'
 
     Write-Host ""
     Write-Host "  Issue   : $url" -ForegroundColor Cyan
-    Write-Host "  Queued  : agent:start assigned ✅" -ForegroundColor Green
+    Write-Host "  Queued  : agent:backlog assigned ✅" -ForegroundColor Green
     Write-Host "  Next    : run 'task run' to process." -ForegroundColor DarkGray
     Write-Host ""
 
