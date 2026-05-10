@@ -2,6 +2,10 @@
 
 {{ description }}
 
+| Key | Value |
+|-----|-------|
+| Project Type | {{ project_type }} |
+
 ---
 
 ## Glossary

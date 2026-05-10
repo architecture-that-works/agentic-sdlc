@@ -7,6 +7,7 @@
 | Key | Value |
 |-----|-------|
 | Stack | Python + UV |
+| Project Type | {{ project_type }} |
 | Entry point | `main.py` |
 | Config | `src/config.py` (pydantic-settings, loads `.env`) |
 
@@ -51,6 +52,8 @@ Invoke the relevant skill before implementing manually. Skills are located in `.
 | `application-development` | REST APIs, FastAPI, Pydantic validation, auth patterns |
 | `data-engineering` | Medallion pipeline, SQLAlchemy, Polars, DuckLake |
 | `agentic-development` | Plan-Act-Observe loops, tool use, multi-agent coordination |
+
+Domain-specific information for this **{{ project_type }}** project is captured in ADRs matching this type — see `docs/adr/ADR-007-project-type-selection.md` and any domain ADRs with `Status: Accepted`.
 
 ## Repository Layout
 
