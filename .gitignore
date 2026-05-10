@@ -15,8 +15,12 @@ dist/
 *.egg-info/
 
 # Test artefacts
+.pytest_cache/
 .coverage
 htmlcov/
+
+# Linter cache
+.ruff_cache/
 
 # Kanban pipeline logs
 logs/
