@@ -211,8 +211,14 @@ function Invoke-CommitAndPR {
     # Stage only known-safe paths rather than git add . — an agent implementation
     # can create .env files, credentials, or other sensitive artefacts; the allowlist
     # ensures nothing outside these directories ever reaches the index.
-    git add -- src/ tests/ docs/ .github/ CONTEXT.md AGENTS.md Taskfile.yml pyproject.toml uv.lock `
-        .gitignore .gitattributes copier.yml copier.yaml README.md CHANGELOG.md Makefile 2>&1 | Out-Null
+    # Only include entries that actually exist to avoid git exit-code 128 on missing pathspecs.
+    $safeRoots = @('src/', 'tests/', 'docs/', '.github/', 'CONTEXT.md', 'AGENTS.md',
+        'Taskfile.yml', 'pyproject.toml', 'uv.lock', '.gitignore', 'copier.yml',
+        '.gitattributes', 'copier.yaml', 'README.md', 'CHANGELOG.md', 'Makefile') |
+        Where-Object { Test-Path $_ }
+    if ($safeRoots) {
+        git add -- @safeRoots 2>&1 | Out-Null
+    }
 
     # Guard: inspect every staged path against a denylist and silently unstage any match.
     $denyPatterns = @('.env', '*.key', '*.pem', '*secret*', '*credential*')
