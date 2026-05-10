@@ -28,6 +28,18 @@ Enforces consistent branch, commit, and PR conventions so that every piece of wo
 
 **Do NOT use for:** Configuring CI/CD (→ `harness`), reviewing PR content (→ `review`), merging (→ `ship`).
 
+## Required Inputs
+
+- GitHub Issue number (required — the traceability anchor for all branch and PR operations)
+- Issue title (for branch slug and PR title)
+- Local git repository with `gh` CLI authenticated
+
+## Primary Outputs
+
+- Feature branch named `feature/{issue-number}-{dense-slug}`
+- Commit with message following `<type>(<scope>): <description>` format and `Closes #N`
+- PR with title, summary, and `Closes #N` in body
+
 ## Core Pattern
 
 ### Branch Naming

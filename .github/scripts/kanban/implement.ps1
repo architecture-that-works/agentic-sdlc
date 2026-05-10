@@ -91,7 +91,7 @@ function Invoke-Develop {
     Move-ToLane -IssueNumber $Number -OptionId $KanbanOpt_Implementing -LaneName 'Implementing'
     Add-Comment -Number $Number -Body "🌿 Branch ``$Branch`` checked out. Claude Code starting implementation..."
 
-    if ((Get-ChildItem .agents/skills -Filter *.md -ErrorAction SilentlyContinue).Count -eq 0) {
+    if ((Get-ChildItem .agents/skills -Recurse -Filter *.md -ErrorAction SilentlyContinue).Count -eq 0) {
         Write-Log "⚠️ Skills directory is empty — agent constraints will not be applied." -Color Yellow
     }
 

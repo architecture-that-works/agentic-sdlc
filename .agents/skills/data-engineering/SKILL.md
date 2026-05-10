@@ -15,9 +15,9 @@ ELT pipelines following a Mini-Medallion architecture (Raw → Bronze → Silver
 
 **Owns:** ELT pipeline design and implementation, Medallion tier definitions and boundaries, SQLAlchemy Core (Bronze bulk inserts) and ORM (Silver/Gold transformations), Polars for pipeline data transformations, DuckLake storage backend configuration, storage backend selection (SQLite vs DuckLake), Pydantic boundary validation (the Sandwich), upsert logic, data quality gates, schema contracts, feature pipeline implementation (computing features at scale — not designing them), lineage event emission from pipeline steps (OpenLineage).
 
-**Does not own:** Feature design — which features to compute and why (→ `refine`), model training pipelines (→ `agentic-development`), general telemetry instrumentation (→ `harness`).
+**Does not own:** Feature design — which features to compute and why (→ `refine`), model training pipelines (→ `agentic-engineering`), general telemetry instrumentation (→ `harness`).
 
-**Interfaces with:** `refine` — feature requirements and domain boundaries are specified there; data-engineering implements the Gold pipeline against those specs. `tdd` — integration tests for each pipeline stage drive the RED phase. `application-development` — Gold tables / Parquet datasets are the contract for downstream APIs.
+**Interfaces with:** `refine` — feature requirements and domain boundaries are specified there; data-engineering implements the Gold pipeline against those specs. `tdd` — integration tests for each pipeline stage drive the RED phase. `application-engineering` — Gold tables / Parquet datasets are the contract for downstream APIs.
 
 ## When to Use
 
@@ -31,7 +31,34 @@ ELT pipelines following a Mini-Medallion architecture (Raw → Bronze → Silver
 
 **Do NOT use for:**
 - Deciding which features to engineer (→ `refine`)
-- Model training pipelines (→ `agentic-development`)
+- Model training pipelines (→ `agentic-engineering`)
+
+## Required Inputs
+
+- Feature specification from `refine` (which features to compute and why)
+- Source data schema (raw input format)
+- Storage backend decision (SQLite vs DuckLake)
+- Acceptance criteria from Lean PRD testing decisions (from `plan`)
+
+## Primary Outputs
+
+- Medallion pipeline (Raw → Bronze → Silver → Gold)
+- SQLAlchemy models and Polars transformation functions
+- Data quality gate checks (row count, type contract, Zero-Null policy)
+- Integration tests covering each pipeline stage output
+
+## tdd REFACTOR Phase Patterns
+
+When the GREEN phase is complete, extend the REFACTOR phase with these data-engineering patterns:
+
+- **Medallion boundary enforcement:** Each tier function must read only from the tier below and write only to its own tier. If Bronze logic appears in Silver, extract it back to Bronze.
+- **Polars over Pandas:** If Pandas appears in pipeline code after GREEN, replace with Polars equivalents. Exception: boundary conversion for downstream libraries that strictly require `pd.DataFrame`.
+- **Pydantic Sandwich tightening:** All data entering a SQLAlchemy session or Polars write must pass through a Pydantic model. If raw dict access appears after GREEN, extract a validator.
+- **Zero-Null gate completeness:** The Gold layer must enforce null-free output. If `test_gold_no_nulls` passes but the interpolation logic is fragile, refactor the interpolation to be explicit and idempotent.
+- **Upsert idempotency:** Bronze upsert logic must be safe to run multiple times on the same source file. If the test suite doesn't cover duplicate ingestion, add a test and fix the logic if it fails.
+- **Lineage event coverage:** Every pipeline stage boundary should emit an OpenLineage event. If missing after GREEN, add it in REFACTOR.
+
+---
 
 ## Core Pattern
 
@@ -124,7 +151,7 @@ Use separate `Pydantic(BaseModel)` + `SQLAlchemy(Base)` only when the validation
 |---|---|
 | **DuckLake** | Production data lake with multi-consumer access (PostgreSQL catalog + Parquet) |
 | **PySpark** | Data exceeds single-machine capacity; Databricks environment |
-| **Dagster** | Mature orchestration with Software-Defined Assets, built-in lineage, scheduling — see `docs/adr/ADR-005-pipeline-orchestration.md` |
+| **Dagster** | Mature orchestration with Software-Defined Assets, built-in lineage, scheduling |
 | **OpenLineage + Marquez** | Data lineage tracking at scale across pipeline stages |
 | **dbt** | Team is strongly SQL-heavy and Python transformations are not preferred |
 

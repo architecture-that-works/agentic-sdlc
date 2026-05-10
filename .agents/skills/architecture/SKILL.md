@@ -28,6 +28,19 @@ Prevents structural drift and unplanned side-effects by making the dependency to
 
 **Do NOT use for:** Domain modelling or glossary decisions (→ `refine`), writing implementation code (→ `tdd`).
 
+## Required Inputs
+
+- Current codebase
+- `CONTEXT.md` bounded contexts (defines the layer boundaries to validate against)
+- PR diff or list of proposed changed modules
+
+## Primary Outputs
+
+- Dependency graph (written to filesystem — never loaded into context in full)
+- Blast-radius report (posted as a PR comment via `gh pr comment`)
+- List of blocked / at-risk / safe modules
+- Refactoring recommendation (proceed | refactor first | block)
+
 ## Core Pattern
 
 ### Dependency Analysis

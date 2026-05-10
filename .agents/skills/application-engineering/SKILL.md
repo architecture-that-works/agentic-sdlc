@@ -35,6 +35,29 @@ Covers the design and implementation of production AI application services. The 
 - Multi-step orchestration with tool calls across iterations (→ `agentic-engineering`)
 - Infrastructure or deployment configuration (→ `harness`)
 
+## Required Inputs
+
+- Domain model and port interfaces (from `refine`)
+- Acceptance criteria from Lean PRD testing decisions (from `plan`)
+- ADR-003 (OTel instrumentation standard) and ADR-004 (IAM provider) from `docs/adr/`
+
+## Primary Outputs
+
+- FastAPI router with Pydantic-validated request/response models
+- `AICompletionPort` abstraction with `ClaudeAdapter` implementation
+- OTel-instrumented service layer (one span per Claude call)
+- Contract tests using `FakeAIPort` (Claude never called in tests)
+
+## tdd REFACTOR Phase Patterns
+
+When the GREEN phase is complete, extend the REFACTOR phase with these application-engineering patterns:
+
+- **Router → Service → Port:** Business logic must not live in the router. Move any logic from routers into the service layer. Claude must be accessed only through an abstract `AICompletionPort`.
+- **Deep service modules:** The service's public interface should be minimal — one method per use case. Move validation, retry, and OTel span creation behind this interface.
+- **Port/adapter split:** If the `ClaudeAdapter` is too thick (contains business logic), extract it. Adapters translate; services orchestrate.
+- **Contract test completeness:** Every public endpoint must have a contract test using `FakeAIPort`. If a test calls the real Claude, extract it into an integration test suite gated by an env var.
+- **OTel span per Claude call:** Each `AICompletionPort.complete` or `complete_structured` call must be wrapped in a tracer span. If it isn't after GREEN, add it in REFACTOR.
+
 ---
 
 ## Core Patterns
@@ -183,8 +206,6 @@ class AnalysisService:
             return result
 ```
 
-Confirm: `trace_id` present on all structured log records; one span per Claude call; exporter target via env var (`OTEL_EXPORTER_OTLP_ENDPOINT`), never hardcoded.
-
 ### Streaming AI Responses via SSE
 
 Stream Claude output directly to the client. Do not buffer the full response.
@@ -312,18 +333,6 @@ def test_analyse_response_contract(client: TestClient) -> None:
 ```
 
 Test the contract, not the AI output. The `FakeAIPort` is the controlled collaborator — Claude itself is never called in unit tests.
-
-### Background Tasks
-
-```python
-from fastapi import BackgroundTasks
-
-@app.post("/v1/analyse")
-async def analyse(request: AnalyseRequest, background_tasks: BackgroundTasks):
-    result = await service.analyse(request)
-    background_tasks.add_task(audit_log, request, result)
-    return result
-```
 
 ### Running with UV
 

@@ -27,6 +27,19 @@ Prevents defects and architectural drift from reaching `main` by running a struc
 
 **Do NOT use for:** Writing implementation code (→ `tdd`), running topology analysis (→ `architecture`), merging or closing issues (→ `ship`).
 
+## Required Inputs
+
+- Open PR number
+- `CONTEXT.md` (architectural constraints for Senior Architect enforcement)
+- Blast-radius report from `architecture` (if available)
+
+## Primary Outputs
+
+- Review report with severity-tagged findings (BLOCK / WARN / INFO)
+- Auto-fix commits in an isolated worktree (for each BLOCK/WARN resolved)
+- HITL escalation comment + label (for findings not resolved after 3 iterations)
+- Confirmed clean PR ready for `ship`
+
 ## Core Pattern
 
 ### Step 1 — Review
