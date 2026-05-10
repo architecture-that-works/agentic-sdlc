@@ -167,9 +167,13 @@ function New-FeatureBranch {
     if (git branch --list $branch) {
         if ($current -ne $branch) { git checkout --quiet $branch }
     } else {
-        if ($current -ne $default) { git checkout --quiet $default }
-        git pull --ff-only --quiet origin $default 2>$null
-        if ($LASTEXITCODE -ne 0) { throw "git pull --ff-only failed on $default" }
+        if ($current -ne $default) {
+            git checkout --quiet $default
+            if ($LASTEXITCODE -ne 0) { throw "Could not switch to $default before creating feature branch" }
+        }
+        git fetch --quiet origin $default 2>$null
+        git reset --hard --quiet "origin/$default" 2>$null
+        if ($LASTEXITCODE -ne 0) { throw "Could not sync $default with origin" }
 
         gh issue develop $Number --name $branch --base $default --checkout 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0) {

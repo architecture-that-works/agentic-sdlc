@@ -146,7 +146,8 @@ $contextContent
     $defaultBranch = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'
     git push origin $defaultBranch 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        Write-Log "  ⚠️ Push failed for context update — committed locally but not pushed." -Color Yellow
+        Write-Log "  ⚠️ Push failed for context update — reverting local commit to keep $defaultBranch in sync." -Color Yellow
+        git reset --hard --quiet "origin/$defaultBranch" 2>&1 | Out-Null
     } else {
         Write-Log "  ✅ CONTEXT.md updated — $commitMsg" -Color Green
     }
@@ -210,7 +211,16 @@ function Invoke-Merge {
 
     $default = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'
     git checkout --quiet $default
-    git pull --ff-only --quiet origin $default 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not switch to $default after merge — context update skipped." -Color Yellow
+        return
+    }
+    git fetch --quiet origin $default 2>$null
+    git reset --hard --quiet "origin/$default" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not sync $default with origin — context update skipped." -Color Yellow
+        return
+    }
 
     Invoke-ContextUpdate -IssueNumber $IssueNumber
 

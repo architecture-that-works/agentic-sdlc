@@ -126,6 +126,22 @@ function Invoke-Pipeline {
         Write-Log "❌ Pipeline error for issue #$IssueNumber : $_" -Color Red
     } finally {
         if ($stashed) { git stash pop 2>&1 | Out-Null }
+
+        # Always return to a clean, origin-synced master so the next issue can start fresh.
+        $default = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>$null
+        $curr    = git rev-parse --abbrev-ref HEAD 2>$null
+
+        if ($curr -and $curr -ne $default) {
+            # Re-stash any working-tree state (e.g. from stash pop) so checkout can succeed.
+            if (git status --porcelain 2>$null) {
+                git stash push --include-untracked --quiet `
+                    -m "auto: pre-master-switch from issue #$IssueNumber pipeline" 2>$null
+            }
+            Write-Log "  ↩ Returning to $default (feature branch '$curr' preserved for human review)." -Color DarkGray
+            git checkout --quiet $default 2>$null
+        }
+        git fetch --quiet origin $default 2>$null
+        git reset --hard --quiet "origin/$default" 2>$null
     }
 }
 
