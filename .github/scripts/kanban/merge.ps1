@@ -98,8 +98,9 @@ $contextContent
         return
     }
 
-    # Detect which sections are being updated
+    # Detect which sections are being updated and collect added content per section
     $updatedSections = [System.Collections.Generic.List[string]]::new()
+    $sectionLines    = @{}   # section name -> list of added lines (leading '+' stripped)
     $currentSection  = ''
     foreach ($line in ($response -split '\r?\n')) {
         $content = $line -replace '^[ +]', ''
@@ -108,8 +109,13 @@ $contextContent
         elseif ($content -match '^## Out of Scope')     { $currentSection = 'Out of Scope' }
         elseif ($content -match '^## ')                 { $currentSection = '' }
 
-        if ($line -match '^\+[^\+]' -and $currentSection -and -not $updatedSections.Contains($currentSection)) {
-            $updatedSections.Add($currentSection)
+        if ($line -match '^\+[^\+]' -and $currentSection) {
+            if (-not $updatedSections.Contains($currentSection)) {
+                $updatedSections.Add($currentSection)
+                $sectionLines[$currentSection] = [System.Collections.Generic.List[string]]::new()
+            }
+            $added = $line.Substring(1).Trim()
+            if ($added) { $sectionLines[$currentSection].Add($added) }
         }
     }
 
@@ -145,9 +151,21 @@ $contextContent
         Write-Log "  ✅ CONTEXT.md updated — $commitMsg" -Color Green
     }
 
-    # Post comment listing updated sections
+    # Post comment listing updated sections and what was added
     $sectionsText = if ($updatedSections.Count -gt 0) { $updatedSections -join ', ' } else { 'CONTEXT.md' }
-    $commentBody  = "📝 **CONTEXT.md auto-updated** after merge of #$IssueNumber.`nSections updated: **$sectionsText**"
+    $commentParts = [System.Collections.Generic.List[string]]::new()
+    $commentParts.Add("📝 **CONTEXT.md auto-updated** after merge of #$IssueNumber.")
+    $commentParts.Add("Sections updated: **$sectionsText**")
+    foreach ($section in $updatedSections) {
+        if ($sectionLines.ContainsKey($section) -and $sectionLines[$section].Count -gt 0) {
+            $commentParts.Add("")
+            $commentParts.Add("**$section**")
+            foreach ($entry in $sectionLines[$section]) {
+                $commentParts.Add("- $entry")
+            }
+        }
+    }
+    $commentBody = $commentParts -join "`n"
     Add-Comment -Number $IssueNumber -Body $commentBody
 }
 
