@@ -85,13 +85,19 @@ function Invoke-Pipeline {
     Write-Log "    Current lane: $status" -Color DarkGray
 
     Ensure-AgentLabels
-    Set-IssueLabel -Number $IssueNumber -Add 'agent:implementing'
+    Set-IssueLabel -Number $IssueNumber -Remove 'agent:start' -Add 'agent:implementing'
 
     $stash   = git stash 2>&1
     $stashed = $stash -notmatch 'No local changes'
 
+    # Force re-implementation when picking up an issue that was previously rejected,
+    # so the agent addresses review feedback rather than skipping straight to review.
+    $rejCount = [int](gh issue view $IssueNumber --repo $KanbanRepo --json comments `
+        --jq '[.comments[] | select(.body | startswith("## 🤖 Agent Review — REJECTED"))] | length' `
+        2>&1 | Out-String).Trim()
+
     try {
-        Invoke-Implement -IssueNumber $IssueNumber | Out-Null
+        Invoke-Implement -IssueNumber $IssueNumber -Force:($rejCount -gt 0) | Out-Null
 
         $branch = Get-BranchName -Number $IssueNumber -Title $meta.title
         $prList = gh pr list --head $branch --json number --limit 1 | ConvertFrom-Json
@@ -113,6 +119,7 @@ function Invoke-Pipeline {
 
         if (-not $approved) {
             Set-IssueLabel -Number $IssueNumber -Remove 'agent:implementing' -Add 'agent:failed'
+            Move-ToLane -IssueNumber $IssueNumber -OptionId $KanbanOpt_Backlog -LaneName 'Backlog'
             Add-Comment -Number $IssueNumber -Body "⛔ Pipeline gave up after $MaxRetries review cycles. Manual intervention required."
             Write-Log "⛔ Gave up after $MaxRetries cycles for issue #$IssueNumber." -Color Red
             return
@@ -125,6 +132,7 @@ function Invoke-Pipeline {
 
     } catch {
         Set-IssueLabel -Number $IssueNumber -Remove 'agent:implementing' -Add 'agent:failed'
+        Move-ToLane -IssueNumber $IssueNumber -OptionId $KanbanOpt_Backlog -LaneName 'Backlog'
         Add-Comment -Number $IssueNumber -Body "❌ **Pipeline error**`n``````$_``````"
         Write-Log "❌ Pipeline error for issue #$IssueNumber : $_" -Color Red
     } finally {
@@ -143,7 +151,6 @@ if ($Issue -gt 0) {
             $triggered = @(Get-StartTriggeredIssues)
             foreach ($issue in $triggered) {
                 Write-Log "  🎯 agent:start on #$($issue.number) '$($issue.title)' — picking up." -Color Cyan
-                Set-IssueLabel -Number $issue.number -Remove 'agent:start'
                 Invoke-Pipeline -IssueNumber $issue.number
             }
 

@@ -70,13 +70,17 @@ function Ensure-AgentLabels {
 
 function Set-IssueLabel {
     param([int]$Number, [string]$Add = '', [string]$Remove = '')
-    if ($Remove) {
+    if ($Remove -and $Add) {
+        $out = gh issue edit $Number --repo $KanbanRepo --remove-label $Remove --add-label $Add 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "  ⚠️ Failed to swap label '$Remove' → '$Add' on #${Number}: $($out.Trim())" -Color Yellow
+        }
+    } elseif ($Remove) {
         $out = gh issue edit $Number --repo $KanbanRepo --remove-label $Remove 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
             Write-Log "  ⚠️ Failed to remove label '$Remove' on #${Number}: $($out.Trim())" -Color Yellow
         }
-    }
-    if ($Add) {
+    } elseif ($Add) {
         $out = gh issue edit $Number --repo $KanbanRepo --add-label $Add 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
             Write-Log "  ⚠️ Failed to add label '$Add' on #${Number}: $($out.Trim())" -Color Yellow
