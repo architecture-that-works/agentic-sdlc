@@ -17,6 +17,7 @@ dev = [
     "ruff>=0.9.0",
     "pytest-cov>=7.1.0",
     "pip-audit>=2.10.0",
+    "copier>=9.0.0",
 ]
 
 [build-system]

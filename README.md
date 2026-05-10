@@ -32,6 +32,7 @@ uvx copier copy gh:your-username/my_template_repo path/to/new-project
 Copier will prompt for:
 - `project_name` — hyphenated name (e.g. `my-new-project`)
 - `description` — one-line project description
+- `project_type` — target project type: `application` (default), `agent`, or `ml`
 
 **3. Replace the logging stub**
 ```bash

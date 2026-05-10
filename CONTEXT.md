@@ -2,6 +2,10 @@
 
 {{ description }}
 
+| Key | Value |
+|-----|-------|
+| Project Type | {{ project_type }} |
+
 ---
 
 ## Glossary
@@ -41,5 +45,5 @@ Concepts explicitly deferred or rejected. Prevents re-proposal in planning sessi
 
 | Concept | Reason deferred | Date |
 |---------|-----------------|------|
-| Multi-variant template (base/ml/application) | Collapsed to single-template layout for simplicity | 2026-05-09 |
+| Multi-variant template (separate per-type scaffolds) | Single template with project_type prompt; specialised directory stubs deferred | 2026-05-10 |
 | Gemini as primary AI provider | Claude-first; Gemini reserved as future secondary slot | 2026-05-09 |

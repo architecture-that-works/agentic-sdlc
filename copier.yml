@@ -7,6 +7,12 @@ description:
     help: "One-line project description"
     default: "Add your description here"
 
+project_type:
+    type: str
+    choices: [application, agent, ml]
+    default: application
+    help: "Target project type — determines starter directory structure and accepted ADRs"
+
 _exclude:
     - ".git"
     - ".venv"
@@ -14,6 +20,7 @@ _exclude:
     - "uv.lock"
     - "copier.yml"
     - "logs"
+    - "tests/test_copier_template.py"
 
 _tasks:
     - "python -c \"import pathlib; p=pathlib.Path('pyproject.toml'); p.write_text(p.read_text().replace('my-template-repo', '{{ project_name }}'))\""
