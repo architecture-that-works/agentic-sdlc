@@ -1,5 +1,3 @@
-import subprocess
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,7 +21,7 @@ def test_load_answers_parses_yaml(tmp_path: Path) -> None:
     assert result["project_type"] == "application"
 
 
-def test_load_answers_ignores_copier_private_keys(tmp_path: Path) -> None:
+def test_load_answers_returns_all_keys_including_private(tmp_path: Path) -> None:
     answers_file = tmp_path / ".copier-answers.yml"
     answers_file.write_text(
         "_commit: abc123\n_src_path: /tmp/tpl\nproject_name: proj\n",
