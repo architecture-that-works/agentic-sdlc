@@ -12,6 +12,12 @@ Accepted
 
 At project generation time, a `project_type` was selected to signal the primary domain of this project. This ADR records that choice and its implications for which domain-specific ADRs are relevant and which domain skill to invoke during the `tdd` REFACTOR phase.
 
+## Considered Options
+
+* application — general-purpose REST APIs, workers, and CLI tools
+* agent — Plan-Act-Observe loop projects with OTel span emission per iteration
+* ml — Medallion pipeline and MLOps projects with experiment tracking
+
 ## Decision Outcome
 
 Chosen: **{{ project_type }}**
