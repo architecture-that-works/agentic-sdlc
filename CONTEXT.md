@@ -13,7 +13,7 @@ __PROJECT_DESCRIPTION__
 
 | Term | Definition | Disambiguation |
 |------|------------|----------------|
-| Director Workflow | Label-driven agentic pipeline: `agent:start` triggers implement → review → merge | Not the same as a human code review |
+| Orchestrator Workflow | Label-driven agentic pipeline: `agent:backlog` triggers implement → review → merge | Not the same as a human code review |
 | ISSUES.md | Local backlog of Agile User Story blocks, synced to GitHub Issues via `task sync` | Separate from GitHub Issues themselves |
 | Kanban lane | GitHub Project board column mapped to an `agent:*` label | Managed automatically by `kanban-lanes.yml` |
 
@@ -24,7 +24,7 @@ __PROJECT_DESCRIPTION__
 | `src/` | Application logic, config, utilities | Developer tooling |
 | `src/tools/` | Developer CLI utilities (`commit-msg`) | Application business logic |
 | `.agents/skills/` | AI workflow constraints and patterns | Runtime code |
-| `.github/scripts/kanban/` | Director Workflow pipeline orchestration | Application features |
+| `.github/scripts/kanban/` | Orchestrator Workflow pipeline orchestration | Application features |
 
 ## Architectural Constraints
 

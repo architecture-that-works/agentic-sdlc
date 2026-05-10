@@ -56,7 +56,7 @@ Copier will prompt for:
 # Drop your m_log.py into src/utils/ — interface: f_log(), setup_logging(), f_log_execution()
 ```
 
-**4. Wire up the Director Workflow** — once per project:
+**4. Wire up the Orchestrator Workflow** — once per project:
 
 a. Create a GitHub Project (Projects v2, Kanban board) with a **Status** field containing at least: `Backlog`, `Implementing`, `Review`, `Merged`.
 
@@ -161,9 +161,9 @@ ADRs for tool selection decisions are in `docs/adr/`. See `ADR-000` for the temp
 
 ---
 
-### Director Workflow — Automated Pipeline
+### Orchestrator Workflow — Automated Pipeline
 
-The Director Workflow is the autonomous execution layer. Once an issue is queued, the pipeline runs end-to-end: branch → implement → review → merge.
+The Orchestrator Workflow is the autonomous execution layer. Once an issue is queued, the pipeline runs end-to-end: branch → implement → review → merge.
 
 #### State machine
 
@@ -219,6 +219,6 @@ In polling mode, issues are always processed **lowest issue number first** withi
 
 #### Issue body template
 
-Issues used with the Director Workflow should follow the structure defined in `ISSUES.md`. The pipeline's refine phase will apply the template automatically if the body is missing required fields.
+Issues used with the Orchestrator Workflow should follow the structure defined in `ISSUES.md`. The pipeline's refine phase will apply the template automatically if the body is missing required fields.
 
 ---

@@ -46,7 +46,7 @@ template/**                         (if present — signals template isolation c
 .agents/**                          skill system files
 docs/adr/**                         Architecture Decision Records
 .github/workflows/**                all CI/CD and automation workflows
-.github/scripts/**                  Director Workflow pipeline scripts
+.github/scripts/**                  Orchestrator Workflow pipeline scripts
 .github/dependabot.yml              (if present)
 ```
 
