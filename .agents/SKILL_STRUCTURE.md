@@ -118,8 +118,7 @@ fill level.
 - Pragmatic Programmer integration during grilling: dig for requirements (PP-51), think like a
   user (PP-52), prioritise long-lived abstractions over implementation details (PP-53), surface
   broken windows (PP-4), propose options not excuses (PP-3).
-- Context window initialisation: CONTEXT.md is loaded first in every new session; the agent
-  must flag if current context fill would push into the Transition Zone before alignment begins.
+- Context window initialisation: CONTEXT.md → AGENTS.md → ADR_STRUCTURE.md (filtered by `project_type`) loaded in that order at the start of every session; the agent must flag if current context fill would push into the Transition Zone before alignment begins.
 
 **Does not own:** Architecture mapping or static analysis (→ `architecture`), PRD or issue
 creation (→ `plan`), code implementation (→ `tdd`).
@@ -260,7 +259,7 @@ and durable event log
   resetting the session, and re-initialising from CONTEXT.md. Exception: reference-only
   contexts (agent reads large codebases without synthesising novel solutions) may safely exceed
   250k tokens.
-- CONTEXT.md and AGENTS.md loading at session start.
+- CONTEXT.md, AGENTS.md, and `docs/adr/ADR_STRUCTURE.md` loading at session start (in that order). After reading `ADR_STRUCTURE.md`, only the ADRs matching the current `project_type` are loaded into context.
 
 **Does not own:** CONTEXT.md content or the grill-me protocol (→ `refine`), TDD loop logic (→
 `tdd`), PR review (→ `review`), merge and governance (→ `ship`).

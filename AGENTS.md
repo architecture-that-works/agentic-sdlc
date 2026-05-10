@@ -17,11 +17,14 @@ Load in this order at the start of every session:
 
 1. `CONTEXT.md` — domain glossary, bounded contexts, and architectural constraints
 2. `AGENTS.md` — this file; standing instructions and skill index
-3. Task-specific context — issue description, PR diff, or user prompt
+3. `docs/adr/ADR_STRUCTURE.md` — master ADR index; filter by `applies_to` for the current `project_type` and load only the relevant ADR files
+4. Task-specific context — issue description, PR diff, or user prompt
 
 Never begin a task without reading `CONTEXT.md` first. An agent that skips this will hallucinate boundaries that were already agreed.
 
-If loading steps 1 + 2 + step 3 would push context fill past 100k tokens, offload step 3 to the filesystem and load on demand.
+After reading `ADR_STRUCTURE.md`, load only the ADRs that match the current `project_type`. For `project_type: application` (the default): ADR-003, ADR-004, ADR-007. Do not load ADRs scoped to other project types — they pollute context with irrelevant constraints.
+
+If loading steps 1–3 + step 4 would push context fill past 100k tokens, offload step 4 to the filesystem and load on demand.
 
 ## Skills
 
