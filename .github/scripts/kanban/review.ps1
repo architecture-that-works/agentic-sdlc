@@ -8,8 +8,8 @@
     Claude Code to review the implementation, and posts the verdict as a
     comment on both the PR and the issue.
 
-    APPROVED → label agent:review; leaves item in Review lane.
-    REJECTED → post feedback; label agent:implementing; move item back to Implementing.
+    APPROVED → label agent:review; item stays in Review lane.
+    REJECTED → post feedback; label agent:implementing; move item back to Implementing for re-pickup.
 
 .PARAMETER Issue
     Issue number. Defaults to 0 — auto-detected from the current branch.
@@ -56,6 +56,7 @@ function Invoke-Review {
 
     Write-Log "▶ Review — issue #$IssueNumber / PR #$PRNumber" -Color Cyan
     Ensure-AgentLabels
+    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:review'
     Add-Comment -Number $IssueNumber -Body "🔍 Agent reviewing PR #$PRNumber against acceptance criteria..."
 
     $issue = gh issue view $IssueNumber --repo $KanbanRepo --json title,body | ConvertFrom-Json
@@ -98,10 +99,9 @@ Follow with your detailed reasoning.
     gh pr review $PRNumber --comment --body $prComment 2>&1 | Out-Null
 
     if ($approved) {
-        Set-IssueLabel -Number $IssueNumber -Remove 'agent:implementing' -Add 'agent:review'
         Write-Log "✅ Review APPROVED — PR #$PRNumber ready for human merge." -Color Green
     } else {
-        Set-IssueLabel -Number $IssueNumber -Remove 'agent:review' -Add 'agent:implementing'
+        Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
         Write-Log "❌ Review REJECTED — issue #$IssueNumber returned to Implementing." -Color Red
     }
 

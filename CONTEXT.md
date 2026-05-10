@@ -1,10 +1,11 @@
-# CONTEXT.md — {{ project_name }}
+<!-- Values populated by task setup — run after copier copy -->
+# CONTEXT.md — __PROJECT_NAME__
 
-{{ description }}
+__PROJECT_DESCRIPTION__
 
 | Key | Value |
 |-----|-------|
-| Project Type | {{ project_type }} |
+| Project Type | __PROJECT_TYPE__ |
 
 ---
 
@@ -12,7 +13,7 @@
 
 | Term | Definition | Disambiguation |
 |------|------------|----------------|
-| Director Workflow | Label-driven agentic pipeline: `agent:start` triggers implement → review → merge | Not the same as a human code review |
+| Orchestrator Workflow | Label-driven agentic pipeline: `agent:backlog` triggers implement → review → merge | Not the same as a human code review |
 | ISSUES.md | Local backlog of Agile User Story blocks, synced to GitHub Issues via `task sync` | Separate from GitHub Issues themselves |
 | Kanban lane | GitHub Project board column mapped to an `agent:*` label | Managed automatically by `kanban-lanes.yml` |
 
@@ -23,7 +24,7 @@
 | `src/` | Application logic, config, utilities | Developer tooling |
 | `src/tools/` | Developer CLI utilities (`commit-msg`) | Application business logic |
 | `.agents/skills/` | AI workflow constraints and patterns | Runtime code |
-| `.github/scripts/kanban/` | Director Workflow pipeline orchestration | Application features |
+| `.github/scripts/kanban/` | Orchestrator Workflow pipeline orchestration | Application features |
 
 ## Architectural Constraints
 

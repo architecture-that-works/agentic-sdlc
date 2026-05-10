@@ -27,7 +27,7 @@ This selection determines:
 - The domain skill to invoke during the `tdd` REFACTOR phase (see `AGENTS.md`)
 - The expected directory structure as the project grows (see `CONTEXT.md`)
 
-The base scaffold (config, logging, test harness, CI, Director Workflow) is identical for all project types. Specialised directory stubs are planned for a future iteration.
+The base scaffold (config, logging, test harness, CI, Orchestrator Workflow) is identical for all project types. Specialised directory stubs are planned for a future iteration.
 
 ### Domain ADR mapping
 

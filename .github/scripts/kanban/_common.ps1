@@ -61,7 +61,7 @@ function Ensure-Label {
 }
 
 function Ensure-AgentLabels {
-    Ensure-Label 'agent:start'        '0075ca' 'Queued for agent pipeline pickup'
+    Ensure-Label 'agent:backlog'      '0075ca' 'Queued in Backlog for agent pipeline pickup'
     Ensure-Label 'agent:implementing' 'e4e669' 'Agent is actively implementing (refine + develop)'
     Ensure-Label 'agent:review'       '969696' 'Agent self-review passed — awaiting human approval'
     Ensure-Label 'agent:merged'       '0e8a16' 'Merged and closed by agent pipeline'
@@ -70,17 +70,58 @@ function Ensure-AgentLabels {
 
 function Set-IssueLabel {
     param([int]$Number, [string]$Add = '', [string]$Remove = '')
-    if ($Remove) {
+    if ($Remove -and $Add) {
+        $out = gh issue edit $Number --repo $KanbanRepo --remove-label $Remove --add-label $Add 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "  ⚠️ Failed to swap label '$Remove' → '$Add' on #${Number}: $($out.Trim())" -Color Yellow
+        }
+    } elseif ($Remove) {
         $out = gh issue edit $Number --repo $KanbanRepo --remove-label $Remove 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
             Write-Log "  ⚠️ Failed to remove label '$Remove' on #${Number}: $($out.Trim())" -Color Yellow
         }
-    }
-    if ($Add) {
+    } elseif ($Add) {
         $out = gh issue edit $Number --repo $KanbanRepo --add-label $Add 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
             Write-Log "  ⚠️ Failed to add label '$Add' on #${Number}: $($out.Trim())" -Color Yellow
         }
+    }
+}
+
+# ── Atomic state transition (label + lane in one call) ───────────────────────
+
+function Set-AgentState {
+    param([int]$IssueNumber, [string]$Label)
+
+    $laneId   = switch ($Label) {
+        'agent:backlog'      { $KanbanOpt_Backlog      }
+        'agent:implementing' { $KanbanOpt_Implementing }
+        'agent:review'       { $KanbanOpt_Review       }
+        'agent:merged'       { $KanbanOpt_Merged       }
+        'agent:failed'       { $KanbanOpt_Backlog      }
+        default              { ''                      }
+    }
+    $laneName = switch ($Label) {
+        'agent:backlog'      { 'Backlog'      }
+        'agent:implementing' { 'Implementing' }
+        'agent:review'       { 'Review'       }
+        'agent:merged'       { 'Merged'       }
+        'agent:failed'       { 'Backlog'      }
+        default              { ''             }
+    }
+
+    $current = gh issue view $IssueNumber --repo $KanbanRepo --json labels `
+        --jq '[.labels[].name | select(startswith("agent:"))] | first' 2>&1 |
+        Out-String | ForEach-Object { $_.Trim().Trim('"') }
+
+    if ($current -and $current -ne 'null' -and $current -ne $Label) {
+        Set-IssueLabel -Number $IssueNumber -Remove $current -Add $Label
+    } elseif (-not $current -or $current -eq 'null') {
+        Set-IssueLabel -Number $IssueNumber -Add $Label
+    }
+
+    if ($laneId -and $laneName) {
+        Move-ToLane -IssueNumber $IssueNumber -OptionId $laneId -LaneName $laneName
     }
 }
 
@@ -145,8 +186,7 @@ function New-FeatureBranch {
     }
 
     gh issue edit $Number --repo $KanbanRepo --add-assignee '@me' 2>&1 | Out-Null
-    Set-IssueLabel -Number $Number -Remove 'agent:start' -Add 'agent:implementing'
-    Write-Log "  Branch $branch — moved to Implementing." -Color DarkGray
+    Write-Log "  Branch $branch — ready." -Color DarkGray
     return $branch
 }
 

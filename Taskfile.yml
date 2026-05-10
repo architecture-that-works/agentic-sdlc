@@ -11,6 +11,7 @@ tasks:
     desc: "Bootstrap — discover GitHub Project field/option IDs and write to .env + GitHub vars"
     cmds:
       - pwsh -NoProfile -File .github/scripts/kanban/setup.ps1
+      - uv run python src/tools/setup.py
 
   sync:
     desc: "Parse ISSUES.md and push pending blocks to GitHub Issues + Project board"

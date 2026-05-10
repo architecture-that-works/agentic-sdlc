@@ -14,7 +14,7 @@ Accepted
 ## Context and Problem Statement
 
 Every project in this template requires at minimum two credentials: a GitHub token (`GH_TOKEN`)
-for the Director Workflow and an Anthropic API key (`ANTHROPIC_API_KEY`) for AI-backed features.
+for the Orchestrator Workflow and an Anthropic API key (`ANTHROPIC_API_KEY`) for AI-backed features.
 Without a documented secrets architecture, developers must infer the correct store per environment
 from README comments and workflow headers. This creates configuration drift, accidental commits
 of `.env` files, and inconsistent rotation practices across environments.

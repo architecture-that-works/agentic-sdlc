@@ -7,7 +7,7 @@ and how to configure them per environment.
 
 ## GH_TOKEN
 
-**Purpose:** Authenticates GitHub CLI (`gh`) calls within the Director Workflow — creating
+**Purpose:** Authenticates GitHub CLI (`gh`) calls within the Orchestrator Workflow — creating
 issues, moving kanban cards, and mutating GitHub Projects v2 boards.
 
 **Why classic PAT, not fine-grained PAT:** GitHub Projects v2 mutations (add/move/archive
@@ -25,7 +25,7 @@ cover Projects v2, a classic PAT with `repo` + `project` scopes is the only supp
 2. Generate a new token scoped to `repo` and `project`.
 3. Copy the new token value.
 4. Update the secret in every environment (see table below).
-5. Verify the Director Workflow completes a successful kanban-lane move.
+5. Verify the Orchestrator Workflow completes a successful kanban-lane move.
 6. Revoke the old token.
 
 ---

@@ -56,7 +56,7 @@ Copier will prompt for:
 # Drop your m_log.py into src/utils/ — interface: f_log(), setup_logging(), f_log_execution()
 ```
 
-**4. Wire up the Director Workflow** — once per project:
+**4. Wire up the Orchestrator Workflow** — once per project:
 
 a. Create a GitHub Project (Projects v2, Kanban board) with a **Status** field containing at least: `Backlog`, `Implementing`, `Review`, `Merged`.
 
@@ -158,3 +158,67 @@ The workflow is a sequential skill chain: **refine → architecture → plan →
 ```
 
 ADRs for tool selection decisions are in `docs/adr/`. See `ADR-000` for the template format.
+
+---
+
+### Orchestrator Workflow — Automated Pipeline
+
+The Orchestrator Workflow is the autonomous execution layer. Once an issue is queued, the pipeline runs end-to-end: branch → implement → review → merge.
+
+#### State machine
+
+Every issue carries exactly one `agent:` label at any time. The label name matches the project board lane name.
+
+```
+agent:backlog ──► agent:implementing ──► agent:review ──► agent:merged
+     ▲                   │                    │
+     │                   │  (rejected)         │  (max retries exceeded)
+     │                   ▼                    ▼
+     └──────── agent:implementing ◄──── agent:failed ──► Backlog
+```
+
+| Label | Lane | Meaning |
+|---|---|---|
+| `agent:backlog` | Backlog | Queued — pipeline will pick up on next poll |
+| `agent:implementing` | Implementing | Branch created, Claude Code actively implementing |
+| `agent:review` | Review | PR open, agent self-review running or passed |
+| `agent:merged` | Merged | PR squash-merged, issue closed |
+| `agent:failed` | Backlog | Unrecoverable error or max retries exceeded — human required |
+
+#### Transitions
+
+| Event | From → To |
+|---|---|
+| `task start` or label applied manually | `agent:backlog` |
+| Pipeline picks up a backlog issue | `agent:backlog` → `agent:implementing` |
+| `task review` begins | `agent:implementing` → `agent:review` (lane moves immediately) |
+| Review passes | stays `agent:review` — awaiting human merge |
+| Review rejected | `agent:review` → `agent:implementing` (pipeline retries implement) |
+| Max retries exceeded (default: 3) | → `agent:failed` + Backlog lane |
+| `task merge` or pipeline merges | `agent:review` → `agent:merged` |
+| `task start` on a failed issue | `agent:failed` → `agent:backlog` |
+
+#### Task commands
+
+```bash
+task start              # interactive picker — queues a Backlog issue for pipeline pickup
+task start ISSUE=13     # queue issue #13 directly
+task run                # poll every 60s — process all agent:backlog and stalled issues
+task run ISSUE=13       # run the full pipeline once for issue #13
+task implement ISSUE=13 # implement only (branch + code + PR, no review)
+task review ISSUE=13    # review only (sets agent:review + lane immediately)
+task merge ISSUE=13     # merge only (requires agent:review label or -Force)
+```
+
+#### Issue pickup order
+
+In polling mode, issues are always processed **lowest issue number first** within each group:
+
+1. `agent:backlog` issues — fresh implementation
+2. Stalled `agent:implementing` issues — forced re-implementation with prior review feedback included in the prompt
+
+#### Issue body template
+
+Issues used with the Orchestrator Workflow should follow the structure defined in `ISSUES.md`. The pipeline's refine phase will apply the template automatically if the body is missing required fields.
+
+---
