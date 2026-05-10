@@ -25,5 +25,6 @@ _exclude:
     - "copier.yml"
     - "logs"
     - "tests/test_copier_template.py"
+    - "pyproject.toml"
 
 # project_name substituted via pyproject.toml.jinja2 — no post-task required
