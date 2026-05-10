@@ -6,7 +6,7 @@ description: Use when selecting an agent-specific observability tool for loop re
 # ADR-006: Agent Observability Tooling
 
 ## Status
-Proposed
+Accepted
 
 ## Context and Problem Statement
 

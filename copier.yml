@@ -20,6 +20,7 @@ _exclude:
     - "uv.lock"
     - "copier.yml"
     - "logs"
+    - "tests/test_copier_template.py"
 
 _tasks:
     - "python -c \"import pathlib; p=pathlib.Path('pyproject.toml'); p.write_text(p.read_text().replace('my-template-repo', '{{ project_name }}'))\""
