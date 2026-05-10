@@ -7,6 +7,12 @@ name: Orchestrator
 #   agent:backlog  → implement job (skip if HITL label is present)
 #   agent:review   → merge job (squash-merge + CONTEXT.md update)
 #   workflow_dispatch → manual single-stage run
+#
+# Queue behaviour:
+#   The implement job uses a concurrency group so only one run executes at a time.
+#   Subsequent agent:backlog label events queue (up to one pending run). A drain step
+#   at the end of each run re-dispatches if further backlog items remain, ensuring no
+#   issues are silently dropped when the queue depth exceeds one.
 
 on:
   issues:
@@ -14,9 +20,10 @@ on:
   workflow_dispatch:
     inputs:
       issue_number:
-        description: Issue number to process
-        required: true
-        type: number
+        description: Issue number to process (0 or empty = auto-pick oldest agent:backlog)
+        required: false
+        default: '0'
+        type: string
       stage:
         description: Pipeline stage to run
         required: true
@@ -43,19 +50,72 @@ jobs:
       (github.event_name == 'workflow_dispatch' &&
        github.event.inputs.stage == 'implement')
     runs-on: ubuntu-latest
+    # Serialize all implement runs — only one executes at a time; the next queues.
+    # cancel-in-progress: false ensures a queued run waits rather than being cancelled.
+    concurrency:
+      group: implement-pipeline
+      cancel-in-progress: false
     env:
-      ISSUE_NUMBER: ${{ github.event.issue.number || github.event.inputs.issue_number }}
+      TRIGGERED_ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
           token: ${{ secrets.GH_TOKEN }}
 
+      - name: Resolve backlog issue
+        id: resolve
+        run: |
+          ISSUE="${TRIGGERED_ISSUE:-0}"
+
+          # If 0 or empty, auto-pick the oldest agent:backlog issue.
+          if [ -z "$ISSUE" ] || [ "$ISSUE" = "0" ]; then
+            ISSUE=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+              --label 'agent:backlog' --state open \
+              --json number --jq 'sort_by(.number) | .[0].number // empty' 2>/dev/null)
+          else
+            # Verify the triggered issue still has agent:backlog (another run may have claimed it).
+            HAS_LABEL=$(gh issue view "$ISSUE" --repo "$GITHUB_REPOSITORY" \
+              --json labels --jq '[.labels[].name] | contains(["agent:backlog"])' 2>/dev/null)
+            if [ "$HAS_LABEL" != "true" ]; then
+              echo "Issue #$ISSUE no longer has agent:backlog — picking oldest remaining."
+              ISSUE=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+                --label 'agent:backlog' --state open \
+                --json number --jq 'sort_by(.number) | .[0].number // empty' 2>/dev/null)
+            fi
+          fi
+
+          if [ -z "$ISSUE" ]; then
+            echo "No agent:backlog issues found — nothing to do."
+            echo "issue_number=" >> "$GITHUB_OUTPUT"
+          else
+            echo "Resolved issue #$ISSUE"
+            echo "issue_number=$ISSUE" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run implement stage
+        if: steps.resolve.outputs.issue_number != ''
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
-          pwsh -File .github/scripts/kanban/implement.ps1 -Issue "$ISSUE_NUMBER"
+          pwsh -File .github/scripts/kanban/implement.ps1 \
+            -Issue "${{ steps.resolve.outputs.issue_number }}"
+
+      - name: Drain remaining backlog
+        if: always() && steps.resolve.outputs.issue_number != ''
+        run: |
+          REMAINING=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label 'agent:backlog' --state open \
+            --json number --jq 'length' 2>/dev/null)
+          if [ "${REMAINING:-0}" -gt 0 ]; then
+            echo "$REMAINING remaining agent:backlog issue(s) — dispatching next drain run."
+            gh workflow run orchestrator.yml \
+              --repo "$GITHUB_REPOSITORY" \
+              --field stage=implement \
+              --field issue_number=0
+          else
+            echo "Backlog fully drained."
+          fi
 
   # ── Review ───────────────────────────────────────────────────────────────────
   review:
