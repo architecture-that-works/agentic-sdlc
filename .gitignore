@@ -9,6 +9,8 @@ __pycache__/
 
 # Environment
 .env
+.env.*
+.copier-answers.yml
 
 # Build
 dist/
@@ -20,9 +22,11 @@ dist/
 htmlcov/
 
 # Linter cache
+.mypy_cache/
 .ruff_cache/
 
-# Kanban pipeline logs
+# Logs
+*.log
 logs/
 
 # Claude Code — local overrides (personal paths, machine-specific approvals)

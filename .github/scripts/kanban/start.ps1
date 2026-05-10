@@ -28,7 +28,7 @@ function Invoke-Start {
 
     # ── Fetch Backlog items for this repo ─────────────────────────────────────
     $items = gh project item-list $KanbanProjectNumber `
-        --owner $KanbanProjectOwner --format json |
+        --owner $KanbanProjectOwner --format json --limit 200 |
         ConvertFrom-Json |
         Select-Object -ExpandProperty items |
         Where-Object {
