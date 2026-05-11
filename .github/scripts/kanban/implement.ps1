@@ -148,7 +148,7 @@ function Invoke-Develop {
     Move-ToLane -IssueNumber $Number -OptionId $KanbanOpt_Implementing -LaneName 'Implementing'
     Add-Comment -Number $Number -Body "· branch checked out — starting"
 
-    if ((Get-ChildItem .template/.agents/skills -Recurse -Filter *.md -ErrorAction SilentlyContinue).Count -eq 0) {
+    if ((Get-ChildItem .agents/skills -Recurse -Filter *.md -ErrorAction SilentlyContinue).Count -eq 0) {
         Write-Log "⚠️ Skills directory is empty — agent constraints will not be applied." -Color Yellow
     }
 
@@ -174,7 +174,7 @@ INSTRUCTIONS:
 1. Read AGENTS.md and CONTEXT.md first to understand the project boundaries and constraints.
 2. Read the relevant parts of the codebase before writing any code.
 3. Implement every requirement listed in the issue body completely.
-4. Follow all conventions in AGENTS.md. The skill files in ``.template/.agents/skills/`` are your constraint documents — read the relevant skill before implementing, navigate relevant skills via ``.template/.agents/SKILL_STRUCTURE.md``.
+4. Follow all conventions in AGENTS.md. The skill files in ``.agents/skills/`` are your constraint documents — read the relevant skill before implementing, navigate relevant skills via ``.agents/SKILL_STRUCTURE.md``.
 5. After implementation run ``uv run pytest`` to verify the test suite passes.
 6. If tests fail, diagnose and fix the root cause before stopping.
 7. Do NOT commit any changes — only implement.

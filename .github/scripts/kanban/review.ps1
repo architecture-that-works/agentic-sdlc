@@ -77,7 +77,7 @@ $signalSection
 REVIEW INSTRUCTIONS:
 - Verify every requirement and acceptance criterion is fully met.
 - Check for bugs, regressions, missing test coverage, or style violations.
-- Check that the conventions in AGENTS.md and .template/.agents/skills/ are followed.
+- Check that the conventions in AGENTS.md and .agents/skills/ are followed.
 - The signal history includes the test run output (🤖✅ Tests Passing) — verify it confirms the requirements are tested.
 - Be strict: reject if anything is incomplete, incorrect, or missing.
 
