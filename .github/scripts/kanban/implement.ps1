@@ -312,8 +312,15 @@ function Invoke-CommitAndPR {
         Add-Comment -Number $Number -Body "🤖 Implementation`n`nNo new changes — branch already fully implements this issue. Proceeding to PR and review."
     }
 
-    git push --quiet origin HEAD 2>$null
-    if ($LASTEXITCODE -ne 0) { throw "git push failed for branch ${Branch}" }
+    # Capture stderr so any push rejection (workflow scope, branch protection,
+    # secret scanning) surfaces in the thrown message. Previously `2>$null`
+    # turned every push failure into a useless generic "git push failed" —
+    # observed when issue #42 modified .github/workflows/ci.yml and the PAT
+    # lacked the `workflow` scope; the real GitHub error never made it to logs.
+    $pushOut = git push --quiet origin HEAD 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        throw "git push failed for branch ${Branch}:`n$($pushOut.Trim())"
+    }
 
     $existing = gh pr list --head $Branch --json url --limit 1 | ConvertFrom-Json
     if ($existing.Count -gt 0) {
