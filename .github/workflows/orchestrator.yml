@@ -266,6 +266,18 @@ jobs:
           DEFAULT_BRANCH=${{ steps.squash-merge.outputs.default_branch }}
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
+          # AFK path (cloud runner) is opt-in via CLAUDE_CODE_OAUTH_TOKEN.
+          # Without it the cloud runner has no Claude auth and no way to run
+          # the update. HITL merges via local `task` invocations run
+          # merge.ps1's Invoke-ContextUpdate against the developer's local
+          # Claude installation — those keep working independently of this
+          # step. Skip silently here (no warning comment) so AFK pipelines
+          # stay quiet when the token is intentionally absent.
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "::notice::CLAUDE_CODE_OAUTH_TOKEN not set — skipping post-merge CONTEXT.md update (HITL merges handle this locally)."
+            exit 0
+          fi
+
           _fail() {
             echo "::warning::Post-merge CONTEXT.md update failed: ${1}"
             gh issue comment "$ISSUE_NUMBER" \
