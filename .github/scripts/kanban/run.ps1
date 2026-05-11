@@ -1,99 +1,36 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Kanban orchestrator — continuous polling or single-issue direct run.
+    Orchestrate the full pipeline (implement → review loop → merge) for a single issue.
 
 .DESCRIPTION
-    Default: polls GitHub every PollIntervalSeconds for issues labelled
-    agent:backlog and runs the full orchestration on each (implement → review
-    loop → merge). Also resumes stalled Implementing-lane items from interrupted
-    runs.
+    Called by start.ps1 (HITL) and orchestrator.yml (GHA). Not a direct Taskfile target.
 
-    Direct mode (-Issue N): orchestrates once for the given issue and exits.
+    Acquires a per-issue process lock, runs the implement stage (refine + develop + PR),
+    then drives the review → implement loop up to MaxRetries times. Merges on first
+    approval. Marks agent:failed and posts a comment if retries are exhausted.
 
-    Review loop: after implement, runs review. If REJECTED, re-runs implement
-    (up to MaxRetries attempts) then reviews again. Stops on APPROVED.
+    Always returns to a clean, origin-synced default branch on exit.
 
 .PARAMETER Issue
-    Issue number for a single direct run. Omit to enter continuous polling mode.
-
-.PARAMETER PollIntervalSeconds
-    Seconds between polls in continuous mode. Default: from orchestrator.config.ps1.
+    Issue number to orchestrate. Required.
 
 .PARAMETER MaxRetries
-    Maximum implement→review cycles before giving up. Default: from orchestrator.config.ps1.
-
-.EXAMPLE
-    task run                    # poll continuously — runs indefinitely
-    task run ISSUE=13           # orchestrate once for issue #13 and exit
-    task run POLL=30 RETRIES=5  # custom poll interval and retry limit
+    Maximum implement→review cycles before marking agent:failed. Default: from orchestrator.config.ps1.
 #>
 param(
-    [int]$Issue               = 0,
-    [int]$PollIntervalSeconds = -1,
-    [int]$MaxRetries          = -1
+    [int]$Issue      = 0,
+    [int]$MaxRetries = -1
 )
 
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_common.ps1"
 
-if ($PollIntervalSeconds -lt 0) { $PollIntervalSeconds = $KanbanPollInterval }
-if ($MaxRetries          -lt 0) { $MaxRetries          = $KanbanMaxRetries   }
+if ($Issue -le 0) { throw "Issue number is required. This script is invoked with -Issue N by start.ps1 or orchestrator.yml." }
+if ($MaxRetries -lt 0) { $MaxRetries = $KanbanMaxRetries }
 . "$PSScriptRoot\implement.ps1"
 . "$PSScriptRoot\review.ps1"
 . "$PSScriptRoot\merge.ps1"
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-function Get-BacklogIssues {
-    $raw = gh issue list --repo $KanbanRepo --state open --label 'agent:backlog' `
-        --json number,title --limit 50 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0 -or -not $raw.Trim()) { return @() }
-    $issues = $raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-    if (-not $issues) { return @() }
-    return $issues
-}
-
-function Get-StalledIssues {
-    $owner = Get-ResolvedOwner
-    if (-not $owner) { return @() }
-    $raw = gh project item-list $KanbanProjectNumber `
-        --owner $owner --format json --limit 200 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0) {
-        Write-Log "  ⚠️ Could not list project items for stall check: $($raw.Trim())" -Color Yellow
-        return @()
-    }
-    $items = $raw | ConvertFrom-Json -ErrorAction SilentlyContinue |
-        Select-Object -ExpandProperty items |
-        Where-Object {
-            $_.status -eq 'Implementing' -and
-            $_.content.type -eq 'Issue' -and
-            $_.content.repository -eq $KanbanRepo
-        }
-
-    # Exclude any issue currently held by an active lock (not stalled — actively running).
-    $lockedIssue = 0
-    $lockedPid   = 0
-    if (Test-Path $OrchestratorLockFile) {
-        try {
-            $d    = Get-Content $OrchestratorLockFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-            $proc = Get-Process -Id $d.pid -ErrorAction SilentlyContinue
-            if ($proc) { $lockedIssue = [int]$d.issue; $lockedPid = [int]$d.pid }
-        } catch {}
-    }
-
-    $items | Where-Object {
-        $num = $_.content.number
-        if ($num -eq $lockedIssue) {
-            Write-Log "  Skipping #$num in Implementing — actively locked by PID $lockedPid" -Color DarkGray
-            return $false
-        }
-        $raw    = gh issue view $num --repo $KanbanRepo --json labels `
-            --jq '[.labels[].name]' 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
-        $labels = if ($raw) { $raw } else { @() }
-        $labels -contains 'agent:implementing'
-    }
-}
 
 # ── Full orchestration for one issue ─────────────────────────────────────────
 
@@ -191,31 +128,4 @@ function Invoke-Orchestration {
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-if ($Issue -gt 0) {
-    Invoke-Orchestration -IssueNumber $Issue
-} else {
-    Write-Log "▶ Orchestrator — polling every ${PollIntervalSeconds}s for agent:backlog. Ctrl+C to stop." -Color Cyan
-    while ($true) {
-        try {
-            $backlog = @(Get-BacklogIssues)
-            $stalled = @(Get-StalledIssues)
-
-            $backlog | Sort-Object { $_.number } | ForEach-Object {
-                Write-Log "  🎯 agent:backlog on #$($_.number) '$($_.title)' — picking up." -Color Cyan
-                Invoke-Orchestration -IssueNumber $_.number
-            }
-
-            $stalled | Sort-Object { $_.content.number } | ForEach-Object {
-                Write-Log "  ⚠️ Stalled #$($_.content.number) in Implementing — resuming." -Color Yellow
-                Invoke-Orchestration -IssueNumber $_.content.number -Force:$true
-            }
-
-            if ($backlog.Count -eq 0 -and $stalled.Count -eq 0) {
-                Write-Log "  Idle." -Color DarkGray
-            }
-        } catch {
-            Write-Log "⚠️  Loop error: $_" -Color Red
-        }
-        Start-Sleep -Seconds $PollIntervalSeconds
-    }
-}
+Invoke-Orchestration -IssueNumber $Issue

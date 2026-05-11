@@ -30,4 +30,4 @@ Clear-IssueReviewCount -IssueNumber $Issue
 Set-AgentState -IssueNumber $Issue -Label 'agent:backlog'
 Add-Comment -Number $Issue -Body "· reset to backlog for retry"
 
-Write-Log "✅ Issue #$Issue queued in agent:backlog — GHA or 'task run' will pick it up." -Color Green
+Write-Log "✅ Issue #$Issue queued in agent:backlog — GHA or 'task start' will pick it up." -Color Green

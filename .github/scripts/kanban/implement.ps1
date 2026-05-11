@@ -4,20 +4,14 @@
     Stage 2 — Implementing: Refine → Develop → PR.
 
 .DESCRIPTION
+    Internal function library — dot-sourced by run.ps1. Not a direct Taskfile target.
+
     Phase A  Refine  — structures the issue body using the ISSUES.md template if
-                       not already structured.
+                       not already structured. Assigns estimate and priority if absent.
     Phase B  Develop — invokes Claude Code non-interactively to implement all
                        requirements and verify with uv run pytest.
     Phase C  PR      — commits (Claude-generated message), pushes, opens PR.
-
-.PARAMETER Issue
-    Issue number. Defaults to 0 — auto-detected from the current branch name.
-
-.EXAMPLE
-    task implement              # auto-detects issue from branch
-    task implement ISSUE=13     # explicit issue number
 #>
-param([int]$Issue = 0)
 
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_common.ps1"
@@ -345,19 +339,14 @@ Closes #$Number
     return $prUrl
 }
 
-# ── Orchestrator ──────────────────────────────────────────────────────────────
+# ── Orchestrator entry point ──────────────────────────────────────────────────
 
 function Invoke-Implement {
     param([int]$IssueNumber = 0, [switch]$Force)
 
     if ($IssueNumber -eq 0) { $IssueNumber = Get-CurrentIssueNumber }
     if ($IssueNumber -eq 0) {
-        $queued = gh issue list --repo $KanbanRepo --state open --label 'agent:backlog' `
-            --json number --limit 1 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
-        if ($queued -and $queued.Count -gt 0) { $IssueNumber = $queued[0].number }
-    }
-    if ($IssueNumber -eq 0) {
-        throw "No issue found. Pass ISSUE=N, run from a feature branch, or assign agent:start to an issue."
+        throw "No issue found — Invoke-Implement must be called with an explicit IssueNumber."
     }
 
     $meta           = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
@@ -379,10 +368,6 @@ function Invoke-Implement {
     }
 
     Write-Log "▶ Implement — issue #$IssueNumber on $branch" -Color Cyan
-    Ensure-AgentLabels
-
-    $calledDirectly = $MyInvocation.InvocationName -ne '.'
-    if ($calledDirectly) { Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing' }
 
     try {
         Invoke-Refine      -Number $IssueNumber
@@ -392,14 +377,7 @@ function Invoke-Implement {
         Write-Log "✅ Implement complete — PR at $prUrl" -Color Green
         return $prUrl
     } catch {
-        if ($calledDirectly) {
-            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
-        }
         Add-Comment -Number $IssueNumber -Body "🤖❌ Implement Failed`n``````text`n$_`n``````"
         throw
     }
-}
-
-if ($MyInvocation.InvocationName -ne '.') {
-    Invoke-Implement -IssueNumber $Issue | Out-Null
 }

@@ -4,29 +4,18 @@
     Stage 3 — Agent self-review of open PR against acceptance criteria.
 
 .DESCRIPTION
+    Internal function library — dot-sourced by run.ps1. Not a direct Taskfile target.
+
     Retrieves the PR diff and the linked issue's acceptance criteria, asks
     Claude Code to review the implementation, and posts the verdict as a
     comment on both the PR and the issue.
 
     APPROVED → label agent:review; item stays in Review lane.
     REJECTED → post feedback; label agent:implementing; move item back to Implementing for re-pickup.
-
-.PARAMETER Issue
-    Issue number. Defaults to 0 — auto-detected from the current branch.
-
-.PARAMETER PR
-    PR number. Defaults to 0 — auto-detected from the current branch.
-
-.EXAMPLE
-    task review                 # auto-detects from current branch
-    task review ISSUE=13        # explicit issue number
 #>
-param([int]$Issue = 0, [int]$PR = 0, [int]$MaxRetries = -1)
 
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_common.ps1"
-
-if ($MaxRetries -lt 0) { $MaxRetries = $KanbanMaxRetries }
 
 function Resolve-PR {
     param([int]$IssueNumber, [int]$PRNumber)
@@ -121,42 +110,3 @@ Follow with your detailed reasoning.
     return $approved
 }
 
-if ($MyInvocation.InvocationName -ne '.') {
-    # Orchestration continuation: run review → implement loop → merge to completion.
-    . "$PSScriptRoot\implement.ps1"
-    . "$PSScriptRoot\merge.ps1"
-
-    $IssueNumber = $Issue
-    $PRNumber    = $PR
-    if ($IssueNumber -eq 0) { $IssueNumber = Get-CurrentIssueNumber }
-    $PRNumber = Resolve-PR -IssueNumber $IssueNumber -PRNumber $PRNumber
-
-    try {
-        $cyclesDone = Get-IssueReviewCount -IssueNumber $IssueNumber
-        $approved   = Invoke-Review -IssueNumber $IssueNumber -PRNumber $PRNumber
-        $cyclesDone++
-        Set-IssueReviewCount -IssueNumber $IssueNumber -Count $cyclesDone
-
-        while (-not $approved -and $cyclesDone -lt $MaxRetries) {
-            Write-Log "  Review rejected — re-running implement (cycle $($cyclesDone + 1)/$MaxRetries)..." -Color Yellow
-            Invoke-Implement -IssueNumber $IssueNumber -Force | Out-Null
-            $approved = Invoke-Review -IssueNumber $IssueNumber -PRNumber $PRNumber
-            $cyclesDone++
-            Set-IssueReviewCount -IssueNumber $IssueNumber -Count $cyclesDone
-        }
-
-        if ($approved) {
-            Clear-IssueReviewCount -IssueNumber $IssueNumber
-            Invoke-Merge -IssueNumber $IssueNumber -PRNumber $PRNumber
-            Write-Log "🎉 Issue #$IssueNumber complete." -Color Green
-        } else {
-            Clear-IssueReviewCount -IssueNumber $IssueNumber
-            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
-            Add-Comment -Number $IssueNumber -Body "🤖❌ Orchestrator Error`n`nMax retries reached ($cyclesDone/$MaxRetries review cycles). Manual intervention required."
-            Write-Log "⛔ Gave up after $cyclesDone cycles for issue #$IssueNumber." -Color Red
-        }
-    } catch {
-        Clear-IssueReviewCount -IssueNumber $IssueNumber
-        throw
-    }
-}

@@ -4,25 +4,12 @@
     Stage 4 — Merge PR after CI gate + approval check.
 
 .DESCRIPTION
+    Internal function library — dot-sourced by run.ps1 and review.ps1. Not a direct Taskfile target.
+
     Confirms an approval signal exists (agent:review label on the issue OR at
     least one human-approved PR review), waits for CI to pass, then squash-
-    merges and deletes the remote branch.
-
-.PARAMETER Issue
-    Issue number. Defaults to 0 — auto-detected from the current branch.
-
-.PARAMETER PR
-    PR number. Defaults to 0 — auto-detected from the current branch.
-
-.PARAMETER Force
-    Skip the approval guard and merge regardless. Use with caution.
-
-.EXAMPLE
-    task merge                  # auto-detects from current branch
-    task merge ISSUE=13         # explicit issue
-    task merge ISSUE=13 PR=42   # explicit both
+    merges and deletes the remote branch. Updates CONTEXT.md post-merge.
 #>
-param([int]$Issue = 0, [int]$PR = 0, [switch]$Force)
 
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_common.ps1"
@@ -273,6 +260,3 @@ function Invoke-Merge {
     Write-Log "✅ Merged PR #$PRNumber — issue #$IssueNumber complete." -Color Green
 }
 
-if ($MyInvocation.InvocationName -ne '.') {
-    Invoke-Merge -IssueNumber $Issue -PRNumber $PR -Force:$Force
-}

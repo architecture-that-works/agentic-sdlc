@@ -6,8 +6,8 @@
 .DESCRIPTION
     Reads KANBAN_PROJECT_NUMBER and KANBAN_PROJECT_OWNER from .env, queries the
     GitHub Project for the Status field and all its option IDs, then:
-      1. Writes the discovered IDs back to .env for local use (task run/implement/etc.)
-      2. Sets matching GitHub Actions repository variables for kanban-lanes.yml
+      1. Writes the discovered IDs back to .env for local use.
+      2. Sets matching GitHub Actions repository variables for kanban-lanes.yml and orchestrator.yml.
 
     Run once after creating the GitHub Project and setting KANBAN_PROJECT_NUMBER
     and KANBAN_PROJECT_OWNER in .env.
@@ -18,7 +18,7 @@
 
 $ErrorActionPreference = 'Stop'
 
-$_Root    = "$PSScriptRoot\..\..\.."
+$_Root    = "$PSScriptRoot\..\.."
 $_EnvPath = "$_Root\.env"
 
 # ── Load .env ─────────────────────────────────────────────────────────────────
@@ -194,4 +194,4 @@ foreach ($kv in $ghVars.GetEnumerator()) {
 }
 
 Write-Host ""
-Write-Host "✅ Setup complete. Run 'task run' to start the orchestrator." -ForegroundColor Green
+Write-Host "✅ Setup complete. Run 'task start' to pick up backlog issues." -ForegroundColor Green

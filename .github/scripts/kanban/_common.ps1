@@ -41,7 +41,7 @@ $KanbanLogFile = "$_Root\logs\kanban.log"
 $KanbanRepo    = gh repo view --json nameWithOwner --jq '.nameWithOwner'
 
 # ── Orchestrator configuration (orchestrator.config.ps1 → .env overrides) ────
-. "$PSScriptRoot\orchestrator.config.ps1"
+. "$PSScriptRoot\config.ps1"
 
 $KanbanModel_Sonnet = if ($env:KANBAN_MODEL_SONNET) { $env:KANBAN_MODEL_SONNET } else { $OrchestratorConfig.ModelSonnet }
 $KanbanModel_Opus   = if ($env:KANBAN_MODEL_OPUS)   { $env:KANBAN_MODEL_OPUS   } else { $OrchestratorConfig.ModelOpus   }
@@ -51,7 +51,6 @@ $KanbanMaxTurns_Review        = if ($env:KANBAN_MAX_TURNS_REVIEW)  { [int]$env:K
 $KanbanMaxTurns_Refine        = if ($env:KANBAN_MAX_TURNS_REFINE)  { [int]$env:KANBAN_MAX_TURNS_REFINE  } else { $OrchestratorConfig.MaxTurns_Refine         }
 $KanbanMaxTurns_ContextUpdate = if ($env:KANBAN_MAX_TURNS_CONTEXT) { [int]$env:KANBAN_MAX_TURNS_CONTEXT } else { $OrchestratorConfig.MaxTurns_ContextUpdate  }
 $KanbanMaxRetries             = if ($env:KANBAN_MAX_RETRIES)       { [int]$env:KANBAN_MAX_RETRIES       } else { $OrchestratorConfig.MaxRetries              }
-$KanbanPollInterval           = if ($env:KANBAN_POLL_INTERVAL)     { [int]$env:KANBAN_POLL_INTERVAL     } else { $OrchestratorConfig.PollIntervalSeconds      }
 
 $KanbanEstimateFieldId = if ($env:KANBAN_ESTIMATE_FIELD_ID) { $env:KANBAN_ESTIMATE_FIELD_ID } else { '' }
 $KanbanPriorityFieldId = if ($env:KANBAN_PRIORITY_FIELD_ID) { $env:KANBAN_PRIORITY_FIELD_ID } else { '' }

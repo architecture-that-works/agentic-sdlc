@@ -2,58 +2,34 @@ version: '3'
 
 vars:
   ISSUE: '{{default "0" .ISSUE}}'
-  POLL: '{{default "-1" .POLL}}'      # -1 = read from orchestrator.config.ps1
   RETRIES: '{{default "-1" .RETRIES}}' # -1 = read from orchestrator.config.ps1
 
 tasks:
 
   setup:
-    desc: "Bootstrap — discover GitHub Project field/option IDs and write to .env + GitHub vars"
+    desc: "Bootstrap — run once to configure GitHub Project field IDs, labels, and environment"
     cmds:
-      - pwsh -NoProfile -File .github/scripts/kanban/setup.ps1
+      - pwsh -NoProfile -File .github/scripts/setup.ps1
       - uv run python src/tools/setup.py
 
   sync:
-    desc: "Parse ISSUES.md and push pending blocks to GitHub Issues + Project board"
+    desc: "Sync ISSUES.md — push pending ISSUE blocks to GitHub Issues + Project board"
     cmds:
       - pwsh -NoProfile -File .github/scripts/sync-issues.ps1 {{.CLI_ARGS}}
 
   start:
-    desc: "HITL — pick a Backlog issue and run the full orchestration in this terminal (task start ISSUE=13)"
+    desc: "HITL — interactive Backlog picker; runs full orchestration in this terminal (ISSUE=N to skip picker)"
     cmds:
       - pwsh -NoProfile -File .github/scripts/kanban/start.ps1 -Issue {{.ISSUE}} -MaxRetries {{.RETRIES}}
 
-  implement:
-    desc: "[debug] Single-stage implement only — no review (task implement ISSUE=13)"
-    cmds:
-      - pwsh -NoProfile -File .github/scripts/kanban/implement.ps1 -Issue {{.ISSUE}}
-
-  review:
-    desc: "Orchestration continuation — review → implement loop → merge (task review ISSUE=13)"
-    cmds:
-      - pwsh -NoProfile -File .github/scripts/kanban/review.ps1 -Issue {{.ISSUE}} -MaxRetries {{.RETRIES}}
-
-  merge:
-    desc: "[debug] Single-stage merge only — requires prior approval (task merge ISSUE=13)"
-    cmds:
-      - pwsh -NoProfile -File .github/scripts/kanban/merge.ps1 -Issue {{.ISSUE}}
-
   retry:
-    desc: "Reset a stuck/failed issue to agent:backlog for full orchestration re-run (task retry ISSUE=13)"
+    desc: "Recovery — reset a stuck or failed issue back to agent:backlog (ISSUE=N required)"
     cmds:
       - pwsh -NoProfile -File .github/scripts/kanban/retry.ps1 -Issue {{.ISSUE}}
 
-  run:
-    desc: "Orchestrator continuous mode — polls for agent:backlog every POLL seconds (task run POLL=30)"
-    cmds:
-      - pwsh -NoProfile -File .github/scripts/kanban/run.ps1 -Issue {{.ISSUE}} -PollIntervalSeconds {{.POLL}} -MaxRetries {{.RETRIES}}
-
   runner:
-    desc: "Start the self-hosted GHA runner in this terminal (Ctrl+C to stop)"
+    desc: "GHA runner — start in this terminal; OFFLINE=1 to soft-close (drains current job first)"
+    vars:
+      OFFLINE: '{{default "0" .OFFLINE}}'
     cmds:
-      - pwsh -NoProfile -File .github/scripts/runner.ps1
-
-  runner-offline:
-    desc: "Gracefully stop the self-hosted GHA runner (drains current job first)"
-    cmds:
-      - pwsh -NoProfile -File .github/scripts/runner.ps1 -Offline
+      - pwsh -NoProfile -File .github/scripts/runner.ps1{{if eq .OFFLINE "1"}} -Offline{{end}}

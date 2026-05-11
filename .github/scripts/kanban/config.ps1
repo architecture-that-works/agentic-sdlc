@@ -1,5 +1,5 @@
 #Requires -Version 7.0
-# orchestrator.config.ps1 — Central configuration for the kanban orchestrator.
+# config.ps1 — Central configuration for the kanban orchestrator.
 #
 # OVERRIDING: All values can be overridden per-machine via .env (KANBAN_* env vars
 # take precedence). Edit this file to change repo-wide defaults.
@@ -48,6 +48,5 @@ $OrchestratorConfig = @{
     MaxTurns_ContextUpdate = 15   # diff analysis + generate a unified patch
 
     # ── Orchestrator behaviour ────────────────────────────────────────────────
-    MaxRetries          = 2    # implement→review cycles before agent:failed
-    PollIntervalSeconds = 60   # continuous-mode poll interval (task run)
+    MaxRetries = 2    # implement→review cycles before agent:failed
 }
