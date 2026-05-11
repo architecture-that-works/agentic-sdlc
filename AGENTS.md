@@ -15,16 +15,30 @@
 
 Load in this order at the start of every session:
 
-1. `CONTEXT.md` — domain glossary, bounded contexts, and architectural constraints
+1. `CONTEXT.md` — domain glossary, bounded contexts, Module Map, Issue-Type Index, and architectural constraints
 2. `AGENTS.md` — this file; standing instructions and skill index
 3. `docs/adr/ADR_STRUCTURE.md` — master ADR index; filter by `applies_to` for the current `project_type` and load only the relevant ADR files
 4. Task-specific context — issue description, PR diff, or user prompt
 
 Never begin a task without reading `CONTEXT.md` first. An agent that skips this will hallucinate boundaries that were already agreed.
 
-After reading `ADR_STRUCTURE.md`, load only the ADRs that match the current `project_type`. For `project_type: application` (the default): ADR-003, ADR-004, ADR-007, ADR-008. Do not load ADRs scoped to other project types — they pollute context with irrelevant constraints.
+After reading `ADR_STRUCTURE.md`, load only the ADRs that match the current `project_type`. For `project_type: application` (the default): ADR-003, ADR-004, ADR-007, ADR-008, ADR-009. Do not load ADRs scoped to other project types — they pollute context with irrelevant constraints.
 
 If loading steps 1–3 + step 4 would push context fill past 100k tokens, offload step 4 to the filesystem and load on demand.
+
+### Context Protocol
+
+Mandatory before opening any source file. See ADR-009.
+
+1. Read `CONTEXT.md` fully. Do not open any `.py` / `.ps1` / `.yml` file yet.
+2. From the Module Map and Issue-Type Index, identify the 3–5 files relevant to this task. Write them down explicitly — name them in your first user-facing message before reading them.
+3. Read only those files. If you feel the urge to read more, ask: *does CONTEXT.md tell me this file is in scope for this issue type?* If no — stop. Work with what you have.
+4. If implementation reveals a dependency not on the Map:
+   - Read that file.
+   - Add it to the Module Map (or extend an existing row's entry points) in the same PR.
+5. Never `Grep` `**/*.py` to orient yourself. If the Map does not answer your question, the Map is incomplete — update it; do not work around it.
+
+Violation of this protocol degrades every future agent session. Keep the Map accurate.
 
 ## Skills
 
@@ -84,8 +98,10 @@ Domain-specific information for this **{{ project_type }}** project is captured 
 4. **Lint must pass.** `ruff check` + `ruff format --check` before commit.
 5. **Standard library first.** Prefer stdlib over third-party packages.
 6. **`src/utils/` stays generic.** No project-specific logic in `m_*.py` files.
-7. **Never modify `AGENTS.md` during implementation.** Changes go through a `refine` session.
+7. **Never modify `AGENTS.md` or `CONTEXT.md` during implementation.** Changes to standing instructions or bounded contexts go through a `refine` session. The Module Map and Issue-Type Index inside `CONTEXT.md` are the exception — they may be updated mid-implementation when a new file or domain is discovered (per ADR-009).
 8. **Sizing and priority rules** — Fibonacci estimate anchor, scale, and priority definitions — are defined in the `ISSUES.md` header.
+9. **Map first, code second** (ADR-009). Follow the Context Protocol above before reading any source file. Name the target files explicitly before opening them.
+10. **New `src/<domain>/` requires a Module Map row.** A PR that adds a new top-level `src/<domain>/` directory without adding a matching row to `CONTEXT.md` will be rejected by the `ship` skill.
 
 ## Safety & Boundaries
 
