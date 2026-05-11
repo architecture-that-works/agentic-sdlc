@@ -36,8 +36,13 @@ Ensure-Label -Name 'HITL' -Color 'e4e669' -Description 'Human in the loop — GH
 
 # ── Fetch Backlog items for this repo ─────────────────────────────────────────
 
+$_owner = Get-ResolvedOwner
+if (-not $_owner) {
+    Write-Log "Cannot reach GitHub Project — check KANBAN_PROJECT_OWNER in .env. Run: task setup" -Color Red
+    exit 1
+}
 $items = gh project item-list $KanbanProjectNumber `
-    --owner $KanbanProjectOwner --format json --limit 200 |
+    --owner $_owner --format json --limit 200 |
     ConvertFrom-Json |
     Select-Object -ExpandProperty items |
     Where-Object {

@@ -55,8 +55,10 @@ function Get-BacklogIssues {
 }
 
 function Get-StalledIssues {
+    $owner = Get-ResolvedOwner
+    if (-not $owner) { return @() }
     $raw = gh project item-list $KanbanProjectNumber `
-        --owner $KanbanProjectOwner --format json --limit 200 2>&1 | Out-String
+        --owner $owner --format json --limit 200 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Could not list project items for stall check: $($raw.Trim())" -Color Yellow
         return @()
@@ -107,10 +109,13 @@ function Invoke-Orchestration {
     $stashed = $false
 
     try {
-        $meta   = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
-        $jq     = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .status"
-        $status = gh project item-list $KanbanProjectNumber `
-            --owner $KanbanProjectOwner --format json --limit 200 --jq $jq 2>&1
+        $meta    = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
+        $jq      = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .status"
+        $owner   = Get-ResolvedOwner
+        $laneOut = if ($owner) {
+            gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 --jq $jq 2>&1 | Out-String
+        } else { '' }
+        $status  = if ($LASTEXITCODE -eq 0 -and $laneOut.Trim()) { $laneOut.Trim() } else { '(unknown)' }
 
         Write-Log "━━━ Orchestrator: issue #$IssueNumber — $($meta.title)" -Color Cyan
         Write-Log "    Current lane: $status" -Color DarkGray

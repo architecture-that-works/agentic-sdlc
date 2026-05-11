@@ -53,6 +53,9 @@ $KanbanMaxTurns_ContextUpdate = if ($env:KANBAN_MAX_TURNS_CONTEXT) { [int]$env:K
 $KanbanMaxRetries             = if ($env:KANBAN_MAX_RETRIES)       { [int]$env:KANBAN_MAX_RETRIES       } else { $OrchestratorConfig.MaxRetries              }
 $KanbanPollInterval           = if ($env:KANBAN_POLL_INTERVAL)     { [int]$env:KANBAN_POLL_INTERVAL     } else { $OrchestratorConfig.PollIntervalSeconds      }
 
+$KanbanEstimateFieldId = if ($env:KANBAN_ESTIMATE_FIELD_ID) { $env:KANBAN_ESTIMATE_FIELD_ID } else { '' }
+$KanbanPriorityFieldId = if ($env:KANBAN_PRIORITY_FIELD_ID) { $env:KANBAN_PRIORITY_FIELD_ID } else { '' }
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 
 function Write-Log {
@@ -218,12 +221,34 @@ function New-FeatureBranch {
 # ── Project board helpers ─────────────────────────────────────────────────────
 
 $script:_CachedProjectId = $null
+$script:_ResolvedOwner   = $null
+
+# Personal GitHub accounts often need '@me' instead of the username.
+# Try configured owner first (works in GHA), fall back to '@me' for local runs.
+function Get-ResolvedOwner {
+    if ($script:_ResolvedOwner) { return $script:_ResolvedOwner }
+    foreach ($candidate in @($KanbanProjectOwner, '@me')) {
+        $null = gh project list --owner $candidate --format json 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            if ($candidate -ne $KanbanProjectOwner) {
+                Write-Log "  Note: project owner resolved to '$candidate' (configured '$KanbanProjectOwner' not accepted — update KANBAN_PROJECT_OWNER in .env)" -Color Yellow
+            }
+            $script:_ResolvedOwner = $candidate
+            return $candidate
+        }
+    }
+    Write-Log "  ⚠️ Cannot resolve project owner. Check KANBAN_PROJECT_OWNER in .env and project permissions. Run: task setup" -Color Yellow
+    return $null
+}
+
 function Get-ProjectId {
     if (-not $script:_CachedProjectId) {
-        $out = gh project list --owner $KanbanProjectOwner --format json --jq `
+        $owner = Get-ResolvedOwner
+        if (-not $owner) { return $null }
+        $out = gh project list --owner $owner --format json --jq `
             ".projects[] | select(.number == $KanbanProjectNumber) | .id" 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
-            Write-Log "  ⚠️ gh project list failed (owner='$KanbanProjectOwner'): $($out.Trim())" -Color Yellow
+            Write-Log "  ⚠️ gh project list failed: $($out.Trim())" -Color Yellow
             return $null
         }
         $script:_CachedProjectId = $out.Trim()
@@ -233,10 +258,12 @@ function Get-ProjectId {
 
 function Get-ProjectItemId {
     param([int]$IssueNumber)
+    $owner = Get-ResolvedOwner
+    if (-not $owner) { return $null }
     $jq = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .id"
-    $out = gh project item-list $KanbanProjectNumber --owner $KanbanProjectOwner --format json --limit 200 --jq $jq 2>&1 | Out-String
+    $out = gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 --jq $jq 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
-        Write-Log "  ⚠️ gh project item-list failed (owner='$KanbanProjectOwner'): $($out.Trim())" -Color Yellow
+        Write-Log "  ⚠️ gh project item-list failed: $($out.Trim())" -Color Yellow
         return $null
     }
     return $out.Trim()
@@ -263,6 +290,66 @@ function Move-ToLane {
     }
 }
 
+# ── Project field helpers ─────────────────────────────────────────────────────
+
+function Get-ProjectFieldValues {
+    param([int]$IssueNumber)
+    $owner = Get-ResolvedOwner
+    if (-not $owner) { return $null }
+    $jq = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | {estimate: .estimate, priority: .priority}"
+    $out = gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 --jq $jq 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0 -or -not $out.Trim()) { return $null }
+    return $out.Trim() | ConvertFrom-Json -ErrorAction SilentlyContinue
+}
+
+function Get-PriorityOptionId {
+    param([string]$Priority)
+    $vars = [System.Environment]::GetEnvironmentVariables('Process')
+    foreach ($key in @($vars.Keys | Where-Object { $_ -match '^KANBAN_PRIORITY_OPT_' })) {
+        if (($key -replace '^KANBAN_PRIORITY_OPT_', '') -ieq $Priority) { return $vars[$key] }
+    }
+    return $null
+}
+
+function Set-ProjectEstimate {
+    param([int]$IssueNumber, [int]$Estimate)
+    if (-not $KanbanEstimateFieldId) {
+        Write-Log "  ⚠️ KANBAN_ESTIMATE_FIELD_ID not configured — run: task setup" -Color Yellow
+        return
+    }
+    $itemId    = Get-ProjectItemId -IssueNumber $IssueNumber
+    $projectId = Get-ProjectId
+    if (-not $itemId -or -not $projectId) { return }
+    $out = gh project item-edit --id $itemId --field-id $KanbanEstimateFieldId --project-id $projectId --number $Estimate 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not set Estimate field: $($out.Trim())" -Color Yellow
+    } else {
+        Write-Log "  Project field Estimate = $Estimate" -Color DarkGray
+    }
+}
+
+function Set-ProjectPriority {
+    param([int]$IssueNumber, [string]$Priority)
+    if (-not $KanbanPriorityFieldId) {
+        Write-Log "  ⚠️ KANBAN_PRIORITY_FIELD_ID not configured — run: task setup" -Color Yellow
+        return
+    }
+    $optionId = Get-PriorityOptionId -Priority $Priority
+    if (-not $optionId) {
+        Write-Log "  ⚠️ No option ID for priority '$Priority' — check project options and run: task setup" -Color Yellow
+        return
+    }
+    $itemId    = Get-ProjectItemId -IssueNumber $IssueNumber
+    $projectId = Get-ProjectId
+    if (-not $itemId -or -not $projectId) { return }
+    $out = gh project item-edit --id $itemId --field-id $KanbanPriorityFieldId --project-id $projectId --single-select-option-id $optionId 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not set Priority field: $($out.Trim())" -Color Yellow
+    } else {
+        Write-Log "  Project field Priority = $Priority" -Color DarkGray
+    }
+}
+
 # ── Streaming Claude output helper ───────────────────────────────────────────
 
 function Format-ToolLine {
@@ -282,11 +369,10 @@ function Format-ToolLine {
 
 function Get-IssueEstimate {
     param([int]$IssueNumber)
-    $raw = gh issue view $IssueNumber --repo $KanbanRepo --json labels `
-        --jq '[.labels[].name]' 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
-    if (-not $raw) { return 0 }
-    $lbl = @($raw) | Where-Object { $_ -match '^estimate:(\d+)$' } | Select-Object -Last 1
-    if ($lbl -match '^estimate:(\d+)$') { return [int]$Matches[1] }
+    $fields = Get-ProjectFieldValues -IssueNumber $IssueNumber
+    if ($fields -and $null -ne $fields.estimate -and "$($fields.estimate)" -ne '') {
+        try { return [int]$fields.estimate } catch {}
+    }
     return 0
 }
 
@@ -399,40 +485,26 @@ function Release-OrchestratorLock {
     Remove-Item $OrchestratorLockFile -Force -ErrorAction SilentlyContinue
 }
 
-# ── Persistent review-cycle counter (label agent:cycle:N) ─────────────────────
+# ── Persistent review-cycle counter (file-based — no labels) ─────────────────
 
 function Get-IssueReviewCount {
     param([int]$IssueNumber)
-    $raw = gh issue view $IssueNumber --repo $KanbanRepo --json labels `
-        --jq '[.labels[].name]' 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
-    if (-not $raw) { return 0 }
-    $lbl = @($raw) | Where-Object { $_ -match '^agent:cycle:(\d+)$' } | Select-Object -Last 1
-    if ($lbl -match '^agent:cycle:(\d+)$') { return [int]$Matches[1] }
+    $path = "$_Root\logs\cycle-$IssueNumber.txt"
+    if (Test-Path $path) {
+        try { return [int](Get-Content $path -Raw -ErrorAction Stop).Trim() } catch {}
+    }
     return 0
 }
 
 function Set-IssueReviewCount {
     param([int]$IssueNumber, [int]$Count)
-    $raw      = gh issue view $IssueNumber --repo $KanbanRepo --json labels `
-        --jq '[.labels[].name]' 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
-    $existing = if ($raw) { @($raw) | Where-Object { $_ -match '^agent:cycle:\d+$' } | Select-Object -Last 1 } else { $null }
-    $newLabel = "agent:cycle:$Count"
-    Ensure-Label -Name $newLabel -Color 'bfd4f2' -Description "Orchestrator review cycle $Count"
-    if ($existing -and $existing -ne $newLabel) {
-        Set-IssueLabel -Number $IssueNumber -Remove $existing -Add $newLabel
-    } elseif (-not $existing) {
-        Set-IssueLabel -Number $IssueNumber -Add $newLabel
-    }
+    $null = New-Item -ItemType Directory -Force -Path "$_Root\logs" -ErrorAction SilentlyContinue
+    "$Count" | Set-Content "$_Root\logs\cycle-$IssueNumber.txt" -Encoding utf8 -NoNewline
 }
 
 function Clear-IssueReviewCount {
     param([int]$IssueNumber)
-    $raw = gh issue view $IssueNumber --repo $KanbanRepo --json labels `
-        --jq '[.labels[].name]' 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
-    if (-not $raw) { return }
-    @($raw) | Where-Object { $_ -match '^agent:cycle:\d+$' } | ForEach-Object {
-        Set-IssueLabel -Number $IssueNumber -Remove $_
-    }
+    Remove-Item "$_Root\logs\cycle-$IssueNumber.txt" -Force -ErrorAction SilentlyContinue
 }
 
 # ── Issue template reader (from ISSUES.md header) ─────────────────────────────

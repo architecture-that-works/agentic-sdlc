@@ -28,7 +28,7 @@ function Invoke-Refine {
     param([int]$Number)
     Write-Log "  Phase A — Refine issue #$Number" -Color Yellow
 
-    $issue    = gh issue view $Number --repo $KanbanRepo --json title,body,labels | ConvertFrom-Json
+    $issue    = gh issue view $Number --repo $KanbanRepo --json title,body | ConvertFrom-Json
     $template = Get-IssueTemplate
 
     # Determine what needs work
@@ -43,9 +43,10 @@ function Invoke-Refine {
         $needsBodyRefine = $true
     }
 
-    $labelNames    = @($issue.labels | ForEach-Object { $_.name })
-    $needsEstimate = -not ($labelNames | Where-Object { $_ -match '^estimate:\d+$' })
-    $needsPriority = -not ($labelNames | Where-Object { $_ -match '^priority:' })
+    # Estimate and Priority are GitHub Project fields — not labels.
+    $projectFields = Get-ProjectFieldValues -IssueNumber $Number
+    $needsEstimate = -not ($projectFields -and $null -ne $projectFields.estimate -and "$($projectFields.estimate)" -ne '')
+    $needsPriority = -not ($projectFields -and $projectFields.priority)
 
     if (-not $needsBodyRefine -and -not $needsEstimate -and -not $needsPriority) {
         Write-Log "  Issue already fully refined — skipping." -Color DarkGray
@@ -66,8 +67,15 @@ function Invoke-Refine {
         'Estimate already set — output null.'
     }
 
+    # Discover the actual priority option names configured in this project.
+    $priorityOpts = @([System.Environment]::GetEnvironmentVariables('Process').Keys) |
+        Where-Object { $_ -match '^KANBAN_PRIORITY_OPT_' } |
+        ForEach-Object { $_ -replace '^KANBAN_PRIORITY_OPT_', '' } |
+        Sort-Object
+    $priorityOptsStr = if ($priorityOpts) { $priorityOpts -join ', ' } else { 'P0, P1, P2, P3, P4' }
+
     $priorityInstruction = if ($needsPriority) {
-        'ASSIGN priority: Critical (blocks everything), High (current sprint), Medium (next sprint), Low (nice-to-have).'
+        "ASSIGN priority using exactly one of the project's configured values: $priorityOptsStr"
     } else {
         'Priority already set — output null.'
     }
@@ -85,7 +93,7 @@ TASKS:
 3. Priority: $priorityInstruction
 
 Return ONLY valid JSON — no markdown fences, no explanation:
-{"body":"<full issue body>","estimate":<number or null>,"priority":"<Critical|High|Medium|Low or null>"}
+{"body":"<full issue body>","estimate":<number or null>,"priority":"<one of the allowed values or null>"}
 "@
 
     $raw = claude -p $prompt --model $KanbanModel_Sonnet 2>&1 | Out-String
@@ -110,24 +118,17 @@ Return ONLY valid JSON — no markdown fences, no explanation:
     }
 
     if ($needsEstimate -and $null -ne $parsed.estimate -and $parsed.estimate -ne 'null') {
-        $el = "estimate:$($parsed.estimate)"
-        Ensure-Label -Name $el -Color 'bfd4f2' -Description "Story points: $($parsed.estimate)"
-        Set-IssueLabel -Number $Number -Add $el
+        Set-ProjectEstimate -IssueNumber $Number -Estimate ([int]$parsed.estimate)
     }
 
     if ($needsPriority -and $parsed.priority -and $parsed.priority -ne 'null') {
-        $pc = switch ($parsed.priority.ToLower()) {
-            'critical' { 'd73a4a' } 'high' { 'e4e669' } 'medium' { '0075ca' } default { 'cfd3d7' }
-        }
-        $pl = "priority:$($parsed.priority.ToLower())"
-        Ensure-Label -Name $pl -Color $pc -Description "$($parsed.priority) priority"
-        Set-IssueLabel -Number $Number -Add $pl
+        Set-ProjectPriority -IssueNumber $Number -Priority $parsed.priority
     }
 
     $changes = @()
-    if ($needsBodyRefine)                                              { $changes += 'body structured' }
-    if ($needsEstimate -and $null -ne $parsed.estimate -and $parsed.estimate -ne 'null') { $changes += "estimate:$($parsed.estimate)" }
-    if ($needsPriority -and $parsed.priority -and $parsed.priority -ne 'null')           { $changes += "priority:$($parsed.priority.ToLower())" }
+    if ($needsBodyRefine)                                                                   { $changes += 'body structured' }
+    if ($needsEstimate -and $null -ne $parsed.estimate -and $parsed.estimate -ne 'null')   { $changes += "estimate=$($parsed.estimate)" }
+    if ($needsPriority -and $parsed.priority -and $parsed.priority -ne 'null')             { $changes += "priority=$($parsed.priority)" }
 
     Add-Comment -Number $Number -Body "· refined — $($changes -join ', ')"
     Write-Log "  Issue #$Number refined: $($changes -join ', ')" -Color Green
