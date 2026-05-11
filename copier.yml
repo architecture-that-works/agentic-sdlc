@@ -16,7 +16,7 @@ project_type:
 _templates_suffix: ".jinja2"
 
 # .gitignore intentionally absent from _exclude — generated projects must inherit it
-# .template/.agents/skills/ intentionally absent from _exclude — skill files travel with every generated project
+# .agents/skills/ intentionally absent from _exclude — skill files travel with every generated project
 #
 # Template source layout note: this repo uses the default Copier behaviour where the
 # template source is the repository root (no _subdirectory setting). Moving all source

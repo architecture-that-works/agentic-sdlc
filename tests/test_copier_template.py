@@ -1,5 +1,6 @@
 """Smoke tests: verify copier generates a working project for each project_type."""
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -90,3 +91,39 @@ def test_generated_project_passes_tests(project_type: str, tmp_path: Path) -> No
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
+
+
+def test_skills_travel_via_copier(tmp_path: Path) -> None:
+    copier.run_copy(
+        src_path=str(TEMPLATE_ROOT),
+        dst_path=str(tmp_path),
+        data={
+            "project_name": "smoke-skills",
+            "description": "Skills travel smoke test",
+            "project_type": "application",
+        },
+        defaults=True,
+        unsafe=True,
+        overwrite=True,
+    )
+
+    agents_md = (tmp_path / "AGENTS.md").read_text()
+
+    skills_section_match = re.search(
+        r"^## Skills\b.*?(?=^## |\Z)", agents_md, re.MULTILINE | re.DOTALL
+    )
+    assert skills_section_match is not None, (
+        "Generated AGENTS.md has no ## Skills section"
+    )
+
+    skill_names = re.findall(
+        r"^\|\s*`([^`]+)`\s*\|", skills_section_match.group(), re.MULTILINE
+    )
+    assert skill_names, "No skill names found in ## Skills table of generated AGENTS.md"
+
+    for name in skill_names:
+        skill_md = tmp_path / ".agents" / "skills" / name / "SKILL.md"
+        assert skill_md.exists(), (
+            f"Skill '{name}' listed in AGENTS.md §Skills but "
+            f".agents/skills/{name}/SKILL.md not found in generated project"
+        )

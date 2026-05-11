@@ -49,7 +49,7 @@ Chosen option: **Option B**, because it preserves the cross-tool `AGENTS.md` con
 * `AGENTS.md` Rules contains "name your target files before reading any code" and "Module Map updates are required when adding `src/<domain>/`".
 * `CONTEXT.md` Architectural Constraints contains the skill-propagation invariant and the Map-update invariant.
 * `ship` skill rejects PRs that add a new top-level `src/<domain>/` without a matching Module Map row.
-* `.template/.agents/skills/` contains the skill files referenced by `AGENTS.md`, populated either at template-edit time or by a build step.
+* `.agents/skills/` (at repo root) contains the skill files referenced by `AGENTS.md`. Source of truth lives in this template repo; the junction at `~/.claude/skills/` → `.agents/skills/` makes them available to Claude on the developer's machine. Copier copies the directory verbatim into every generated project.
 * Revisit when a fourth `project_type` is added or when the Issue-Type Index outgrows ten rows (signal that the bounded-context anchoring is too coarse).
 
 ## Pros and Cons of the Options
