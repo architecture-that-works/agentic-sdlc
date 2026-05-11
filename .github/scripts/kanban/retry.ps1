@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     Clears the persistent review-cycle counter (agent:cycle:N labels), removes
-    all agent:* labels, and sets agent:backlog so the GHA orchestrator or 'task run'
+    all agent:* labels, and sets agent:backlog so the GHA orchestrator or 'task start'
     picks it up from the beginning.
 
     Works from any intermediate state: agent:failed, agent:implementing,

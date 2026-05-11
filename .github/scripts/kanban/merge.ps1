@@ -210,7 +210,7 @@ function Invoke-Merge {
         $approved = Test-HasApproval -IssueNumber $IssueNumber -PRNumber $PRNumber
         if (-not $approved) {
             Write-Log "⛔ No approval found for PR #$PRNumber." -Color Red
-            Write-Log "   Run 'task review' first, or pass -Force to bypass." -Color Yellow
+            Write-Log "   Approval required: run 'task start ISSUE=$IssueNumber' to drive the full pipeline, or pass -Force to bypass." -Color Yellow
             exit 1
         }
     }

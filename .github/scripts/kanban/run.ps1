@@ -16,7 +16,7 @@
     Issue number to orchestrate. Required.
 
 .PARAMETER MaxRetries
-    Maximum implement→review cycles before marking agent:failed. Default: from orchestrator.config.ps1.
+    Maximum implement→review cycles before marking agent:failed. Default: from config.ps1.
 #>
 param(
     [int]$Issue      = 0,

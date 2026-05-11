@@ -40,7 +40,7 @@ $KanbanStopWords = @(
 $KanbanLogFile = "$_Root\logs\kanban.log"
 $KanbanRepo    = gh repo view --json nameWithOwner --jq '.nameWithOwner'
 
-# ── Orchestrator configuration (orchestrator.config.ps1 → .env overrides) ────
+# ── Orchestrator configuration (config.ps1 → .env overrides) ─────────────────
 . "$PSScriptRoot\config.ps1"
 
 $KanbanModel_Sonnet = if ($env:KANBAN_MODEL_SONNET) { $env:KANBAN_MODEL_SONNET } else { $OrchestratorConfig.ModelSonnet }

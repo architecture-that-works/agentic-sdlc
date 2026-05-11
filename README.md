@@ -189,10 +189,10 @@ agent:backlog ──► agent:implementing ──► agent:review ──► agen
 
 | Event | From → To |
 |---|---|
-| `task start` or label applied manually | `agent:backlog` |
-| Orchestrator picks up a backlog issue | `agent:backlog` → `agent:implementing` |
-| `task review` begins | `agent:implementing` → `agent:review` (lane moves immediately) |
-| Review passes | stays `agent:review` — awaiting human merge |
+| `task sync` or label applied manually | issue created → `agent:backlog` |
+| Orchestrator picks up (GHA or `task start`) | `agent:backlog` → `agent:implementing` |
+| PR opened, review phase begins | `agent:implementing` → `agent:review` (lane moves immediately) |
+| Review passes | stays `agent:review` until orchestrator merges |
 | Review rejected | `agent:review` → `agent:implementing` (orchestrator retries implement) |
 | Max retries exceeded (default: 2) | → `agent:failed` + Backlog lane |
 | Orchestrator merges | `agent:review` → `agent:merged` |
@@ -201,22 +201,17 @@ agent:backlog ──► agent:implementing ──► agent:review ──► agen
 #### Task commands
 
 ```bash
-task start              # interactive picker — HITL orchestration in this terminal
-task start ISSUE=13     # HITL orchestration for issue #13 directly
-task run                # poll every 60s — process all agent:backlog and stalled issues
-task run ISSUE=13       # run the full orchestration once for issue #13
-task retry ISSUE=13     # reset any stuck/failed issue back to agent:backlog
-task implement ISSUE=13 # [debug] implement only — no review
-task review ISSUE=13    # orchestration continuation — review → implement loop → merge
-task merge ISSUE=13     # [debug] merge only — requires prior approval
+task setup                  # one-time bootstrap — discover Project field IDs into .env + GHA vars
+task sync                   # parse ISSUES.md and push pending blocks to GitHub Issues
+task start                  # HITL — interactive Backlog picker; runs full orchestration here
+task start ISSUE=13         # HITL orchestration for issue #13, skipping the picker
+task retry ISSUE=13         # reset a stuck or failed issue back to agent:backlog
+task runner                 # start the self-hosted GHA runner in this terminal
+task runner OFFLINE=1       # gracefully stop the GHA runner (drains current job first)
 ```
 
-#### Issue pickup order
-
-In polling mode, issues are always processed **lowest issue number first** within each group:
-
-1. `agent:backlog` issues — fresh implementation
-2. Stalled `agent:implementing` issues — forced re-implementation with prior review feedback included in the prompt
+GHA-triggered orchestration runs (label events on `agent:backlog`) process issues
+**lowest issue number first**. HITL runs use the interactive picker.
 
 #### Issue body template
 
