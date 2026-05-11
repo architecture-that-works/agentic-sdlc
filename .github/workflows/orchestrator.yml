@@ -59,6 +59,7 @@ jobs:
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
       KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
       KANBAN_STATUS_FIELD_ID: ${{ vars.KANBAN_STATUS_FIELD_ID }}

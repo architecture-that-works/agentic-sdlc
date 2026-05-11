@@ -55,9 +55,13 @@ function Get-BacklogIssues {
 }
 
 function Get-StalledIssues {
-    $items = gh project item-list $KanbanProjectNumber `
-        --owner $KanbanProjectOwner --format json --limit 200 |
-        ConvertFrom-Json |
+    $raw = gh project item-list $KanbanProjectNumber `
+        --owner $KanbanProjectOwner --format json --limit 200 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not list project items for stall check: $($raw.Trim())" -Color Yellow
+        return @()
+    }
+    $items = $raw | ConvertFrom-Json -ErrorAction SilentlyContinue |
         Select-Object -ExpandProperty items |
         Where-Object {
             $_.status -eq 'Implementing' -and

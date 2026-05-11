@@ -220,8 +220,13 @@ function New-FeatureBranch {
 $script:_CachedProjectId = $null
 function Get-ProjectId {
     if (-not $script:_CachedProjectId) {
-        $script:_CachedProjectId = gh project list --owner $KanbanProjectOwner --format json --jq `
-            ".projects[] | select(.number == $KanbanProjectNumber) | .id" 2>&1 | Out-String | ForEach-Object { $_.Trim() }
+        $out = gh project list --owner $KanbanProjectOwner --format json --jq `
+            ".projects[] | select(.number == $KanbanProjectNumber) | .id" 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "  ⚠️ gh project list failed (owner='$KanbanProjectOwner'): $($out.Trim())" -Color Yellow
+            return $null
+        }
+        $script:_CachedProjectId = $out.Trim()
     }
     return $script:_CachedProjectId
 }
@@ -229,7 +234,12 @@ function Get-ProjectId {
 function Get-ProjectItemId {
     param([int]$IssueNumber)
     $jq = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .id"
-    gh project item-list $KanbanProjectNumber --owner $KanbanProjectOwner --format json --limit 200 --jq $jq 2>&1
+    $out = gh project item-list $KanbanProjectNumber --owner $KanbanProjectOwner --format json --limit 200 --jq $jq 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ gh project item-list failed (owner='$KanbanProjectOwner'): $($out.Trim())" -Color Yellow
+        return $null
+    }
+    return $out.Trim()
 }
 
 function Move-ToLane {
@@ -245,8 +255,12 @@ function Move-ToLane {
         return
     }
     $ghArgs = @('project','item-edit','--id',$itemId,'--field-id',$KanbanStatusFieldId,'--project-id',$projectId,'--single-select-option-id',$OptionId)
-    gh @ghArgs 2>&1 | Out-Null
-    Write-Log "  Issue #$IssueNumber → $LaneName" -Color DarkGray
+    $out = gh @ghArgs 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Lane move failed for issue #$IssueNumber → $LaneName : $($out.Trim())" -Color Yellow
+    } else {
+        Write-Log "  Issue #$IssueNumber → $LaneName" -Color DarkGray
+    }
 }
 
 # ── Streaming Claude output helper ───────────────────────────────────────────
@@ -307,7 +321,10 @@ function Invoke-ClaudeStreaming {
         [int]$MaxTurns = $KanbanMaxTurns_Review
     )
 
-    $allText = [System.Text.StringBuilder]::new()
+    Write-Log "  ▶ $Label — model=$Model turns=$MaxTurns" -Color DarkGray
+
+    $allText    = [System.Text.StringBuilder]::new()
+    $toolCalls  = [System.Collections.Generic.List[string]]::new()
 
     $Prompt | claude --model $Model --allowedTools $AllowedTools --max-turns $MaxTurns --output-format stream-json --verbose 2>&1 |
     ForEach-Object {
@@ -328,7 +345,9 @@ function Invoke-ClaudeStreaming {
                     'tool_use' {
                         $inputReady = ($block.input.PSObject.Properties | Measure-Object).Count -gt 0
                         if ($inputReady) {
-                            Write-Host "`n  $(Format-ToolLine -Name $block.name -ToolInput $block.input)" -ForegroundColor DarkCyan
+                            $line = Format-ToolLine -Name $block.name -ToolInput $block.input
+                            Write-Host "`n  $line" -ForegroundColor DarkCyan
+                            $toolCalls.Add($line)
                         }
                     }
                 }
@@ -341,6 +360,10 @@ function Invoke-ClaudeStreaming {
     }
 
     if ($LASTEXITCODE -ne 0) { throw "$Label exited with code $LASTEXITCODE." }
+
+    $summary = if ($allText.Length -gt 0) { ($allText.ToString() -split "`n")[0].Trim() } else { '(no text output)' }
+    Write-Log "  ✓ $Label — $($toolCalls.Count) tool call(s). First line: $summary" -Color DarkGray
+
     return $allText.ToString()
 }
 
