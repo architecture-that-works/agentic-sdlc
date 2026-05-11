@@ -67,6 +67,13 @@ jobs:
       KANBAN_OPT_IMPLEMENTING: ${{ vars.KANBAN_OPT_IMPLEMENTING }}
       KANBAN_OPT_REVIEW: ${{ vars.KANBAN_OPT_REVIEW }}
       KANBAN_OPT_MERGED: ${{ vars.KANBAN_OPT_MERGED }}
+      KANBAN_ESTIMATE_FIELD_ID: ${{ vars.KANBAN_ESTIMATE_FIELD_ID }}
+      KANBAN_PRIORITY_FIELD_ID: ${{ vars.KANBAN_PRIORITY_FIELD_ID }}
+      KANBAN_PRIORITY_OPT_P0: ${{ vars.KANBAN_PRIORITY_OPT_P0 }}
+      KANBAN_PRIORITY_OPT_P1: ${{ vars.KANBAN_PRIORITY_OPT_P1 }}
+      KANBAN_PRIORITY_OPT_P2: ${{ vars.KANBAN_PRIORITY_OPT_P2 }}
+      KANBAN_PRIORITY_OPT_P3: ${{ vars.KANBAN_PRIORITY_OPT_P3 }}
+      KANBAN_PRIORITY_OPT_P4: ${{ vars.KANBAN_PRIORITY_OPT_P4 }}
       TRIGGERED_ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1

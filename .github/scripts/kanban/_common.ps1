@@ -222,21 +222,18 @@ function New-FeatureBranch {
 $script:_CachedProjectId = $null
 $script:_ResolvedOwner   = $null
 
-# Personal GitHub accounts often need '@me' instead of the username.
-# Try configured owner first (works in GHA), fall back to '@me' for local runs.
+# Trusts the configured owner. Setup resolves and validates it once; runtime
+# probing was masking the real gh error from callers when something failed.
+# If KANBAN_PROJECT_OWNER is wrong, downstream calls (gh project list/item-list/
+# item-edit) surface their actual error message instead of a generic "cannot
+# resolve owner" — that's the diagnostic signal we want.
 function Get-ResolvedOwner {
     if ($script:_ResolvedOwner) { return $script:_ResolvedOwner }
-    foreach ($candidate in @($KanbanProjectOwner, '@me')) {
-        $null = gh project list --owner $candidate --format json 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            if ($candidate -ne $KanbanProjectOwner) {
-                Write-Log "  Note: project owner resolved to '$candidate' (configured '$KanbanProjectOwner' not accepted — update KANBAN_PROJECT_OWNER in .env)" -Color Yellow
-            }
-            $script:_ResolvedOwner = $candidate
-            return $candidate
-        }
+    if ($KanbanProjectOwner) {
+        $script:_ResolvedOwner = $KanbanProjectOwner
+        return $KanbanProjectOwner
     }
-    Write-Log "  ⚠️ Cannot resolve project owner. Check KANBAN_PROJECT_OWNER in .env and project permissions. Run: task setup" -Color Yellow
+    Write-Log "  ⚠️ KANBAN_PROJECT_OWNER not configured — run: task setup" -Color Yellow
     return $null
 }
 

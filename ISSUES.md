@@ -85,3 +85,24 @@ Default new issues to **P3** (new work) or **P4** (improvement). Escalation to P
 ---
 
 <!-- ISSUES -->
+
+ISSUE: fix(kanban): harden orchestrator project-board access (cache PROJECT_ID, sync workflows, setup scope check)
+LABELS: AFK
+PRIORITY: P2
+ESTIMATE: 5
+**Goal**: Eliminate the recurring orchestrator failures around project-board access so every pipeline run resolves the project owner, project ID, estimate, and priority fields without per-call gh probes.
+**Description**: A previous round of fixes (commit landing alongside this issue) added the missing `KANBAN_*` env vars to `orchestrator.yml` and removed the silent probe in `Get-ResolvedOwner`. Three structural weaknesses remain. (1) `Get-ProjectId` still queries `gh project list --owner` on every orchestrator run instead of using a setup-time resolved value, so any owner/scope flake fails the whole pipeline. (2) `kanban-lanes.yml` independently re-queries `gh project list --owner` to find the project node ID for every label-driven lane move — same brittleness, separate workflow. (3) `task setup` never verifies that the PAT in `secrets.GH_TOKEN` actually has the `project` scope, so scope mismatches surface only at runtime with noisy logs. The fix is to resolve `KANBAN_PROJECT_ID` once at setup, persist it in `.env` and as a GHA variable, plumb it through both workflows, and add a setup-time scope assertion.
+**Requirements**:
+1. Update `.github/scripts/setup.ps1` to resolve the project node ID via `gh project list --owner $ProjectOwner --format json` filtered by project number, and store the result in `.env` as `KANBAN_PROJECT_ID` AND via `gh variable set KANBAN_PROJECT_ID`.
+2. Update `.github/scripts/kanban/_common.ps1` `Get-ProjectId` to return `$env:KANBAN_PROJECT_ID` directly when set, falling back to the existing query only when absent.
+3. Add `KANBAN_PROJECT_ID: ${{ vars.KANBAN_PROJECT_ID }}` to the orchestrator job env block in `.github/workflows/orchestrator.yml`.
+4. Update `.github/workflows/kanban-lanes.yml` to consume `${{ vars.KANBAN_PROJECT_ID }}` directly for the lane move (drop the in-step `gh project list` query at lines 50-51).
+5. Add a setup-time scope check in `setup.ps1`: probe `gh auth status --show-token` (or run a known project-scope command) and warn loudly if `project` scope is missing. Document in setup output that the PAT used for `GH_TOKEN` repo secret must also carry `project` scope — local `gh auth` having it does not guarantee the secret does.
+6. Update `README.md` Quickstart section to note that the `GH_TOKEN` repo secret PAT must carry both `repo` AND `project` scopes (current wording is correct but easy to miss).
+**Acceptance Criteria**:
+- A fresh `task setup` populates `KANBAN_PROJECT_ID` in `.env` AND as a GHA variable.
+- The orchestrator log shows no `gh project list --owner` calls during a pipeline run (only `gh project item-list` and `gh project item-edit`, which use the cached project ID).
+- A label-event-driven lane move via `kanban-lanes.yml` succeeds without any `gh project list` call in the workflow log.
+- `task setup` warns the user when the active gh auth context lacks `project` scope.
+- All existing kanban tests pass; orchestrator end-to-end run on issue #23 (or any agent:backlog issue) completes the implement phase with correct SP (matching the project Estimate field) and the lane visibly transitions Backlog → Implementing → Review → Merged.
+END_ISSUE
