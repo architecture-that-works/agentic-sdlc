@@ -16,6 +16,8 @@ __PROJECT_DESCRIPTION__
 | Orchestrator Workflow | Label-driven agentic pipeline: `agent:backlog` triggers implement → review → merge | Not the same as a human code review |
 | ISSUES.md | Local backlog of Agile User Story blocks, synced to GitHub Issues via `task sync` | Separate from GitHub Issues themselves |
 | Kanban lane | GitHub Project board column mapped to an `agent:*` label | Managed automatically by `kanban-lanes.yml` |
+| Signal comment | Issue comment starting with `🤖`; posted by the pipeline for agent decisions/outcomes (review results, failures, CI). Always retrieved by agents via `startswith("🤖")` filter to reconstruct issue history | Not to be confused with pipeline log noise |
+| Noise comment | Issue comment starting with `·`; pipeline log entry (state transitions, phase starts). Never retrieved by agents | All other issue comments are noise |
 
 ## Bounded Contexts
 

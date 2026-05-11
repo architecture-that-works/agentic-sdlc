@@ -155,8 +155,7 @@ $contextContent
     # Post comment listing updated sections and what was added
     $sectionsText = if ($updatedSections.Count -gt 0) { $updatedSections -join ', ' } else { 'CONTEXT.md' }
     $commentParts = [System.Collections.Generic.List[string]]::new()
-    $commentParts.Add("📝 **CONTEXT.md auto-updated** after merge of #$IssueNumber.")
-    $commentParts.Add("Sections updated: **$sectionsText**")
+    $commentParts.Add("· CONTEXT.md updated — $sectionsText")
     foreach ($section in $updatedSections) {
         if ($sectionLines.ContainsKey($section) -and $sectionLines[$section].Count -gt 0) {
             $commentParts.Add("")
@@ -197,9 +196,13 @@ function Invoke-Merge {
     }
 
     Write-Log "  Waiting for CI checks on PR #$PRNumber..." -Color DarkGray
-    gh pr checks $PRNumber --watch 2>&1 | Out-Null
+    $checkOutput = gh pr checks $PRNumber --watch 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
-        throw "CI checks failed for PR #$PRNumber. Fix the pipeline before merging."
+        $failedChecks = gh pr checks $PRNumber --json name,conclusion `
+            --jq '[.[] | select(.conclusion == "FAILURE" or .conclusion == "failure")] | map(.name) | join(", ")' 2>&1 | Out-String
+        $failedLabel = if ($failedChecks.Trim() -and $failedChecks.Trim() -ne 'null') { $failedChecks.Trim() } else { 'unknown' }
+        Add-Comment -Number $IssueNumber -Body "🤖❌ CI Failed`n`nFailed checks: $failedLabel`n``````text`n$($checkOutput.Trim())`n``````"
+        throw "CI checks failed for PR #$PRNumber."
     }
     Write-Log "  CI green ✅" -Color Green
 
@@ -207,7 +210,7 @@ function Invoke-Merge {
     if ($LASTEXITCODE -ne 0) { throw "gh pr merge failed for PR #$PRNumber" }
 
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:merged'
-    Add-Comment -Number $IssueNumber -Body "✅ PR #$PRNumber merged. Issue complete."
+    Add-Comment -Number $IssueNumber -Body "🤖✅ Merged`n`nPR #$PRNumber squash-merged. Issue closed."
 
     $default = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'
     git checkout --quiet $default

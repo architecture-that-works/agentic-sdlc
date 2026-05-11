@@ -57,7 +57,7 @@ function Invoke-Review {
     Write-Log "▶ Review — issue #$IssueNumber / PR #$PRNumber" -Color Cyan
     Ensure-AgentLabels
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:review'
-    Add-Comment -Number $IssueNumber -Body "🔍 Agent reviewing PR #$PRNumber against acceptance criteria..."
+    Add-Comment -Number $IssueNumber -Body "· reviewing PR #$PRNumber"
 
     $issue = gh issue view $IssueNumber --repo $KanbanRepo --json title,body | ConvertFrom-Json
     $diff  = gh pr diff $PRNumber 2>&1 | Out-String
@@ -88,14 +88,14 @@ Follow with your detailed reasoning.
     $verdict  = if ($approved) { 'APPROVED' } else { 'REJECTED' }
 
     $issueComment = if ($approved) {
-        "## 🤖 Agent Review — $verdict`n`n$review`n`n*Awaiting human review.*"
+        "🤖✅ Review Approved`n`n$review`n`n*Awaiting human review.*"
     } else {
-        "## 🤖 Agent Review — $verdict`n`n$review`n`n*Returning to Implementing for fixes.*"
+        "🤖❌ Review Rejected`n`n$review`n`n*Returning to Implementing for fixes.*"
     }
 
     Add-Comment -Number $IssueNumber -Body $issueComment
-    $prComment = if ($approved) { "✅ Agent self-review **APPROVED**. See issue #${IssueNumber}." }
-                 else           { "❌ Agent self-review **REJECTED**. See issue #${IssueNumber} for details." }
+    $prComment = if ($approved) { "🤖✅ Review Approved — see issue #${IssueNumber}." }
+                 else           { "🤖❌ Review Rejected — see issue #${IssueNumber} for details." }
     gh pr review $PRNumber --comment --body $prComment 2>&1 | Out-Null
 
     if ($approved) {

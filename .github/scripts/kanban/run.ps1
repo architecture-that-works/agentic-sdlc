@@ -141,7 +141,7 @@ function Invoke-Pipeline {
         if (-not $approved) {
             Clear-IssueReviewCount -IssueNumber $IssueNumber
             Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
-            Add-Comment -Number $IssueNumber -Body "⛔ Pipeline gave up after $cyclesDone review cycles. Manual intervention required."
+            Add-Comment -Number $IssueNumber -Body "🤖❌ Pipeline Error`n`nMax retries reached ($cyclesDone/$MaxRetries review cycles). Manual intervention required."
             Write-Log "⛔ Gave up after $cyclesDone cycles for issue #$IssueNumber." -Color Red
             return
         }
@@ -153,7 +153,7 @@ function Invoke-Pipeline {
     } catch {
         Clear-IssueReviewCount -IssueNumber $IssueNumber
         Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
-        Add-Comment -Number $IssueNumber -Body "❌ **Pipeline error**`n``````$_``````"
+        Add-Comment -Number $IssueNumber -Body "🤖❌ Pipeline Error`n``````text`n$_`n``````"
         Write-Log "❌ Pipeline error for issue #$IssueNumber : $_" -Color Red
     } finally {
         Release-PipelineLock

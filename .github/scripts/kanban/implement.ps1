@@ -63,7 +63,7 @@ $templateInstruction
     try {
         $refined.Trim() | Out-File $tmp.FullName -Encoding utf8
         gh issue edit $Number --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-Null
-        Add-Comment -Number $Number -Body "📋 Issue refined using the project template. Starting implementation."
+        Add-Comment -Number $Number -Body "· issue structured"
         Write-Log "  Issue #$Number refined." -Color Green
     } finally {
         Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
@@ -89,7 +89,7 @@ function Invoke-Develop {
     param([int]$Number, [string]$Branch)
     Write-Log "  Phase B — Develop issue #$Number on $Branch" -Color Yellow
     Move-ToLane -IssueNumber $Number -OptionId $KanbanOpt_Implementing -LaneName 'Implementing'
-    Add-Comment -Number $Number -Body "🌿 Branch ``$Branch`` checked out. Claude Code starting implementation..."
+    Add-Comment -Number $Number -Body "· branch checked out — starting"
 
     if ((Get-ChildItem .template/.agents/skills -Recurse -Filter *.md -ErrorAction SilentlyContinue).Count -eq 0) {
         Write-Log "⚠️ Skills directory is empty — agent constraints will not be applied." -Color Yellow
@@ -97,11 +97,12 @@ function Invoke-Develop {
 
     $issue = gh issue view $Number --repo $KanbanRepo --json title,body | ConvertFrom-Json
 
-    # Pull the most recent agent review comment (present on retry runs after rejection)
-    $priorReview = gh issue view $Number --repo $KanbanRepo --json comments `
-        --jq '[.comments[] | select(.body | startswith("## 🤖 Agent Review"))] | last | .body' 2>&1 | Out-String
-    $reviewSection = if ($LASTEXITCODE -eq 0 -and $priorReview.Trim() -and $priorReview.Trim() -ne 'null') {
-        "`nPRIOR REVIEW FEEDBACK — you MUST address every finding before finishing:`n$($priorReview.Trim())"
+    # Retrieve all agent signal comments (🤖-prefixed) — full decision history for this issue.
+    # Includes review rejections, CI failures, prior implementation summaries, and errors.
+    $signal = gh issue view $Number --repo $KanbanRepo --json comments `
+        --jq '[.comments[] | select(.body | startswith("🤖"))] | map(.body) | join("\n---\n")' 2>&1 | Out-String
+    $signalSection = if ($LASTEXITCODE -eq 0 -and $signal.Trim() -and $signal.Trim() -ne 'null') {
+        "`nISSUE SIGNAL HISTORY (agent decisions and outcomes — address all rejections and failures before finishing):`n$($signal.Trim())"
     } else { '' }
 
     $prompt = @"
@@ -111,7 +112,7 @@ ISSUE TITLE: $($issue.title)
 
 ISSUE BODY:
 $($issue.body)
-$reviewSection
+$signalSection
 INSTRUCTIONS:
 1. Read AGENTS.md and CONTEXT.md first to understand the project boundaries and constraints.
 2. Read the relevant parts of the codebase before writing any code.
@@ -153,19 +154,19 @@ INSTRUCTIONS:
 
                         if ($block.name -in @('Read','Glob','Grep') -and -not $explorationPosted) {
                             $explorationPosted = $true
-                            Add-Comment -Number $Number -Body "🔍 Exploring codebase..."
+                            Add-Comment -Number $Number -Body "· exploring codebase"
                         }
                         if ($block.name -in @('Write','Edit') -and $block.input.file_path) {
                             if (-not $writingPosted) {
                                 $writingPosted = $true
-                                Add-Comment -Number $Number -Body "🔨 Writing implementation..."
+                                Add-Comment -Number $Number -Body "· writing implementation"
                             }
                             $fp = $block.input.file_path
                             if (-not $modifiedFiles.Contains($fp)) { $modifiedFiles.Add($fp) }
                         }
                         if ($block.name -eq 'Bash' -and $block.input.command -match 'pytest' -and -not $testedOnce) {
                             $testedOnce = $true
-                            Add-Comment -Number $Number -Body "🧪 Running test suite..."
+                            Add-Comment -Number $Number -Body "· running tests"
                         }
                     }
                 }
@@ -188,17 +189,17 @@ INSTRUCTIONS:
                       ForEach-Object { "- ``$(Split-Path $_ -Leaf)``" }) -join "`n"
         "`n`n**Files changed ($($modifiedFiles.Count)):**`n$fileLines"
     } else { '' }
-    Add-Comment -Number $Number -Body "🤖 **Implementation complete**$fileSection`n`n$summaryText"
+    Add-Comment -Number $Number -Body "🤖 Implementation$fileSection`n`n$summaryText"
     Write-Log "  Implementation finished for issue #$Number." -Color Green
 
     # Independent verification
     Write-Log "  Running test suite independently..." -Color DarkGray
     $testOutput = uv run pytest 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
-        Add-Comment -Number $Number -Body "⚠️ **Tests failing after implementation** — pipeline halted.`n``````text`n$testOutput`n``````"
+        Add-Comment -Number $Number -Body "🤖⚠️ Tests Failing`n``````text`n$testOutput`n``````"
         throw "Test suite failed after implementation for issue #$Number"
     }
-    Add-Comment -Number $Number -Body "✅ **All tests passing** — moving to PR."
+    Add-Comment -Number $Number -Body "· tests passed"
     Write-Log "  Tests passing ✅" -Color Green
 }
 
@@ -247,7 +248,7 @@ function Invoke-CommitAndPR {
         }
     } else {
         Write-Log "  ✅ Already implemented — no new changes on this branch." -Color Green
-        Add-Comment -Number $Number -Body "✅ Issue already fully implemented on this branch — no new changes. Proceeding to PR and review."
+        Add-Comment -Number $Number -Body "🤖 Implementation`n`nNo new changes — branch already fully implements this issue. Proceeding to PR and review."
     }
 
     git push --quiet origin HEAD 2>$null
@@ -283,7 +284,7 @@ Closes #$Number
         Write-Log "  PR created: $prUrl" -Color Green
     }
 
-    Add-Comment -Number $Number -Body "🔗 PR ready for review: $prUrl"
+    Add-Comment -Number $Number -Body "· PR opened — $prUrl"
     return $prUrl
 }
 
@@ -308,7 +309,7 @@ function Invoke-Implement {
 
     if ($branch -ne $expectedBranch) {
         Write-Log "  Creating feature branch for issue #$IssueNumber..." -Color DarkGray
-        Add-Comment -Number $IssueNumber -Body "🚀 Picked up via agent:backlog — creating branch ``$expectedBranch``."
+        Add-Comment -Number $IssueNumber -Body "· picked up — branch ``$expectedBranch``"
         $branch = New-FeatureBranch -Number $IssueNumber -Title $meta.title
     }
 
@@ -337,7 +338,7 @@ function Invoke-Implement {
         if ($calledDirectly) {
             Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
         }
-        Add-Comment -Number $IssueNumber -Body "❌ **Implement stage failed**`n``````$_``````"
+        Add-Comment -Number $IssueNumber -Body "🤖❌ Implement Failed`n``````text`n$_`n``````"
         throw
     }
 }
