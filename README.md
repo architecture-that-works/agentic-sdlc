@@ -4,7 +4,7 @@ Copier-based Python project scaffold. Generates a production-ready structure wit
 
 ## SDLC Maturity
 
-**Current: 5.75 / 10 — Mid-Level AI Engineer** · Assessed: 2026-05-10
+**Current: 6.0 / 10 — Senior AI Engineer** · Assessed: 2026-05-12
 
 > Re-assess: load [`ASSESSMENT_PROMPT.md`](ASSESSMENT_PROMPT.md) into a Claude Code session, then update this table.
 
@@ -12,8 +12,8 @@ Copier-based Python project scaffold. Generates a production-ready structure wit
 |---|---|---|---|
 | **0–2** | AI Student / Hobbyist | 5 / 5 | ✅ Git, UV lock, env-based config, Copier generator works cold |
 | **3–4** | Junior AI Engineer | 8 / 8 | ✅ Blocking CI gates (lint · typecheck · test · pip-audit), SHA-pinned actions, Dependabot, `project_type` prompt |
-| **5–6** | Mid-Level AI Engineer ◄ | 10 / 11 | 🔄 Skill files not embedded in generated projects — `AGENTS.md` references skills that don't travel via Copier |
-| **7–8** | Senior AI Engineer | 0 / 12 | 🔲 Cloud-native orchestration · Dockerfile + devcontainer · WIF credentials · CODEOWNERS · SECURITY.md · template isolation |
+| **5–6** | Mid-Level AI Engineer | 11 / 11 | ✅ |
+| **7–8** | Senior AI Engineer ◄ | 0 / 12 | 🔲 Cloud-native orchestration · Dockerfile + devcontainer · WIF credentials · CODEOWNERS · SECURITY.md · template isolation |
 | **9–10** | Principal AI Engineer | 0 / 6 | 🔲 Automated eval gates · self-improving CONTEXT.md · cold-start reproducibility · AI output evaluation harness |
 
 **Score formula:** tier-gated binary checklist. All criteria in tier N must be met before tier N+1 points are awarded. Within the blocking tier: `base + (met/total × 2)`. Full criteria in [`ASSESSMENT_PROMPT.md`](ASSESSMENT_PROMPT.md).

@@ -39,7 +39,7 @@ at the same time — never merge an ADR without a corresponding index update.
 | [ADR-006](ADR-006-agent-observability.md) | Agent Observability Tooling | Accepted | `project_type: agent` | Vertex AI Service Runtime (GCP + Gemini) or LangSmith (provider-agnostic) — context-dependent; extends ADR-003, does not replace OTel span emission |
 | [ADR-007](ADR-007-project-type-selection.md) | Project Type Selection | Accepted | all | `{{ project_type }}` — determines relevant domain ADRs and the domain skill to invoke during `tdd` REFACTOR |
 | [ADR-008](ADR-008-secrets-management.md) | Secrets Management | Accepted | all | GitHub Secrets for dev/CI; Azure Key Vault (corporate) / GCP Secret Manager (personal) for production |
-| [ADR-009](ADR-009-context-strategy.md) | Context Strategy | Proposed | all | Module Map + Issue-Type Index in CONTEXT.md, Context Protocol in AGENTS.md, blocking ship gate on Module Map updates |
+| [ADR-009](ADR-009-context-strategy.md) | Context Strategy | Accepted | all | Module Map + Issue-Type Index in CONTEXT.md, Context Protocol in AGENTS.md, blocking ship gate on Module Map updates |
 
 ---
 
