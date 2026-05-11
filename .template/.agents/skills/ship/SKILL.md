@@ -46,6 +46,13 @@ Prevents insecure or incomplete merges by running mandatory security gates, enfo
 
 Run in order. All BLOCK items must pass before merge is attempted.
 
+**[BLOCK] Module Map check**
+Verify every new `src/<domain>/` directory in this PR has a matching Module Map row in `CONTEXT.md` (ADR-009):
+```powershell
+pwsh .github/scripts/check-module-map.ps1
+```
+Non-zero exit → add the missing row(s) to the Module Map in `CONTEXT.md` before merge.
+
 **[BLOCK] Sandboxing verification**
 Confirm all agent-generated code was produced inside the Dev Container environment. No host credentials should have been accessible during generation. Check:
 ```bash
@@ -99,6 +106,7 @@ git commit -m "docs: update CONTEXT.md and out-of-scope after PR #<number>"
 
 | Gate | Severity | Failure action |
 |---|---|---|
+| Module Map check | BLOCK | Add missing row(s) to `CONTEXT.md` Module Map |
 | Sandboxing verification | BLOCK | Investigate, do not merge |
 | Supply chain review | BLOCK | Pin or remove package, do not merge |
 | Auto-close `Closes #N` | BLOCK | Add to PR body |
