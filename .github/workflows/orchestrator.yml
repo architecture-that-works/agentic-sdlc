@@ -102,10 +102,9 @@ jobs:
 
       - name: Run full pipeline (implement → review loop → merge)
         if: steps.resolve.outputs.issue_number != ''
-        run: |
-          & .github/scripts/kanban/run.ps1 `
-            -Issue ${{ steps.resolve.outputs.issue_number }} `
-            -MaxRetries 3
+        env:
+          PIPELINE_ISSUE: ${{ steps.resolve.outputs.issue_number }}
+        run: pwsh -File .github/scripts/kanban/run.ps1 -Issue $env:PIPELINE_ISSUE -MaxRetries 3
 
       - name: Drain remaining backlog
         if: always() && steps.resolve.outputs.issue_number != ''

@@ -18,7 +18,14 @@ if (Test-Path $_EnvPath) {
 # ── Project constants (from .env) ─────────────────────────────────────────────
 
 $KanbanProjectNumber    = if ($env:KANBAN_PROJECT_NUMBER)  { [int]$env:KANBAN_PROJECT_NUMBER }  else { 0 }
-$KanbanProjectOwner     = if ($env:KANBAN_PROJECT_OWNER)   { $env:KANBAN_PROJECT_OWNER }        else { '@me' }
+# @me is not resolved by gh project in GHA context — use the repo owner from the GHA env var instead.
+$KanbanProjectOwner     = if ($env:KANBAN_PROJECT_OWNER -and $env:KANBAN_PROJECT_OWNER -ne '@me') {
+                              $env:KANBAN_PROJECT_OWNER
+                          } elseif ($env:GITHUB_REPOSITORY_OWNER) {
+                              $env:GITHUB_REPOSITORY_OWNER
+                          } else {
+                              '@me'
+                          }
 $KanbanStatusFieldId    = if ($env:KANBAN_STATUS_FIELD_ID) { $env:KANBAN_STATUS_FIELD_ID }      else { '' }
 $KanbanOpt_Backlog      = if ($env:KANBAN_OPT_BACKLOG)     { $env:KANBAN_OPT_BACKLOG }          else { '' }
 $KanbanOpt_Implementing = if ($env:KANBAN_OPT_IMPLEMENTING){ $env:KANBAN_OPT_IMPLEMENTING }     else { '' }
@@ -189,7 +196,8 @@ function New-FeatureBranch {
         Write-Log "  Stashed leftover changes on $branch before retry." -Color DarkGray
     }
 
-    gh issue edit $Number --repo $KanbanRepo --add-assignee '@me' 2>&1 | Out-Null
+    $assignee = if ($env:GITHUB_ACTOR) { $env:GITHUB_ACTOR } else { '@me' }
+    gh issue edit $Number --repo $KanbanRepo --add-assignee $assignee 2>&1 | Out-Null
     Write-Log "  Branch $branch — ready." -Color DarkGray
     return $branch
 }
