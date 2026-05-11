@@ -37,7 +37,9 @@ def test_generated_project_passes_tests(project_type: str, tmp_path: Path) -> No
     assert "{{" not in devcontainer_content, (
         ".devcontainer/devcontainer.json must not contain Jinja2 syntax"
     )
-    assert "mcr.microsoft.com/devcontainers/python:3.12" in devcontainer_content
+    assert (
+        "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm" in devcontainer_content
+    )
     assert "ghcr.io/devcontainers/features/github-cli:1" in devcontainer_content
     assert "ghcr.io/devcontainers/features/powershell:1" in devcontainer_content
     assert "ghcr.io/devcontainers/features/docker-in-docker:2" in devcontainer_content
@@ -62,6 +64,20 @@ def test_generated_project_passes_tests(project_type: str, tmp_path: Path) -> No
     assert "ollama" in compose_content.lower(), (
         "Compose stub must include an Ollama example"
     )
+
+    dockerfile = tmp_path / "Dockerfile"
+    assert dockerfile.exists(), "Generated project missing Dockerfile"
+    dockerfile_content = dockerfile.read_text()
+    assert "pip install" not in dockerfile_content, (
+        "Dockerfile must not contain 'pip install'"
+    )
+    assert "{{" not in dockerfile_content, "Dockerfile must not contain Jinja2 syntax"
+
+    dockerignore = tmp_path / ".dockerignore"
+    assert dockerignore.exists(), "Generated project missing .dockerignore"
+    dockerignore_content = dockerignore.read_text()
+    assert ".venv/" in dockerignore_content, ".dockerignore must exclude .venv/"
+    assert ".env" in dockerignore_content, ".dockerignore must exclude .env"
 
     result = subprocess.run(
         ["uv", "run", "pytest", "--tb=short", "-q"],
