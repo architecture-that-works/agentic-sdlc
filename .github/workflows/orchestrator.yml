@@ -280,10 +280,15 @@ jobs:
           ISSUE_BODY=$(gh issue view "$ISSUE_NUMBER" --json body --jq '.body' 2>/dev/null) \
             || _fail "gh issue view failed"
 
-          # Install Claude CLI if not present and token is available
+          # Install Claude CLI if not present and token is available.
+          # sudo: ubuntu-latest npm global prefix is /usr/local/lib/node_modules,
+          # which requires elevated perms. Without sudo the install silently
+          # fails and `command -v claude` returns nothing.
+          # The stderr is no longer redirected to /dev/null so install errors
+          # surface in the workflow log if they occur.
           if ! command -v claude &>/dev/null; then
             if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-              npm install -g @anthropic-ai/claude-code 2>/dev/null || true
+              sudo npm install -g @anthropic-ai/claude-code || true
             fi
           fi
 

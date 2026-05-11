@@ -38,8 +38,11 @@ jobs:
             exit 0
           fi
 
+          # --limit 200: the gh CLI default is 30, which silently drops items
+          # past the first page on growing boards (caused issue #23 to be
+          # reported as "not in project" once the board reached 30+ items).
           ITEM_ID=$(gh project item-list "${{ vars.KANBAN_PROJECT_NUMBER }}" \
-            --owner "${{ vars.KANBAN_PROJECT_OWNER }}" --format json \
+            --owner "${{ vars.KANBAN_PROJECT_OWNER }}" --format json --limit 200 \
             --jq ".items[] | select(.content.number == $ISSUE) | .id")
 
           if [ -z "$ITEM_ID" ]; then
