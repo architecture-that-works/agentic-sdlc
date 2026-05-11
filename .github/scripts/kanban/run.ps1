@@ -1,14 +1,15 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    End-to-end Kanban pipeline orchestrator.
+    Kanban orchestrator — continuous polling or single-issue direct run.
 
 .DESCRIPTION
     Default: polls GitHub every PollIntervalSeconds for issues labelled
-    agent:backlog and runs the full pipeline on each (implement → review loop →
-    merge). Also resumes stalled Implementing-lane items from interrupted runs.
+    agent:backlog and runs the full orchestration on each (implement → review
+    loop → merge). Also resumes stalled Implementing-lane items from interrupted
+    runs.
 
-    Direct mode (-Issue N): runs the pipeline once for the given issue and exits.
+    Direct mode (-Issue N): orchestrates once for the given issue and exits.
 
     Review loop: after implement, runs review. If REJECTED, re-runs implement
     (up to MaxRetries attempts) then reviews again. Stops on APPROVED.
@@ -17,24 +18,27 @@
     Issue number for a single direct run. Omit to enter continuous polling mode.
 
 .PARAMETER PollIntervalSeconds
-    Seconds between polls in continuous mode. Default: 60.
+    Seconds between polls in continuous mode. Default: from orchestrator.config.ps1.
 
 .PARAMETER MaxRetries
-    Maximum implement→review cycles before giving up. Default: 3.
+    Maximum implement→review cycles before giving up. Default: from orchestrator.config.ps1.
 
 .EXAMPLE
-    task run                    # poll every 60s — runs indefinitely
-    task run ISSUE=13           # run pipeline once for issue #13 and exit
+    task run                    # poll continuously — runs indefinitely
+    task run ISSUE=13           # orchestrate once for issue #13 and exit
     task run POLL=30 RETRIES=5  # custom poll interval and retry limit
 #>
 param(
     [int]$Issue               = 0,
-    [int]$PollIntervalSeconds = 60,
-    [int]$MaxRetries          = 3
+    [int]$PollIntervalSeconds = -1,
+    [int]$MaxRetries          = -1
 )
 
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_common.ps1"
+
+if ($PollIntervalSeconds -lt 0) { $PollIntervalSeconds = $KanbanPollInterval }
+if ($MaxRetries          -lt 0) { $MaxRetries          = $KanbanMaxRetries   }
 . "$PSScriptRoot\implement.ps1"
 . "$PSScriptRoot\review.ps1"
 . "$PSScriptRoot\merge.ps1"
@@ -64,9 +68,9 @@ function Get-StalledIssues {
     # Exclude any issue currently held by an active lock (not stalled — actively running).
     $lockedIssue = 0
     $lockedPid   = 0
-    if (Test-Path $KanbanLockFile) {
+    if (Test-Path $OrchestratorLockFile) {
         try {
-            $d    = Get-Content $KanbanLockFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            $d    = Get-Content $OrchestratorLockFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
             $proc = Get-Process -Id $d.pid -ErrorAction SilentlyContinue
             if ($proc) { $lockedIssue = [int]$d.issue; $lockedPid = [int]$d.pid }
         } catch {}
@@ -85,13 +89,13 @@ function Get-StalledIssues {
     }
 }
 
-# ── Full pipeline for one issue ───────────────────────────────────────────────
+# ── Full orchestration for one issue ─────────────────────────────────────────
 
-function Invoke-Pipeline {
+function Invoke-Orchestration {
     param([int]$IssueNumber, [switch]$Force)
 
     # Prevent two concurrent terminal instances from processing the same issue.
-    if (-not (Acquire-PipelineLock -IssueNumber $IssueNumber)) {
+    if (-not (Acquire-OrchestratorLock -IssueNumber $IssueNumber)) {
         Write-Log "  ⏳ Issue #$IssueNumber is locked by another process — skipping." -Color Yellow
         return
     }
@@ -104,7 +108,7 @@ function Invoke-Pipeline {
         $status = gh project item-list $KanbanProjectNumber `
             --owner $KanbanProjectOwner --format json --limit 200 --jq $jq 2>&1
 
-        Write-Log "━━━ Pipeline: issue #$IssueNumber — $($meta.title)" -Color Cyan
+        Write-Log "━━━ Orchestrator: issue #$IssueNumber — $($meta.title)" -Color Cyan
         Write-Log "    Current lane: $status" -Color DarkGray
 
         Ensure-AgentLabels
@@ -141,7 +145,7 @@ function Invoke-Pipeline {
         if (-not $approved) {
             Clear-IssueReviewCount -IssueNumber $IssueNumber
             Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
-            Add-Comment -Number $IssueNumber -Body "🤖❌ Pipeline Error`n`nMax retries reached ($cyclesDone/$MaxRetries review cycles). Manual intervention required."
+            Add-Comment -Number $IssueNumber -Body "🤖❌ Orchestrator Error`n`nMax retries reached ($cyclesDone/$MaxRetries review cycles). Manual intervention required."
             Write-Log "⛔ Gave up after $cyclesDone cycles for issue #$IssueNumber." -Color Red
             return
         }
@@ -153,10 +157,10 @@ function Invoke-Pipeline {
     } catch {
         Clear-IssueReviewCount -IssueNumber $IssueNumber
         Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
-        Add-Comment -Number $IssueNumber -Body "🤖❌ Pipeline Error`n``````text`n$_`n``````"
-        Write-Log "❌ Pipeline error for issue #$IssueNumber : $_" -Color Red
+        Add-Comment -Number $IssueNumber -Body "🤖❌ Orchestrator Error`n``````text`n$_`n``````"
+        Write-Log "❌ Orchestrator error for issue #$IssueNumber : $_" -Color Red
     } finally {
-        Release-PipelineLock
+        Release-OrchestratorLock
         if ($stashed) { git stash pop 2>&1 | Out-Null }
 
         # Always return to a clean, origin-synced master so the next issue starts fresh.
@@ -166,7 +170,7 @@ function Invoke-Pipeline {
         if ($curr -and $curr -ne $default) {
             if (git status --porcelain 2>$null) {
                 git stash push --include-untracked --quiet `
-                    -m "auto: pre-master-switch from issue #$IssueNumber pipeline" 2>$null
+                    -m "auto: pre-master-switch from issue #$IssueNumber orchestrator" 2>$null
             }
             Write-Log "  ↩ Returning to $default (feature branch '$curr' preserved for human review)." -Color DarkGray
             git checkout --quiet $default 2>$null
@@ -179,9 +183,9 @@ function Invoke-Pipeline {
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if ($Issue -gt 0) {
-    Invoke-Pipeline -IssueNumber $Issue
+    Invoke-Orchestration -IssueNumber $Issue
 } else {
-    Write-Log "▶ run — polling every ${PollIntervalSeconds}s for agent:backlog. Ctrl+C to stop." -Color Cyan
+    Write-Log "▶ Orchestrator — polling every ${PollIntervalSeconds}s for agent:backlog. Ctrl+C to stop." -Color Cyan
     while ($true) {
         try {
             $backlog = @(Get-BacklogIssues)
@@ -189,12 +193,12 @@ if ($Issue -gt 0) {
 
             $backlog | Sort-Object { $_.number } | ForEach-Object {
                 Write-Log "  🎯 agent:backlog on #$($_.number) '$($_.title)' — picking up." -Color Cyan
-                Invoke-Pipeline -IssueNumber $_.number
+                Invoke-Orchestration -IssueNumber $_.number
             }
 
             $stalled | Sort-Object { $_.content.number } | ForEach-Object {
                 Write-Log "  ⚠️ Stalled #$($_.content.number) in Implementing — resuming." -Color Yellow
-                Invoke-Pipeline -IssueNumber $_.content.number -Force:$true
+                Invoke-Orchestration -IssueNumber $_.content.number -Force:$true
             }
 
             if ($backlog.Count -eq 0 -and $stalled.Count -eq 0) {

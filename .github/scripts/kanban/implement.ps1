@@ -28,46 +28,109 @@ function Invoke-Refine {
     param([int]$Number)
     Write-Log "  Phase A — Refine issue #$Number" -Color Yellow
 
-    $issue    = gh issue view $Number --repo $KanbanRepo --json title,body | ConvertFrom-Json
+    $issue    = gh issue view $Number --repo $KanbanRepo --json title,body,labels | ConvertFrom-Json
     $template = Get-IssueTemplate
 
+    # Determine what needs work
+    $needsBodyRefine = $false
     if ($template) {
-        $headings = ($template -split '\r?\n' | Where-Object { $_ -match '^\*\*\w' } |
-            ForEach-Object { ($_ -split ':')[0] })
-        $missing = $headings | Where-Object { $issue.body -notmatch [regex]::Escape($_) }
-        if (-not $missing) {
-            Write-Log "  Issue already structured — skipping refinement." -Color DarkGray
-            return
-        }
+        $headings        = $template -split '\r?\n' |
+            Where-Object { $_ -match '^\*\*\w' } |
+            ForEach-Object { ($_ -split ':')[0] }
+        $missing         = @($headings | Where-Object { $issue.body -notmatch [regex]::Escape($_) })
+        $needsBodyRefine = $missing.Count -gt 0
+    } else {
+        $needsBodyRefine = $true
     }
 
-    $templateInstruction = if ($template) {
-        "Rewrite the issue body to match EXACTLY this field structure:`n`n$template`n`nFill each field with content derived from the raw issue. Do not invent requirements. Return only the filled body, no commentary."
+    $labelNames    = @($issue.labels | ForEach-Object { $_.name })
+    $needsEstimate = -not ($labelNames | Where-Object { $_ -match '^estimate:\d+$' })
+    $needsPriority = -not ($labelNames | Where-Object { $_ -match '^priority:' })
+
+    if (-not $needsBodyRefine -and -not $needsEstimate -and -not $needsPriority) {
+        Write-Log "  Issue already fully refined — skipping." -Color DarkGray
+        return
+    }
+
+    $bodyInstruction = if ($needsBodyRefine -and $template) {
+        "REWRITE the body to match this field structure exactly (fill all fields from the raw issue — do not invent requirements):`n`n$template"
+    } elseif ($needsBodyRefine) {
+        "REWRITE the body with: **Goal**, **Description**, **Requirements** (numbered), **Acceptance Criteria** (bulleted)."
     } else {
-        "Structure the issue body with: **Goal**, **Description**, **Requirements** (numbered), **Acceptance Criteria** (bulleted). Return only the body."
+        "Body is already structured — copy it unchanged into the 'body' field."
+    }
+
+    $estimateInstruction = if ($needsEstimate) {
+        'ASSIGN estimate: Fibonacci SP — 1=trivial single-file, 2=small bounded, 3=moderate multi-file, 5=clear multi-component, 8=complex architectural, 13=large multi-area, 21=epic requiring human collaboration.'
+    } else {
+        'Estimate already set — output null.'
+    }
+
+    $priorityInstruction = if ($needsPriority) {
+        'ASSIGN priority: Critical (blocks everything), High (current sprint), Medium (next sprint), Low (nice-to-have).'
+    } else {
+        'Priority already set — output null.'
     }
 
     $prompt = @"
-You are structuring a GitHub issue body for this repository.
+You are refining a GitHub issue so it is fully specified before implementation begins.
 
 ISSUE TITLE: $($issue.title)
-RAW BODY: $($issue.body)
+CURRENT BODY:
+$($issue.body)
 
-$templateInstruction
+TASKS:
+1. Body: $bodyInstruction
+2. Estimate: $estimateInstruction
+3. Priority: $priorityInstruction
+
+Return ONLY valid JSON — no markdown fences, no explanation:
+{"body":"<full issue body>","estimate":<number or null>,"priority":"<Critical|High|Medium|Low or null>"}
 "@
 
-    $refined = claude -p $prompt 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0) { throw "Claude refinement failed: $refined" }
+    $raw = claude -p $prompt --model $KanbanModel_Sonnet 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "Claude refinement failed: $raw" }
 
-    $tmp = New-TemporaryFile
-    try {
-        $refined.Trim() | Out-File $tmp.FullName -Encoding utf8
-        gh issue edit $Number --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-Null
-        Add-Comment -Number $Number -Body "· issue structured"
-        Write-Log "  Issue #$Number refined." -Color Green
-    } finally {
-        Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+    $json = $raw.Trim()
+    if ($json -match '(?s)```(?:json)?\s*(\{.+\})\s*```') { $json = $Matches[1] }
+    $parsed = $json | ConvertFrom-Json -ErrorAction SilentlyContinue
+    if (-not $parsed) {
+        Write-Log "  ⚠️ Refine: could not parse response — skipping." -Color Yellow
+        return
     }
+
+    if ($needsBodyRefine -and $parsed.body) {
+        $tmp = New-TemporaryFile
+        try {
+            $parsed.body.Trim() | Out-File $tmp.FullName -Encoding utf8
+            gh issue edit $Number --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-Null
+        } finally {
+            Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+        }
+    }
+
+    if ($needsEstimate -and $null -ne $parsed.estimate -and $parsed.estimate -ne 'null') {
+        $el = "estimate:$($parsed.estimate)"
+        Ensure-Label -Name $el -Color 'bfd4f2' -Description "Story points: $($parsed.estimate)"
+        Set-IssueLabel -Number $Number -Add $el
+    }
+
+    if ($needsPriority -and $parsed.priority -and $parsed.priority -ne 'null') {
+        $pc = switch ($parsed.priority.ToLower()) {
+            'critical' { 'd73a4a' } 'high' { 'e4e669' } 'medium' { '0075ca' } default { 'cfd3d7' }
+        }
+        $pl = "priority:$($parsed.priority.ToLower())"
+        Ensure-Label -Name $pl -Color $pc -Description "$($parsed.priority) priority"
+        Set-IssueLabel -Number $Number -Add $pl
+    }
+
+    $changes = @()
+    if ($needsBodyRefine)                                              { $changes += 'body structured' }
+    if ($needsEstimate -and $null -ne $parsed.estimate -and $parsed.estimate -ne 'null') { $changes += "estimate:$($parsed.estimate)" }
+    if ($needsPriority -and $parsed.priority -and $parsed.priority -ne 'null')           { $changes += "priority:$($parsed.priority.ToLower())" }
+
+    Add-Comment -Number $Number -Body "· refined — $($changes -join ', ')"
+    Write-Log "  Issue #$Number refined: $($changes -join ', ')" -Color Green
 }
 
 # ── Phase B: Develop ──────────────────────────────────────────────────────────
@@ -111,13 +174,18 @@ INSTRUCTIONS:
 8. End your response with a concise bullet-point summary of every file you changed.
 "@
 
+    $sp       = Get-IssueEstimate -IssueNumber $Number
+    $devModel = Get-PhaseModel -Estimate $sp -Phase 'implement'
+    $devTurns = Get-ImplementMaxTurns -Estimate $sp
+    Write-Log "  Model: $devModel  SP=$sp  max-turns=$devTurns" -Color DarkGray
+
     $allText           = [System.Text.StringBuilder]::new()
     $modifiedFiles     = [System.Collections.Generic.List[string]]::new()
     $explorationPosted = $false
     $writingPosted     = $false
     $testedOnce        = $false
 
-    claude -p $prompt --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --output-format stream-json --verbose 2>&1 |
+    claude -p $prompt --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1 |
     ForEach-Object {
         $raw = [string]$_
         try {
@@ -179,14 +247,15 @@ INSTRUCTIONS:
     Add-Comment -Number $Number -Body "🤖 Implementation$fileSection`n`n$summaryText"
     Write-Log "  Implementation finished for issue #$Number." -Color Green
 
-    # Independent verification
+    # Independent verification — output posted as signal so the reviewer can read exact results
     Write-Log "  Running test suite independently..." -Color DarkGray
-    $testOutput = uv run pytest 2>&1 | Out-String
+    $testOutput = uv run pytest --tb=short -q 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
-        Add-Comment -Number $Number -Body "🤖⚠️ Tests Failing`n``````text`n$testOutput`n``````"
+        Add-Comment -Number $Number -Body "🤖⚠️ Tests Failing`n``````text`n$($testOutput.Trim())`n``````"
         throw "Test suite failed after implementation for issue #$Number"
     }
-    Add-Comment -Number $Number -Body "· tests passed"
+    $testSummary = (($testOutput -split '\r?\n') | Where-Object { $_.Trim() } | Select-Object -Last 4) -join "`n"
+    Add-Comment -Number $Number -Body "🤖✅ Tests Passing`n``````text`n$($testSummary.Trim())`n``````"
     Write-Log "  Tests passing ✅" -Color Green
 }
 
@@ -251,7 +320,7 @@ function Invoke-CommitAndPR {
 Automated implementation for issue #$Number by Claude Code agent.
 
 ## Validation
-- ``uv run pytest`` — ✅ passed (verified by pipeline)
+- ``uv run pytest`` — ✅ passed (verified by orchestrator)
 
 ## Linked Issue
 Closes #$Number

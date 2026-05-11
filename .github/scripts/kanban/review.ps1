@@ -21,10 +21,12 @@
     task review                 # auto-detects from current branch
     task review ISSUE=13        # explicit issue number
 #>
-param([int]$Issue = 0, [int]$PR = 0)
+param([int]$Issue = 0, [int]$PR = 0, [int]$MaxRetries = -1)
 
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_common.ps1"
+
+if ($MaxRetries -lt 0) { $MaxRetries = $KanbanMaxRetries }
 
 function Resolve-PR {
     param([int]$IssueNumber, [int]$PRNumber)
@@ -54,13 +56,22 @@ function Invoke-Review {
         if ($prBody -match '#(\d+)') { $IssueNumber = [int]$Matches[1] }
     }
 
-    Write-Log "▶ Review — issue #$IssueNumber / PR #$PRNumber" -Color Cyan
+    $sp          = Get-IssueEstimate -IssueNumber $IssueNumber
+    $reviewModel = Get-PhaseModel -Estimate $sp -Phase 'review'
+    Write-Log "▶ Review — issue #$IssueNumber / PR #$PRNumber  model=$reviewModel  SP=$sp" -Color Cyan
     Ensure-AgentLabels
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:review'
     Add-Comment -Number $IssueNumber -Body "· reviewing PR #$PRNumber"
 
     $issue = gh issue view $IssueNumber --repo $KanbanRepo --json title,body | ConvertFrom-Json
     $diff  = gh pr diff $PRNumber 2>&1 | Out-String
+
+    # Retrieve signal history — includes 🤖✅ Tests Passing output and any prior rejections.
+    $signal = gh issue view $IssueNumber --repo $KanbanRepo --json comments `
+        --jq '[.comments[] | select(.body | startswith("🤖"))] | map(.body) | join("\n---\n")' 2>&1 | Out-String
+    $signalSection = if ($LASTEXITCODE -eq 0 -and $signal.Trim() -and $signal.Trim() -ne 'null') {
+        "`nSIGNAL HISTORY (test results, prior implementation notes, previous rejections — use this to verify correctness):`n$($signal.Trim())"
+    } else { '' }
 
     $prompt = @"
 You are performing a strict code review for a pull request in this repository.
@@ -72,18 +83,20 @@ $($issue.body)
 
 PR DIFF:
 $diff
+$signalSection
 
 REVIEW INSTRUCTIONS:
 - Verify every requirement and acceptance criterion is fully met.
 - Check for bugs, regressions, missing test coverage, or style violations.
 - Check that the conventions in AGENTS.md and .template/.agents/skills/ are followed.
+- The signal history includes the test run output (🤖✅ Tests Passing) — verify it confirms the requirements are tested.
 - Be strict: reject if anything is incomplete, incorrect, or missing.
 
 First line of your response MUST be exactly APPROVED or REJECTED (all caps).
 Follow with your detailed reasoning.
 "@
 
-    $review   = Invoke-ClaudeStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review'
+    $review   = Invoke-ClaudeStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $KanbanMaxTurns_Review
     $approved = $review -match '(?im)^APPROVED'
     $verdict  = if ($approved) { 'APPROVED' } else { 'REJECTED' }
 
@@ -109,5 +122,41 @@ Follow with your detailed reasoning.
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    Invoke-Review -IssueNumber $Issue -PRNumber $PR | Out-Null
+    # Orchestration continuation: run review → implement loop → merge to completion.
+    . "$PSScriptRoot\implement.ps1"
+    . "$PSScriptRoot\merge.ps1"
+
+    $IssueNumber = $Issue
+    $PRNumber    = $PR
+    if ($IssueNumber -eq 0) { $IssueNumber = Get-CurrentIssueNumber }
+    $PRNumber = Resolve-PR -IssueNumber $IssueNumber -PRNumber $PRNumber
+
+    try {
+        $cyclesDone = Get-IssueReviewCount -IssueNumber $IssueNumber
+        $approved   = Invoke-Review -IssueNumber $IssueNumber -PRNumber $PRNumber
+        $cyclesDone++
+        Set-IssueReviewCount -IssueNumber $IssueNumber -Count $cyclesDone
+
+        while (-not $approved -and $cyclesDone -lt $MaxRetries) {
+            Write-Log "  Review rejected — re-running implement (cycle $($cyclesDone + 1)/$MaxRetries)..." -Color Yellow
+            Invoke-Implement -IssueNumber $IssueNumber -Force | Out-Null
+            $approved = Invoke-Review -IssueNumber $IssueNumber -PRNumber $PRNumber
+            $cyclesDone++
+            Set-IssueReviewCount -IssueNumber $IssueNumber -Count $cyclesDone
+        }
+
+        if ($approved) {
+            Clear-IssueReviewCount -IssueNumber $IssueNumber
+            Invoke-Merge -IssueNumber $IssueNumber -PRNumber $PRNumber
+            Write-Log "🎉 Issue #$IssueNumber complete." -Color Green
+        } else {
+            Clear-IssueReviewCount -IssueNumber $IssueNumber
+            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
+            Add-Comment -Number $IssueNumber -Body "🤖❌ Orchestrator Error`n`nMax retries reached ($cyclesDone/$MaxRetries review cycles). Manual intervention required."
+            Write-Log "⛔ Gave up after $cyclesDone cycles for issue #$IssueNumber." -Color Red
+        }
+    } catch {
+        Clear-IssueReviewCount -IssueNumber $IssueNumber
+        throw
+    }
 }

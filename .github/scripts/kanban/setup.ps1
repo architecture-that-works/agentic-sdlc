@@ -194,4 +194,4 @@ foreach ($kv in $ghVars.GetEnumerator()) {
 }
 
 Write-Host ""
-Write-Host "✅ Setup complete. Run 'task run' to start the agent pipeline." -ForegroundColor Green
+Write-Host "✅ Setup complete. Run 'task run' to start the orchestrator." -ForegroundColor Green

@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    HITL pipeline — pick a Backlog issue and run the full pipeline in this terminal.
+    HITL orchestration — pick a Backlog issue and run the full orchestration in this terminal.
 
 .DESCRIPTION
     Presents an interactive picker of Backlog issues (or accepts -Issue N directly).
@@ -19,18 +19,20 @@
 
 .EXAMPLE
     task start              # interactive picker
-    task start ISSUE=13     # run pipeline for issue #13 directly
+    task start ISSUE=13     # run orchestration for issue #13 directly
 #>
 param(
     [int]$Issue      = 0,
-    [int]$MaxRetries = 3
+    [int]$MaxRetries = -1
 )
 
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_common.ps1"
 
+if ($MaxRetries -lt 0) { $MaxRetries = $KanbanMaxRetries }
+
 Ensure-AgentLabels
-Ensure-Label -Name 'HITL' -Color 'e4e669' -Description 'Human in the loop — GHA pipeline suppressed'
+Ensure-Label -Name 'HITL' -Color 'e4e669' -Description 'Human in the loop — GHA orchestrator suppressed'
 
 # ── Fetch Backlog items for this repo ─────────────────────────────────────────
 
@@ -78,7 +80,7 @@ Write-Host "  Issue   : $url" -ForegroundColor Cyan
 Write-Host "  Mode    : HITL — running in terminal, GHA suppressed" -ForegroundColor Green
 Write-Host ""
 
-# ── Guard with HITL, then run the full pipeline ───────────────────────────────
+# ── Guard with HITL, then run the full orchestration ─────────────────────────
 
 gh issue edit $num --repo $KanbanRepo --add-label 'HITL' 2>&1 | Out-Null
 Write-Log "  HITL label added to #$num — GHA will not pick this up." -Color DarkGray

@@ -2,8 +2,8 @@ version: '3'
 
 vars:
   ISSUE: '{{default "0" .ISSUE}}'
-  POLL: '{{default "60" .POLL}}'
-  RETRIES: '{{default "3" .RETRIES}}'
+  POLL: '{{default "-1" .POLL}}'      # -1 = read from orchestrator.config.ps1
+  RETRIES: '{{default "-1" .RETRIES}}' # -1 = read from orchestrator.config.ps1
 
 tasks:
 
@@ -19,27 +19,32 @@ tasks:
       - pwsh -NoProfile -File .github/scripts/sync-issues.ps1 {{.CLI_ARGS}}
 
   start:
-    desc: "HITL — pick a Backlog issue and run the full pipeline in this terminal (task start ISSUE=13)"
+    desc: "HITL — pick a Backlog issue and run the full orchestration in this terminal (task start ISSUE=13)"
     cmds:
       - pwsh -NoProfile -File .github/scripts/kanban/start.ps1 -Issue {{.ISSUE}} -MaxRetries {{.RETRIES}}
 
   implement:
-    desc: "Implement an issue via Claude Code: Refine → Develop → PR (or task implement ISSUE=13)"
+    desc: "[debug] Single-stage implement only — no review (task implement ISSUE=13)"
     cmds:
       - pwsh -NoProfile -File .github/scripts/kanban/implement.ps1 -Issue {{.ISSUE}}
 
   review:
-    desc: "Agent self-review of open PR against acceptance criteria (or task review ISSUE=13)"
+    desc: "Orchestration continuation — review → implement loop → merge (task review ISSUE=13)"
     cmds:
-      - pwsh -NoProfile -File .github/scripts/kanban/review.ps1 -Issue {{.ISSUE}}
+      - pwsh -NoProfile -File .github/scripts/kanban/review.ps1 -Issue {{.ISSUE}} -MaxRetries {{.RETRIES}}
 
   merge:
-    desc: "Merge PR after CI gate + approval check (or task merge ISSUE=13)"
+    desc: "[debug] Single-stage merge only — requires prior approval (task merge ISSUE=13)"
     cmds:
       - pwsh -NoProfile -File .github/scripts/kanban/merge.ps1 -Issue {{.ISSUE}}
 
+  retry:
+    desc: "Reset a stuck/failed issue to agent:backlog for full orchestration re-run (task retry ISSUE=13)"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/kanban/retry.ps1 -Issue {{.ISSUE}}
+
   run:
-    desc: "Continuous pipeline — polls for agent:start every POLL seconds (default 60)"
+    desc: "Orchestrator continuous mode — polls for agent:backlog every POLL seconds (task run POLL=30)"
     cmds:
       - pwsh -NoProfile -File .github/scripts/kanban/run.ps1 -Issue {{.ISSUE}} -PollIntervalSeconds {{.POLL}} -MaxRetries {{.RETRIES}}
 

@@ -13,11 +13,12 @@ __PROJECT_DESCRIPTION__
 
 | Term | Definition | Disambiguation |
 |------|------------|----------------|
-| Orchestrator Workflow | Label-driven agentic pipeline: `agent:backlog` triggers implement → review → merge | Not the same as a human code review |
+| Orchestrator | Label-driven agentic workflow: `agent:backlog` triggers implement → review → merge. Configured in `orchestrator.config.ps1`. | Not the same as a human code review |
+| Orchestration | The full implement → review loop → merge sequence run by the orchestrator for a single issue | A single orchestration run; distinct from the continuous polling loop |
 | ISSUES.md | Local backlog of Agile User Story blocks, synced to GitHub Issues via `task sync` | Separate from GitHub Issues themselves |
 | Kanban lane | GitHub Project board column mapped to an `agent:*` label | Managed automatically by `kanban-lanes.yml` |
-| Signal comment | Issue comment starting with `🤖`; posted by the pipeline for agent decisions/outcomes (review results, failures, CI). Always retrieved by agents via `startswith("🤖")` filter to reconstruct issue history | Not to be confused with pipeline log noise |
-| Noise comment | Issue comment starting with `·`; pipeline log entry (state transitions, phase starts). Never retrieved by agents | All other issue comments are noise |
+| Signal comment | Issue comment starting with `🤖`; posted by the orchestrator for agent decisions/outcomes (review results, failures, CI). Always retrieved by agents via `startswith("🤖")` filter to reconstruct issue history | Not to be confused with orchestrator log noise |
+| Noise comment | Issue comment starting with `·`; orchestrator log entry (state transitions, phase starts). Never retrieved by agents | All other issue comments are noise |
 
 ## Bounded Contexts
 
@@ -26,7 +27,7 @@ __PROJECT_DESCRIPTION__
 | `src/` | Application logic, config, utilities | Developer tooling |
 | `src/tools/` | Developer CLI utilities (`commit-msg`) | Application business logic |
 | `.agents/skills/` | AI workflow constraints and patterns | Runtime code |
-| `.github/scripts/kanban/` | Orchestrator Workflow pipeline orchestration | Application features |
+| `.github/scripts/kanban/` | Orchestrator: issue orchestration (implement → review → merge) | Application features |
 
 ## Architectural Constraints
 

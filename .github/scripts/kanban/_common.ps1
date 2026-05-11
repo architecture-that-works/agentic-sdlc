@@ -40,6 +40,19 @@ $KanbanStopWords = @(
 $KanbanLogFile = "$_Root\logs\kanban.log"
 $KanbanRepo    = gh repo view --json nameWithOwner --jq '.nameWithOwner'
 
+# ── Orchestrator configuration (orchestrator.config.ps1 → .env overrides) ────
+. "$PSScriptRoot\orchestrator.config.ps1"
+
+$KanbanModel_Sonnet = if ($env:KANBAN_MODEL_SONNET) { $env:KANBAN_MODEL_SONNET } else { $OrchestratorConfig.ModelSonnet }
+$KanbanModel_Opus   = if ($env:KANBAN_MODEL_OPUS)   { $env:KANBAN_MODEL_OPUS   } else { $OrchestratorConfig.ModelOpus   }
+$KanbanModel_Aux    = if ($env:KANBAN_MODEL_AUX)     { $env:KANBAN_MODEL_AUX    } else { $OrchestratorConfig.ModelHaiku  }
+
+$KanbanMaxTurns_Review        = if ($env:KANBAN_MAX_TURNS_REVIEW)  { [int]$env:KANBAN_MAX_TURNS_REVIEW  } else { $OrchestratorConfig.MaxTurns_Review        }
+$KanbanMaxTurns_Refine        = if ($env:KANBAN_MAX_TURNS_REFINE)  { [int]$env:KANBAN_MAX_TURNS_REFINE  } else { $OrchestratorConfig.MaxTurns_Refine         }
+$KanbanMaxTurns_ContextUpdate = if ($env:KANBAN_MAX_TURNS_CONTEXT) { [int]$env:KANBAN_MAX_TURNS_CONTEXT } else { $OrchestratorConfig.MaxTurns_ContextUpdate  }
+$KanbanMaxRetries             = if ($env:KANBAN_MAX_RETRIES)       { [int]$env:KANBAN_MAX_RETRIES       } else { $OrchestratorConfig.MaxRetries              }
+$KanbanPollInterval           = if ($env:KANBAN_POLL_INTERVAL)     { [int]$env:KANBAN_POLL_INTERVAL     } else { $OrchestratorConfig.PollIntervalSeconds      }
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 
 function Write-Log {
@@ -68,10 +81,10 @@ function Ensure-Label {
 }
 
 function Ensure-AgentLabels {
-    Ensure-Label 'agent:backlog'      '0075ca' 'Queued in Backlog for agent pipeline pickup'
+    Ensure-Label 'agent:backlog'      '0075ca' 'Queued in Backlog for orchestrator pickup'
     Ensure-Label 'agent:implementing' 'e4e669' 'Agent is actively implementing (refine + develop)'
     Ensure-Label 'agent:review'       '969696' 'Agent self-review passed — awaiting human approval'
-    Ensure-Label 'agent:merged'       '0e8a16' 'Merged and closed by agent pipeline'
+    Ensure-Label 'agent:merged'       '0e8a16' 'Merged and closed by orchestrator'
     Ensure-Label 'agent:failed'       'd73a4a' 'Agent error — see issue comments'
 }
 
@@ -251,18 +264,52 @@ function Format-ToolLine {
     }
 }
 
+# ── Model + turn-budget selectors ─────────────────────────────────────────────
+
+function Get-IssueEstimate {
+    param([int]$IssueNumber)
+    $raw = gh issue view $IssueNumber --repo $KanbanRepo --json labels `
+        --jq '[.labels[].name]' 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
+    if (-not $raw) { return 0 }
+    $lbl = @($raw) | Where-Object { $_ -match '^estimate:(\d+)$' } | Select-Object -Last 1
+    if ($lbl -match '^estimate:(\d+)$') { return [int]$Matches[1] }
+    return 0
+}
+
+function Get-PhaseModel {
+    param([int]$Estimate, [string]$Phase)
+    switch ($Phase) {
+        'implement' { if ($Estimate -gt $OrchestratorConfig.OpusImplementThreshold) { return $KanbanModel_Opus } else { return $KanbanModel_Sonnet } }
+        'review'    { if ($Estimate -gt $OrchestratorConfig.OpusReviewThreshold)    { return $KanbanModel_Opus } else { return $KanbanModel_Sonnet } }
+        default     { return $KanbanModel_Aux }
+    }
+}
+
+function Get-ImplementMaxTurns {
+    param([int]$Estimate)
+    $table  = $OrchestratorConfig.MaxTurns_Implement
+    if ($table.ContainsKey($Estimate)) { return $table[$Estimate] }
+    $sorted = $table.Keys | Sort-Object
+    $next   = $sorted | Where-Object { $_ -ge $Estimate } | Select-Object -First 1
+    if ($next) { return $table[$next] }
+    return $table[0]
+}
+
 # Invoke Claude with streaming JSON output, printing tool use and text to the terminal.
 # Returns the full text response as a string. Throws if Claude exits non-zero.
+# Callers must pass -Model (use Get-PhaseModel) and -MaxTurns explicitly.
 function Invoke-ClaudeStreaming {
     param(
         [string]$Prompt,
         [string]$AllowedTools = 'Read,Glob,Grep',
-        [string]$Label = 'Claude'
+        [string]$Label = 'Claude',
+        [string]$Model = $KanbanModel_Sonnet,
+        [int]$MaxTurns = $KanbanMaxTurns_Review
     )
 
     $allText = [System.Text.StringBuilder]::new()
 
-    $Prompt | claude --allowedTools $AllowedTools --output-format stream-json --verbose 2>&1 |
+    $Prompt | claude --model $Model --allowedTools $AllowedTools --max-turns $MaxTurns --output-format stream-json --verbose 2>&1 |
     ForEach-Object {
         $raw = [string]$_
         try {
@@ -297,17 +344,17 @@ function Invoke-ClaudeStreaming {
     return $allText.ToString()
 }
 
-# ── Pipeline lock (prevents concurrent terminal instances) ────────────────────
+# ── Orchestrator lock (prevents concurrent terminal instances) ────────────────
 
-$KanbanLockFile = "$_Root\logs\pipeline.lock"
+$OrchestratorLockFile = "$_Root\logs\orchestrator.lock"
 
-function Acquire-PipelineLock {
+function Acquire-OrchestratorLock {
     param([int]$IssueNumber)
-    $null = New-Item -ItemType Directory -Force -Path (Split-Path $KanbanLockFile) -ErrorAction SilentlyContinue
+    $null = New-Item -ItemType Directory -Force -Path (Split-Path $OrchestratorLockFile) -ErrorAction SilentlyContinue
 
-    if (Test-Path $KanbanLockFile) {
+    if (Test-Path $OrchestratorLockFile) {
         try {
-            $d    = Get-Content $KanbanLockFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            $d    = Get-Content $OrchestratorLockFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
             $proc = Get-Process -Id $d.pid -ErrorAction SilentlyContinue
             if ($proc) {
                 Write-Log "  Lock held by PID $($d.pid) (issue #$($d.issue), started $($d.started))" -Color Yellow
@@ -317,16 +364,16 @@ function Acquire-PipelineLock {
         } catch {
             Write-Log "  Removing corrupt lock file" -Color Yellow
         }
-        Remove-Item $KanbanLockFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $OrchestratorLockFile -Force -ErrorAction SilentlyContinue
     }
 
     @{ pid = $PID; issue = $IssueNumber; started = (Get-Date -Format 'o') } |
-        ConvertTo-Json -Compress | Set-Content $KanbanLockFile -Encoding utf8 -NoNewline
+        ConvertTo-Json -Compress | Set-Content $OrchestratorLockFile -Encoding utf8 -NoNewline
     return $true
 }
 
-function Release-PipelineLock {
-    Remove-Item $KanbanLockFile -Force -ErrorAction SilentlyContinue
+function Release-OrchestratorLock {
+    Remove-Item $OrchestratorLockFile -Force -ErrorAction SilentlyContinue
 }
 
 # ── Persistent review-cycle counter (label agent:cycle:N) ─────────────────────
@@ -347,7 +394,7 @@ function Set-IssueReviewCount {
         --jq '[.labels[].name]' 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
     $existing = if ($raw) { @($raw) | Where-Object { $_ -match '^agent:cycle:\d+$' } | Select-Object -Last 1 } else { $null }
     $newLabel = "agent:cycle:$Count"
-    Ensure-Label -Name $newLabel -Color 'bfd4f2' -Description "Pipeline review cycle $Count"
+    Ensure-Label -Name $newLabel -Color 'bfd4f2' -Description "Orchestrator review cycle $Count"
     if ($existing -and $existing -ne $newLabel) {
         Set-IssueLabel -Number $IssueNumber -Remove $existing -Add $newLabel
     } elseif (-not $existing) {
@@ -405,7 +452,7 @@ DIFF:
 $Diff
 "@
 
-    $msg = claude -p $prompt 2>&1 | Out-String
+    $msg = claude -p $prompt --model $KanbanModel_Aux 2>&1 | Out-String
     if ($LASTEXITCODE -eq 0 -and $msg.Trim()) {
         Write-Log "  Commit message via Claude." -Color DarkGray
         return $msg.Trim()
