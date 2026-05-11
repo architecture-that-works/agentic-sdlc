@@ -169,6 +169,39 @@ $contextContent
     Add-Comment -Number $IssueNumber -Body $commentBody
 }
 
+function Invoke-RebaseOnMaster {
+    param([int]$IssueNumber, [string]$Branch)
+
+    $default = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>&1 | Out-String | ForEach-Object { $_.Trim() }
+    git fetch --quiet origin $default 2>&1 | Out-Null
+
+    $mergeBase  = git merge-base HEAD "origin/$default" 2>&1 | Out-String | ForEach-Object { $_.Trim() }
+    $masterHead = git rev-parse "origin/$default"         2>&1 | Out-String | ForEach-Object { $_.Trim() }
+
+    if ($mergeBase -eq $masterHead) {
+        Write-Log "  Branch $Branch is up-to-date with $default — skipping rebase." -Color DarkGray
+        return
+    }
+
+    $behind = git rev-list --count "HEAD..origin/$default" 2>&1 | Out-String | ForEach-Object { $_.Trim() }
+    Write-Log "  Branch $Branch is $behind commit(s) behind $default — rebasing..." -Color DarkGray
+    Add-Comment -Number $IssueNumber -Body "· rebasing onto $default ($behind commit(s) behind)"
+
+    git rebase "origin/$default" 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        $conflicts = git diff --name-only --diff-filter=U 2>&1 | Out-String
+        git rebase --abort 2>&1 | Out-Null
+        Add-Comment -Number $IssueNumber -Body "🤖❌ Rebase Conflict`n`nConflicting files:`n``````text`n$($conflicts.Trim())`n``````"
+        throw "Rebase conflict on $Branch against $default — manual resolution required."
+    }
+
+    git push --force-with-lease --quiet origin $Branch 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Force push after rebase failed for branch $Branch." }
+
+    Write-Log "  Rebased $Branch onto $default." -Color Green
+    Add-Comment -Number $IssueNumber -Body "· rebased onto $default"
+}
+
 function Invoke-Merge {
     param([int]$IssueNumber = 0, [int]$PRNumber = 0, [switch]$Force)
 
@@ -194,6 +227,16 @@ function Invoke-Merge {
             exit 1
         }
     }
+
+    # Checkout the feature branch (may not be on it when called standalone from master).
+    # master is authoritative — always rebase rather than merge forward.
+    $featureBranch = gh pr view $PRNumber --json headRefName --jq '.headRefName' 2>&1 | Out-String | ForEach-Object { $_.Trim() }
+    $currentBranch = git rev-parse --abbrev-ref HEAD 2>&1 | Out-String | ForEach-Object { $_.Trim() }
+    if ($currentBranch -ne $featureBranch) {
+        git checkout --quiet $featureBranch 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Could not switch to feature branch $featureBranch." }
+    }
+    Invoke-RebaseOnMaster -IssueNumber $IssueNumber -Branch $featureBranch
 
     Write-Log "  Waiting for CI checks on PR #$PRNumber..." -Color DarkGray
     $checkOutput = gh pr checks $PRNumber --watch 2>&1 | Out-String
