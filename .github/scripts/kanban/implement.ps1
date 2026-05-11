@@ -72,19 +72,6 @@ $templateInstruction
 
 # ── Phase B: Develop ──────────────────────────────────────────────────────────
 
-function Format-ToolLine {
-    param([string]$Name, $ToolInput)
-    switch ($Name) {
-        'Read'  { "📖 Read:  $($ToolInput.file_path)" }
-        'Write' { "✏️  Write: $($ToolInput.file_path)" }
-        'Edit'  { "✏️  Edit:  $($ToolInput.file_path)" }
-        'Glob'  { "🔍 Glob:  $($ToolInput.pattern)" }
-        'Grep'  { "🔍 Grep:  $($ToolInput.pattern)" }
-        'Bash'  { "⚡ Bash:  $([string]$ToolInput.command -replace '\r?\n.*','' -replace '\s+',' ')" }
-        default { "🔧 $Name" }
-    }
-}
-
 function Invoke-Develop {
     param([int]$Number, [string]$Branch)
     Write-Log "  Phase B — Develop issue #$Number on $Branch" -Color Yellow

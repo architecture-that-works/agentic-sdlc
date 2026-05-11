@@ -239,6 +239,67 @@ function Move-ToLane {
     Write-Log "  Issue #$IssueNumber → $LaneName" -Color DarkGray
 }
 
+# ── Streaming Claude output helper ───────────────────────────────────────────
+
+function Format-ToolLine {
+    param([string]$Name, $ToolInput)
+    switch ($Name) {
+        'Read'  { "📖 Read:  $($ToolInput.file_path)" }
+        'Write' { "✏️  Write: $($ToolInput.file_path)" }
+        'Edit'  { "✏️  Edit:  $($ToolInput.file_path)" }
+        'Glob'  { "🔍 Glob:  $($ToolInput.pattern)" }
+        'Grep'  { "🔍 Grep:  $($ToolInput.pattern)" }
+        'Bash'  { "⚡ Bash:  $([string]$ToolInput.command -replace '\r?\n.*','' -replace '\s+',' ')" }
+        default { "🔧 $Name" }
+    }
+}
+
+# Invoke Claude with streaming JSON output, printing tool use and text to the terminal.
+# Returns the full text response as a string. Throws if Claude exits non-zero.
+function Invoke-ClaudeStreaming {
+    param(
+        [string]$Prompt,
+        [string]$AllowedTools = 'Read,Glob,Grep',
+        [string]$Label = 'Claude'
+    )
+
+    $allText = [System.Text.StringBuilder]::new()
+
+    $Prompt | claude --allowedTools $AllowedTools --output-format stream-json --verbose 2>&1 |
+    ForEach-Object {
+        $raw = [string]$_
+        try {
+            $ev = $raw | ConvertFrom-Json -ErrorAction Stop
+
+            $blocks = if ($ev.message.content) { $ev.message.content }
+                      elseif ($ev.content)      { $ev.content }
+                      else                      { @() }
+
+            foreach ($block in $blocks) {
+                switch ($block.type) {
+                    'text' {
+                        Write-Host $block.text -NoNewline
+                        $null = $allText.Append($block.text)
+                    }
+                    'tool_use' {
+                        $inputReady = ($block.input.PSObject.Properties | Measure-Object).Count -gt 0
+                        if ($inputReady) {
+                            Write-Host "`n  $(Format-ToolLine -Name $block.name -ToolInput $block.input)" -ForegroundColor DarkCyan
+                        }
+                    }
+                }
+            }
+
+            if ($ev.type -eq 'result') { Write-Host '' }
+        } catch {
+            if ($raw.Trim()) { Write-Host $raw -ForegroundColor DarkGray }
+        }
+    }
+
+    if ($LASTEXITCODE -ne 0) { throw "$Label exited with code $LASTEXITCODE." }
+    return $allText.ToString()
+}
+
 # ── Pipeline lock (prevents concurrent terminal instances) ────────────────────
 
 $KanbanLockFile = "$_Root\logs\pipeline.lock"
