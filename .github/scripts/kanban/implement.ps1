@@ -267,14 +267,12 @@ function Invoke-CommitAndPR {
     # Stage only known-safe paths rather than git add . — an agent implementation
     # can create .env files, credentials, or other sensitive artefacts; the allowlist
     # ensures nothing outside these directories ever reaches the index.
-    # Only include entries that actually exist to avoid git exit-code 128 on missing pathspecs.
-    $safeRoots = @('src/', 'tests/', 'docs/', '.github/', '.template/', 'CONTEXT.md', 'AGENTS.md',
-        'Taskfile.yml', 'pyproject.toml', 'uv.lock', '.gitignore', 'copier.yml',
-        '.gitattributes', 'copier.yaml', 'README.md', 'CHANGELOG.md', 'Makefile') |
-        Where-Object { Test-Path $_ }
-    if ($safeRoots) {
-        git add -- @safeRoots 2>&1 | Out-Null
-    }
+    # Stage every tracked + untracked change that .gitignore allows. The denylist
+    # below is the final safety net for sensitive leaf names. Previously a static
+    # allowlist silently dropped legitimate edits to files like SECURITY.md and
+    # .devcontainer/devcontainer.json, leading to "Already implemented — no new
+    # changes" false positives and PR-creation failures despite real work on disk.
+    git add -A 2>&1 | Out-Null
 
     # Guard: inspect every staged path against a denylist and silently unstage any match.
     $denyPatterns = @('.env', '*.key', '*.pem', '*secret*', '*credential*')
