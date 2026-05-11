@@ -52,3 +52,8 @@ tasks:
     desc: "Start the self-hosted GHA runner in this terminal (Ctrl+C to stop)"
     cmds:
       - pwsh -NoProfile -File .github/scripts/runner.ps1
+
+  runner-offline:
+    desc: "Gracefully stop the self-hosted GHA runner (drains current job first)"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/runner.ps1 -Offline
