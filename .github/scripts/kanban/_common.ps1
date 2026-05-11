@@ -231,11 +231,8 @@ function Move-ToLane {
         Write-Log "  Could not resolve project item for issue #$IssueNumber — skipping lane move." -Color Yellow
         return
     }
-    gh project item-edit `
-        --id $itemId `
-        --field-id $KanbanStatusFieldId `
-        --project-id $projectId `
-        --single-select-option-id $OptionId 2>&1 | Out-Null
+    $ghArgs = @('project','item-edit','--id',$itemId,'--field-id',$KanbanStatusFieldId,'--project-id',$projectId,'--single-select-option-id',$OptionId)
+    gh @ghArgs 2>&1 | Out-Null
     Write-Log "  Issue #$IssueNumber → $LaneName" -Color DarkGray
 }
 
