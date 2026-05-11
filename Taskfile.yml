@@ -42,3 +42,8 @@ tasks:
     desc: "Continuous pipeline — polls for agent:start every POLL seconds (default 60)"
     cmds:
       - pwsh -NoProfile -File .github/scripts/kanban/run.ps1 -Issue {{.ISSUE}} -PollIntervalSeconds {{.POLL}} -MaxRetries {{.RETRIES}}
+
+  runner:
+    desc: "Start the self-hosted GHA runner in this terminal (Ctrl+C to stop)"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/runner.ps1
