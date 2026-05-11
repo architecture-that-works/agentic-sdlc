@@ -219,8 +219,9 @@ function New-FeatureBranch {
 
 # ── Project board helpers ─────────────────────────────────────────────────────
 
-$script:_CachedProjectId = $null
-$script:_ResolvedOwner   = $null
+$script:_CachedProjectId  = $null
+$script:_ResolvedOwner    = $null
+$script:_AuthDiagPrinted  = $false
 
 # Trusts the configured owner. Setup resolves and validates it once; runtime
 # probing was masking the real gh error from callers when something failed.
@@ -229,6 +230,17 @@ $script:_ResolvedOwner   = $null
 # resolve owner" — that's the diagnostic signal we want.
 function Get-ResolvedOwner {
     if ($script:_ResolvedOwner) { return $script:_ResolvedOwner }
+
+    if (-not $script:_AuthDiagPrinted) {
+        Write-Log "── gh auth diagnostic (once per run) ──" -Color DarkGray
+        $authOut  = (gh auth status 2>&1 | Out-String).Trim()
+        foreach ($l in ($authOut -split "`r?`n")) { Write-Log "  $l" -Color DarkGray }
+        $viewer   = (gh api user --jq '.login' 2>&1 | Out-String).Trim()
+        Write-Log "  gh api user → '[$viewer]'" -Color DarkGray
+        Write-Log "  KANBAN_PROJECT_OWNER = '[$KanbanProjectOwner]' (length=$($KanbanProjectOwner.Length))" -Color DarkGray
+        $script:_AuthDiagPrinted = $true
+    }
+
     if ($KanbanProjectOwner) {
         $script:_ResolvedOwner = $KanbanProjectOwner
         return $KanbanProjectOwner
