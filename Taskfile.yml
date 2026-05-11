@@ -19,9 +19,9 @@ tasks:
       - pwsh -NoProfile -File .github/scripts/sync-issues.ps1 {{.CLI_ARGS}}
 
   start:
-    desc: "Queue a Backlog issue for agent pickup — interactive picker (or task start ISSUE=13)"
+    desc: "HITL — pick a Backlog issue and run the full pipeline in this terminal (task start ISSUE=13)"
     cmds:
-      - pwsh -NoProfile -File .github/scripts/kanban/start.ps1 -Issue {{.ISSUE}}
+      - pwsh -NoProfile -File .github/scripts/kanban/start.ps1 -Issue {{.ISSUE}} -MaxRetries {{.RETRIES}}
 
   implement:
     desc: "Implement an issue via Claude Code: Refine → Develop → PR (or task implement ISSUE=13)"
