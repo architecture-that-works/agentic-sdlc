@@ -46,6 +46,24 @@ if (-not $ProjectOwner) {
     exit 1
 }
 
+# ── Scope check ───────────────────────────────────────────────────────────────
+# Warn when the active gh auth context lacks 'project' scope.
+# NOTE: local gh auth having project scope does NOT guarantee the GH_TOKEN repo
+# secret also has it — they are independent tokens. The warning below is a
+# reminder to verify the secret, not a guarantee.
+Write-Host ""
+Write-Host "🔐 Checking gh auth token scopes..." -ForegroundColor Cyan
+$_authStatusOut = gh auth status --show-token 2>&1 | Out-String
+if ($_authStatusOut -match '\bproject\b') {
+    Write-Host "  ✅ 'project' scope detected in active gh auth context." -ForegroundColor Green
+} else {
+    Write-Host "  ⚠️  WARNING: 'project' scope NOT detected in the active gh auth context." -ForegroundColor Yellow
+    Write-Host "  ⚠️  Kanban board operations require a classic PAT with 'repo' AND 'project' scopes." -ForegroundColor Yellow
+    Write-Host "  ⚠️  The GH_TOKEN repo secret must be a classic PAT with BOTH scopes." -ForegroundColor Yellow
+    Write-Host "  ⚠️  Local gh auth having project scope does NOT verify the GH_TOKEN secret." -ForegroundColor Yellow
+    Write-Host "  ⚠️  Fine-grained PATs do not support Projects v2 — use a classic PAT." -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "🔍 Querying project #$ProjectNumber (owner: $ProjectOwner)..." -ForegroundColor Cyan
 
@@ -74,6 +92,24 @@ $options = $statusField.options
 Write-Host ""
 Write-Host "  Options:" -ForegroundColor Cyan
 $options | ForEach-Object { Write-Host ("    [{0}] {1}" -f $_.id, $_.name) -ForegroundColor White }
+
+# ── Resolve project node ID ───────────────────────────────────────────────────
+Write-Host ""
+Write-Host "  Resolving project node ID (KANBAN_PROJECT_ID)..." -ForegroundColor Cyan
+$_projectListJson = gh project list --owner $ProjectOwner --format json 2>&1 | Out-String
+$ProjectNodeId = $null
+if ($LASTEXITCODE -eq 0) {
+    try {
+        $ProjectNodeId = ($_projectListJson | ConvertFrom-Json).projects |
+            Where-Object { $_.number -eq $ProjectNumber } |
+            Select-Object -ExpandProperty id -First 1
+    } catch {}
+}
+if ($ProjectNodeId) {
+    Write-Host "  KANBAN_PROJECT_ID: $ProjectNodeId" -ForegroundColor Green
+} else {
+    Write-Host "  ⚠️  Could not resolve project node ID for #$ProjectNumber — KANBAN_PROJECT_ID will not be set." -ForegroundColor Yellow
+}
 
 $estimateField = $fields | Where-Object { $_.name -match '^estimate$' } | Select-Object -First 1
 $priorityField = $fields | Where-Object { $_.type -eq 'ProjectV2SingleSelectField' -and $_.name -match '^priority$' } | Select-Object -First 1
@@ -156,6 +192,7 @@ Set-EnvVar $_EnvPath 'KANBAN_OPT_BACKLOG'      $laneBacklog.id
 Set-EnvVar $_EnvPath 'KANBAN_OPT_IMPLEMENTING' $laneImplementing.id
 Set-EnvVar $_EnvPath 'KANBAN_OPT_REVIEW'       $laneReview.id
 Set-EnvVar $_EnvPath 'KANBAN_OPT_MERGED'       $laneMerged.id
+if ($ProjectNodeId) { Set-EnvVar $_EnvPath 'KANBAN_PROJECT_ID' $ProjectNodeId }
 
 if ($estimateField) { Set-EnvVar $_EnvPath 'KANBAN_ESTIMATE_FIELD_ID' $estimateField.id }
 if ($priorityField) {
@@ -178,6 +215,7 @@ $ghVars = @{
     KANBAN_OPT_REVIEW       = $laneReview.id
     KANBAN_OPT_MERGED       = $laneMerged.id
 }
+if ($ProjectNodeId)  { $ghVars['KANBAN_PROJECT_ID']      = $ProjectNodeId }
 if ($estimateField) { $ghVars['KANBAN_ESTIMATE_FIELD_ID'] = $estimateField.id }
 if ($priorityField) {
     $ghVars['KANBAN_PRIORITY_FIELD_ID'] = $priorityField.id
