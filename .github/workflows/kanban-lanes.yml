@@ -5,8 +5,8 @@ name: Kanban Lane Sync
 # Fine-grained PATs do not support Projects v2; a classic token is required.
 #
 # Repository variables required (set automatically by: task setup):
-#   KANBAN_PROJECT_NUMBER, KANBAN_PROJECT_OWNER,
-#   KANBAN_STATUS_FIELD_ID, KANBAN_OPT_IMPLEMENTING, KANBAN_OPT_REVIEW, KANBAN_OPT_MERGED
+#   KANBAN_PROJECT_ID, KANBAN_STATUS_FIELD_ID,
+#   KANBAN_OPT_IMPLEMENTING, KANBAN_OPT_REVIEW, KANBAN_OPT_MERGED
 
 on:
   issues:
@@ -50,8 +50,11 @@ jobs:
             exit 0
           fi
 
-          PROJECT_ID=$(gh project list --owner "${{ vars.KANBAN_PROJECT_OWNER }}" --format json \
-            --jq ".projects[] | select(.number == ${{ vars.KANBAN_PROJECT_NUMBER }}) | .id")
+          PROJECT_ID="${{ vars.KANBAN_PROJECT_ID }}"
+          if [ -z "$PROJECT_ID" ]; then
+            echo "KANBAN_PROJECT_ID not configured — run: task setup"
+            exit 1
+          fi
 
           gh project item-edit \
             --id    "$ITEM_ID" \

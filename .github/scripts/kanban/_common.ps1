@@ -251,15 +251,20 @@ function Get-ResolvedOwner {
 
 function Get-ProjectId {
     if (-not $script:_CachedProjectId) {
-        $owner = Get-ResolvedOwner
-        if (-not $owner) { return $null }
-        $out = gh project list --owner $owner --format json --jq `
-            ".projects[] | select(.number == $KanbanProjectNumber) | .id" 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) {
-            Write-Log "  ⚠️ gh project list failed: $($out.Trim())" -Color Yellow
-            return $null
+        if ($env:KANBAN_PROJECT_ID) {
+            # Use the setup-time resolved node ID — avoids a gh project list call every run.
+            $script:_CachedProjectId = $env:KANBAN_PROJECT_ID
+        } else {
+            $owner = Get-ResolvedOwner
+            if (-not $owner) { return $null }
+            $out = gh project list --owner $owner --format json --jq `
+                ".projects[] | select(.number == $KanbanProjectNumber) | .id" 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+                Write-Log "  ⚠️ gh project list failed: $($out.Trim())" -Color Yellow
+                return $null
+            }
+            $script:_CachedProjectId = $out.Trim()
         }
-        $script:_CachedProjectId = $out.Trim()
     }
     return $script:_CachedProjectId
 }
