@@ -439,7 +439,13 @@ function Invoke-ClaudeStreaming {
                 switch ($block.type) {
                     'text' {
                         Write-Host $block.text -NoNewline
+                        # Append a trailing newline so consecutive text blocks
+                        # (separated by tool_use in the stream) are not joined
+                        # flush. Without this, downstream regex like
+                        # "(?im)^APPROVED" miss verdicts that started a block
+                        # because they end up mid-line in $allText.
                         $null = $allText.Append($block.text)
+                        $null = $allText.Append("`n")
                     }
                     'tool_use' {
                         $inputReady = ($block.input.PSObject.Properties | Measure-Object).Count -gt 0

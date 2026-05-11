@@ -38,9 +38,21 @@ function Invoke-Refine {
     }
 
     # Estimate and Priority are GitHub Project fields — not labels.
+    # Get-ProjectFieldValues returns $null for two distinct cases:
+    #   1. gh call failed (rate limit, network, missing scope) — we DON'T know the current values
+    #   2. Issue is not on the project board — we can't write back anyway
+    # In either case, refining estimate/priority via LLM would either overwrite
+    # known-good manual values (case 1) or write to a board the issue isn't on
+    # (case 2). Treat null as "skip field refine" — body refine still runs.
     $projectFields = Get-ProjectFieldValues -IssueNumber $Number
-    $needsEstimate = -not ($projectFields -and $null -ne $projectFields.estimate -and "$($projectFields.estimate)" -ne '')
-    $needsPriority = -not ($projectFields -and $projectFields.priority)
+    if ($null -eq $projectFields) {
+        Write-Log "  ⚠️ Could not read project fields — skipping estimate/priority refine (any manual values preserved)." -Color Yellow
+        $needsEstimate = $false
+        $needsPriority = $false
+    } else {
+        $needsEstimate = -not ($null -ne $projectFields.estimate -and "$($projectFields.estimate)" -ne '')
+        $needsPriority = -not $projectFields.priority
+    }
 
     if (-not $needsBodyRefine -and -not $needsEstimate -and -not $needsPriority) {
         Write-Log "  Issue already fully refined — skipping." -Color DarkGray
