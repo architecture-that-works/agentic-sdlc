@@ -54,6 +54,7 @@ services — per-service keys make compromise blast-radius containment and rotat
 |---|---|---|---|---|
 | `GH_TOKEN` | `.env` (git-ignored) | GitHub Actions Secret | Azure Key Vault | GCP Secret Manager |
 | `ANTHROPIC_API_KEY` | `.env` (git-ignored) | GitHub Actions Secret | Azure Key Vault | GCP Secret Manager |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Not applicable — developer credential | GitHub Actions Secret | N/A — developer credential | N/A — developer credential |
 
 **Local dev:** Copy `.env.example` to `.env` and populate values. The `.env` file is
 git-ignored and must never be committed.
@@ -73,10 +74,85 @@ in the repository.
 
 ## Orchestrator Credentials
 
-> Extended by Phase 3.
+The orchestrator is a label-driven pipeline running on a self-hosted GitHub Actions runner on
+the developer's machine. When an issue receives the `agent:backlog` label, the runner executes
+a full PowerShell pipeline: **Refine → Develop → PR → Review loop → Squash-merge →
+CONTEXT.md update**. Two secrets drive the pipeline at runtime.
 
-Credentials for the orchestration layer (queue broker, scheduler, inter-agent tokens) will
-be documented here when Phase 3 components are introduced.
+### Pipeline secrets
+
+| Secret | Role in pipeline |
+|---|---|
+| `GH_TOKEN` | Authenticates all `gh` CLI calls — creating/updating issues, moving kanban cards, opening PRs, and squash-merging |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates all `claude` CLI calls — Refine, Develop, Review, commit-message generation, and post-merge CONTEXT.md update |
+
+### CLAUDE_CODE_OAUTH_TOKEN
+
+**Purpose:** Authenticates every `claude -p` / `claude --print` invocation in the pipeline.
+Used in all five phases:
+
+- **Refine** — structures the issue body and assigns estimate/priority
+- **Develop** — runs Claude Code non-interactively to implement requirements and verify with `uv run pytest`
+- **Review** — agent self-review of the PR diff against acceptance criteria
+- **Commit-message** — generates a conventional commit message from the staged diff
+- **Context update** — patches `CONTEXT.md` after the PR is squash-merged
+
+**How to obtain:**
+1. Open claude.ai → click your profile → **Settings**.
+2. Navigate to the **Claude Code** tab.
+3. Under **OAuth Token**, click **Generate** (or **Regenerate** to rotate).
+4. Copy the displayed token immediately — it is not shown again.
+
+**Accepted risk:** The token grants full Claude Code CLI access under your Anthropic account.
+Mitigations:
+- Store the token exclusively as a GitHub Actions Secret — never in `.env` or committed files.
+- Rotate on the schedule below.
+
+**Rotation guidance:**
+1. Open claude.ai → Settings → Claude Code → OAuth Token → **Regenerate**.
+2. Copy the new token value.
+3. Update the `CLAUDE_CODE_OAUTH_TOKEN` secret in GitHub: Settings → Secrets and variables → Actions.
+4. Verify the next orchestrator run completes without a `claude` authentication error.
+5. The old token is invalidated automatically on regeneration.
+
+### Self-hosted runner
+
+The `implement` job requires a self-hosted runner registered with the `gha-project` label
+(see `runs-on: [self-hosted, gha-project]` in `.github/workflows/orchestrator.yml`). The
+runner must have `uv`, `claude` (Claude Code CLI), `git`, and `gh` pre-installed.
+
+- **Start:** `task runner` — starts the runner in the foreground; press Ctrl+C to interrupt.
+- **Graceful stop:** `task runner OFFLINE=1` — sends a drain signal; the runner finishes any
+  in-progress job before exiting.
+
+### AFK operation checklist
+
+One-time setup steps for a freshly generated project:
+
+1. **Create the repository** — push the generated project to GitHub.
+2. **Create a GitHub Project (v2)** — add a Status field (single-select) with at least four
+   options: Backlog, Implementing, Review, Merged. Optionally add Estimate (number) and
+   Priority (single-select) fields.
+3. **Populate `.env`** — copy `.env.example` to `.env` and set:
+   - `GH_TOKEN` — your classic PAT with `repo` and `project` scopes
+   - `KANBAN_PROJECT_NUMBER` — the project number from the GitHub Project URL
+   - `KANBAN_PROJECT_OWNER` — your GitHub username or organisation
+4. **Add GitHub Actions Secrets** — in repository Settings → Secrets and variables → Actions,
+   create:
+   - `GH_TOKEN` — the same classic PAT as above
+   - `CLAUDE_CODE_OAUTH_TOKEN` — obtained from claude.ai → Settings → Claude Code
+5. **Run project setup** — `task setup` — queries the GitHub Project for field/option IDs
+   and writes them to `.env` and as GitHub Actions repository variables.
+6. **Register the self-hosted runner** — follow the setup wizard at
+   `github.com/<org>/<repo>/settings/actions/runners/new`. During registration, add the
+   custom label `gha-project` so the `implement` job can target this runner.
+7. **Verify runner connectivity** — in GitHub → Settings → Actions → Runners, confirm the
+   runner status shows **Idle**.
+8. **Start the runner** — `task runner` — keep the terminal open while AFK operation is active.
+9. **Sync issues** — `task sync` — pushes the local `ISSUES.md` backlog to GitHub Issues and
+   applies the `agent:backlog` label to ready items.
+10. **Trigger the first run** — apply the `agent:backlog` label to any open issue; the
+    orchestrator picks it up and runs the full implement → review → merge pipeline.
 
 ---
 
