@@ -61,8 +61,24 @@ function Get-StalledIssues {
             $_.content.repository -eq $KanbanRepo
         }
 
+    # Exclude any issue currently held by an active lock (not stalled — actively running).
+    $lockedIssue = 0
+    $lockedPid   = 0
+    if (Test-Path $KanbanLockFile) {
+        try {
+            $d    = Get-Content $KanbanLockFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            $proc = Get-Process -Id $d.pid -ErrorAction SilentlyContinue
+            if ($proc) { $lockedIssue = [int]$d.issue; $lockedPid = [int]$d.pid }
+        } catch {}
+    }
+
     $items | Where-Object {
-        $raw    = gh issue view $_.content.number --repo $KanbanRepo --json labels `
+        $num = $_.content.number
+        if ($num -eq $lockedIssue) {
+            Write-Log "  Skipping #$num in Implementing — actively locked by PID $lockedPid" -Color DarkGray
+            return $false
+        }
+        $raw    = gh issue view $num --repo $KanbanRepo --json labels `
             --jq '[.labels[].name]' 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
         $labels = if ($raw) { $raw } else { @() }
         $labels -contains 'agent:implementing'
@@ -74,65 +90,80 @@ function Get-StalledIssues {
 function Invoke-Pipeline {
     param([int]$IssueNumber, [switch]$Force)
 
-    $meta   = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
-    $jq     = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .status"
-    $status = gh project item-list $KanbanProjectNumber `
-        --owner $KanbanProjectOwner --format json --limit 200 --jq $jq 2>&1
+    # Prevent two concurrent terminal instances from processing the same issue.
+    if (-not (Acquire-PipelineLock -IssueNumber $IssueNumber)) {
+        Write-Log "  ⏳ Issue #$IssueNumber is locked by another process — skipping." -Color Yellow
+        return
+    }
 
-    Write-Log "━━━ Pipeline: issue #$IssueNumber — $($meta.title)" -Color Cyan
-    Write-Log "    Current lane: $status" -Color DarkGray
-
-    Ensure-AgentLabels
-    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
-
-    $stash   = git stash 2>&1
-    $stashed = $stash -notmatch 'No local changes'
+    $stashed = $false
 
     try {
+        $meta   = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
+        $jq     = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .status"
+        $status = gh project item-list $KanbanProjectNumber `
+            --owner $KanbanProjectOwner --format json --limit 200 --jq $jq 2>&1
+
+        Write-Log "━━━ Pipeline: issue #$IssueNumber — $($meta.title)" -Color Cyan
+        Write-Log "    Current lane: $status" -Color DarkGray
+
+        Ensure-AgentLabels
+        Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
+
+        $stashOut = git stash 2>&1
+        $stashed  = $stashOut -notmatch 'No local changes'
+
         Invoke-Implement -IssueNumber $IssueNumber -Force:$Force | Out-Null
 
         $branch = Get-BranchName -Number $IssueNumber -Title $meta.title
         $prList = gh pr list --head $branch --json number --limit 1 | ConvertFrom-Json
         if ($prList.Count -eq 0) { throw "No PR found for branch $branch after implement stage." }
-        $prNum    = $prList[0].number
-        $approved = $false
+        $prNum = $prList[0].number
 
-        for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
-            Write-Log "  Review attempt $attempt / $MaxRetries" -Color DarkGray
+        # Read the CUMULATIVE review count — persists across stall recovery and GHA reruns.
+        $cyclesDone = Get-IssueReviewCount -IssueNumber $IssueNumber
+        $approved   = $false
+
+        while ($cyclesDone -lt $MaxRetries) {
+            Write-Log "  Review cycle $($cyclesDone + 1) / $MaxRetries" -Color DarkGray
             $approved = Invoke-Review -IssueNumber $IssueNumber -PRNumber $prNum
+            $cyclesDone++
+            Set-IssueReviewCount -IssueNumber $IssueNumber -Count $cyclesDone
 
             if ($approved) { break }
 
-            if ($attempt -lt $MaxRetries) {
-                Write-Log "  Review rejected — re-running implement (attempt $($attempt + 1))..." -Color Yellow
+            if ($cyclesDone -lt $MaxRetries) {
+                Write-Log "  Review rejected — re-running implement (cycle $($cyclesDone + 1)/$MaxRetries)..." -Color Yellow
                 Invoke-Implement -IssueNumber $IssueNumber -Force | Out-Null
             }
         }
 
         if (-not $approved) {
+            Clear-IssueReviewCount -IssueNumber $IssueNumber
             Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
-            Add-Comment -Number $IssueNumber -Body "⛔ Pipeline gave up after $MaxRetries review cycles. Manual intervention required."
-            Write-Log "⛔ Gave up after $MaxRetries cycles for issue #$IssueNumber." -Color Red
+            Add-Comment -Number $IssueNumber -Body "⛔ Pipeline gave up after $cyclesDone review cycles. Manual intervention required."
+            Write-Log "⛔ Gave up after $cyclesDone cycles for issue #$IssueNumber." -Color Red
             return
         }
 
+        Clear-IssueReviewCount -IssueNumber $IssueNumber
         Invoke-Merge -IssueNumber $IssueNumber -PRNumber $prNum
-
         Write-Log "🎉 Issue #$IssueNumber complete." -Color Green
 
     } catch {
+        Clear-IssueReviewCount -IssueNumber $IssueNumber
         Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
         Add-Comment -Number $IssueNumber -Body "❌ **Pipeline error**`n``````$_``````"
         Write-Log "❌ Pipeline error for issue #$IssueNumber : $_" -Color Red
     } finally {
+        Release-PipelineLock
         if ($stashed) { git stash pop 2>&1 | Out-Null }
 
-        # Always return to a clean, origin-synced master so the next issue can start fresh.
+        # Always return to a clean, origin-synced master so the next issue starts fresh.
         $default = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>$null
         $curr    = git rev-parse --abbrev-ref HEAD 2>$null
 
         if ($curr -and $curr -ne $default) {
-            # Re-stash any working-tree state (e.g. from stash pop) so checkout can succeed.
             if (git status --porcelain 2>$null) {
                 git stash push --include-untracked --quiet `
                     -m "auto: pre-master-switch from issue #$IssueNumber pipeline" 2>$null

@@ -231,6 +231,74 @@ function Move-ToLane {
     Write-Log "  Issue #$IssueNumber → $LaneName" -Color DarkGray
 }
 
+# ── Pipeline lock (prevents concurrent terminal instances) ────────────────────
+
+$KanbanLockFile = "$_Root\logs\pipeline.lock"
+
+function Acquire-PipelineLock {
+    param([int]$IssueNumber)
+    $null = New-Item -ItemType Directory -Force -Path (Split-Path $KanbanLockFile) -ErrorAction SilentlyContinue
+
+    if (Test-Path $KanbanLockFile) {
+        try {
+            $d    = Get-Content $KanbanLockFile -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            $proc = Get-Process -Id $d.pid -ErrorAction SilentlyContinue
+            if ($proc) {
+                Write-Log "  Lock held by PID $($d.pid) (issue #$($d.issue), started $($d.started))" -Color Yellow
+                return $false
+            }
+            Write-Log "  Removing stale lock (PID $($d.pid) no longer running)" -Color Yellow
+        } catch {
+            Write-Log "  Removing corrupt lock file" -Color Yellow
+        }
+        Remove-Item $KanbanLockFile -Force -ErrorAction SilentlyContinue
+    }
+
+    @{ pid = $PID; issue = $IssueNumber; started = (Get-Date -Format 'o') } |
+        ConvertTo-Json -Compress | Set-Content $KanbanLockFile -Encoding utf8 -NoNewline
+    return $true
+}
+
+function Release-PipelineLock {
+    Remove-Item $KanbanLockFile -Force -ErrorAction SilentlyContinue
+}
+
+# ── Persistent review-cycle counter (label agent:cycle:N) ─────────────────────
+
+function Get-IssueReviewCount {
+    param([int]$IssueNumber)
+    $raw = gh issue view $IssueNumber --repo $KanbanRepo --json labels `
+        --jq '[.labels[].name]' 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
+    if (-not $raw) { return 0 }
+    $lbl = @($raw) | Where-Object { $_ -match '^agent:cycle:(\d+)$' } | Select-Object -Last 1
+    if ($lbl -match '^agent:cycle:(\d+)$') { return [int]$Matches[1] }
+    return 0
+}
+
+function Set-IssueReviewCount {
+    param([int]$IssueNumber, [int]$Count)
+    $raw      = gh issue view $IssueNumber --repo $KanbanRepo --json labels `
+        --jq '[.labels[].name]' 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
+    $existing = if ($raw) { @($raw) | Where-Object { $_ -match '^agent:cycle:\d+$' } | Select-Object -Last 1 } else { $null }
+    $newLabel = "agent:cycle:$Count"
+    Ensure-Label -Name $newLabel -Color 'bfd4f2' -Description "Pipeline review cycle $Count"
+    if ($existing -and $existing -ne $newLabel) {
+        Set-IssueLabel -Number $IssueNumber -Remove $existing -Add $newLabel
+    } elseif (-not $existing) {
+        Set-IssueLabel -Number $IssueNumber -Add $newLabel
+    }
+}
+
+function Clear-IssueReviewCount {
+    param([int]$IssueNumber)
+    $raw = gh issue view $IssueNumber --repo $KanbanRepo --json labels `
+        --jq '[.labels[].name]' 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
+    if (-not $raw) { return }
+    @($raw) | Where-Object { $_ -match '^agent:cycle:\d+$' } | ForEach-Object {
+        Set-IssueLabel -Number $IssueNumber -Remove $_
+    }
+}
+
 # ── Issue template reader (from ISSUES.md header) ─────────────────────────────
 
 function Get-IssueTemplate {
