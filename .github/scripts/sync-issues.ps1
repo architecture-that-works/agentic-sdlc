@@ -3,7 +3,7 @@
 # Parses ISSUES.md ISSUE blocks → GitHub Issues + GitHub Project board.
 #
 # For each ISSUE: <title> ... END_ISSUE block below <!-- ISSUES -->:
-#   1. Creates a GitHub Issue labelled repo:<repo-name> for multi-repo project filtering.
+#   1. Creates a GitHub Issue with any labels declared in the LABELS: header field.
 #   2. Adds the issue to the configured GitHub Project.
 #   3. On success, removes the synced block from ISSUES.md.
 #
@@ -47,8 +47,6 @@ if (-not (Test-Path $IssuesPath)) {
 
 $Repo = gh repo view --json nameWithOwner --jq '.nameWithOwner'
 if (-not $Repo) { Write-Error "Could not resolve current repo via gh."; exit 1 }
-$RepoName  = ($Repo -split '/')[-1]
-$RepoLabel = "repo:$RepoName"
 
 # Resolve project node ID once — needed for gh project item-edit field updates
 $ProjectId = $null
@@ -92,8 +90,6 @@ function Ensure-Label([string]$Name, [string]$Color = 'ededed', [string]$Descrip
         }
     }
 }
-
-Ensure-Label $RepoLabel '5319e7' "Belongs to $Repo"
 
 # ── Parse ISSUES.md ───────────────────────────────────────────────────────────
 
@@ -139,14 +135,14 @@ foreach ($match in $Found) {
     $Body = $Body.TrimStart()
     foreach ($lbl in $ExtraLabels) { Ensure-Label $lbl }
 
-    $Labels   = @($RepoLabel) + $ExtraLabels
+    $Labels   = $ExtraLabels
     $LabelCsv = $Labels -join ','
 
     Write-Host ""
-    Write-Host "  Processing: '$Title'  [labels: $LabelCsv]" -ForegroundColor Yellow
+    Write-Host "  Processing: '$Title'  [labels: $(if ($LabelCsv) { $LabelCsv } else { '(none)' })]" -ForegroundColor Yellow
 
     if ($DryRun) {
-        $dryFields = @("labels: $LabelCsv")
+        $dryFields = @(if ($LabelCsv) { "labels: $LabelCsv" } else { 'labels: (none)' })
         if ($null -ne $Estimate) { $dryFields += "estimate: $Estimate" }
         if ($Priority)           { $dryFields += "priority: $Priority" }
         Write-Host "  [DRY RUN] Would create issue and add to project '$ProjectName' [$($dryFields -join ', ')]" -ForegroundColor DarkGray
@@ -168,7 +164,9 @@ foreach ($match in $Found) {
     } else {
         $tmp = [System.IO.Path]::GetTempFileName()
         $Body | Out-File $tmp -Encoding utf8
-        $result = gh issue create --repo $Repo --title $Title --label $LabelCsv --body-file $tmp 2>&1
+        $createArgs = @('issue', 'create', '--repo', $Repo, '--title', $Title, '--body-file', $tmp)
+        if ($LabelCsv) { $createArgs += @('--label', $LabelCsv) }
+        $result = gh @createArgs 2>&1
         Remove-Item $tmp -ErrorAction SilentlyContinue
 
         if ($LASTEXITCODE -eq 0) {
