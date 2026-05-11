@@ -204,7 +204,7 @@ function Invoke-CommitAndPR {
     # can create .env files, credentials, or other sensitive artefacts; the allowlist
     # ensures nothing outside these directories ever reaches the index.
     # Only include entries that actually exist to avoid git exit-code 128 on missing pathspecs.
-    $safeRoots = @('src/', 'tests/', 'docs/', '.github/', '.template/.agents/', 'CONTEXT.md', 'AGENTS.md',
+    $safeRoots = @('src/', 'tests/', 'docs/', '.github/', '.template/', 'CONTEXT.md', 'AGENTS.md',
         'Taskfile.yml', 'pyproject.toml', 'uv.lock', '.gitignore', 'copier.yml',
         '.gitattributes', 'copier.yaml', 'README.md', 'CHANGELOG.md', 'Makefile') |
         Where-Object { Test-Path $_ }
