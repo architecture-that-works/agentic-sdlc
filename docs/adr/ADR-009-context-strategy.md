@@ -6,7 +6,7 @@ description: Context strategy for template and generated projects — Module Map
 # ADR-009: Context Strategy for Template and Generated Projects
 
 ## Status
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
