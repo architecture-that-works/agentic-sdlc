@@ -13,16 +13,16 @@ issues, moving kanban cards, and mutating GitHub Projects v2 boards.
 **Why classic PAT, not fine-grained PAT:** GitHub Projects v2 mutations (add/move/archive
 project items) require the `project` OAuth scope. Fine-grained PATs do not expose this scope;
 they are scoped to repository permissions only. Until GitHub extends fine-grained PATs to
-cover Projects v2, a classic PAT with `repo` + `project` scopes is the only supported option.
+cover Projects v2, a classic PAT with `project`, `read:org`, `repo`, `user`, `workflow` scopes is the only supported option. Each scope earns its place: `project` for kanban board mutations, `repo` for issue/PR/commit operations, `workflow` for any PR that touches `.github/workflows/*.yml` (the orchestrator self-edits CI on occasion), `read:org` for org-owned projects, `user` for identity calls (`gh api user`).
 
 **Accepted risk:** Classic PATs carry broader permissions than fine-grained PATs. Mitigations:
-- Scope the token to `repo` and `project` only — no `admin:*`, `delete_repo`, or `write:packages`.
+- Scope the token to `project`, `read:org`, `repo`, `user`, `workflow` only — no `admin:*`, `delete_repo`, or `write:packages`.
 - Never share the token across projects; generate one per repository.
 - Rotate on the schedule below.
 
 **Rotation guidance:**
 1. Open GitHub → Settings → Developer Settings → Personal access tokens → Tokens (classic).
-2. Generate a new token scoped to `repo` and `project`.
+2. Generate a new token scoped to `project`, `read:org`, `repo`, `user`, `workflow`.
 3. Copy the new token value.
 4. Update the secret in every environment (see table below).
 5. Verify the Orchestrator Workflow completes a successful kanban-lane move.
@@ -134,7 +134,7 @@ One-time setup steps for a freshly generated project:
    options: Backlog, Implementing, Review, Merged. Optionally add Estimate (number) and
    Priority (single-select) fields.
 3. **Populate `.env`** — copy `.env.example` to `.env` and set:
-   - `GH_TOKEN` — your classic PAT with `repo` and `project` scopes
+   - `GH_TOKEN` — your classic PAT with `project`, `read:org`, `repo`, `user`, `workflow` scopes
    - `KANBAN_PROJECT_NUMBER` — the project number from the GitHub Project URL
    - `KANBAN_PROJECT_OWNER` — your GitHub username or organisation
 4. **Add GitHub Actions Secrets** — in repository Settings → Secrets and variables → Actions,

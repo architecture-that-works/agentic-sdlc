@@ -58,9 +58,9 @@ if ($_authStatusOut -match '\bproject\b') {
     Write-Host "  ✅ 'project' scope detected in active gh auth context." -ForegroundColor Green
 } else {
     Write-Host "  ⚠️  WARNING: 'project' scope NOT detected in the active gh auth context." -ForegroundColor Yellow
-    Write-Host "  ⚠️  Kanban board operations require a classic PAT with 'repo' AND 'project' scopes." -ForegroundColor Yellow
-    Write-Host "  ⚠️  The GH_TOKEN repo secret must be a classic PAT with BOTH scopes." -ForegroundColor Yellow
-    Write-Host "  ⚠️  Local gh auth having project scope does NOT verify the GH_TOKEN secret." -ForegroundColor Yellow
+    Write-Host "  ⚠️  Orchestrator operations require a classic PAT with these scopes: project, read:org, repo, user, workflow." -ForegroundColor Yellow
+    Write-Host "  ⚠️  The GH_TOKEN repo secret must be a classic PAT with ALL the above scopes." -ForegroundColor Yellow
+    Write-Host "  ⚠️  Local gh auth scopes do NOT verify the GH_TOKEN secret — check the PAT settings page directly." -ForegroundColor Yellow
     Write-Host "  ⚠️  Fine-grained PATs do not support Projects v2 — use a classic PAT." -ForegroundColor Yellow
 }
 

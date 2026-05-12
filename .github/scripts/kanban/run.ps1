@@ -63,7 +63,19 @@ function Invoke-Orchestration {
         $stashOut = git stash 2>&1
         $stashed  = $stashOut -notmatch 'No local changes'
 
-        Invoke-Implement -IssueNumber $IssueNumber -Force:$Force | Out-Null
+        $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:$Force
+
+        if ($null -eq $implementResult) {
+            # Implement signalled "already satisfied" — branch has no commits ahead of
+            # the default branch (typical for tracker/coordinator issues whose work
+            # was delivered by previously-merged child PRs). Mark merged, close,
+            # skip the review/merge stages.
+            Clear-IssueReviewCount -IssueNumber $IssueNumber
+            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:merged'
+            gh issue close $IssueNumber --repo $KanbanRepo --reason completed 2>&1 | Out-Null
+            Write-Log "🎉 Issue #$IssueNumber complete — already implemented; closed without PR." -Color Green
+            return
+        }
 
         $branch = Get-BranchName -Number $IssueNumber -Title $meta.title
         $prList = gh pr list --head $branch --json number --limit 1 | ConvertFrom-Json

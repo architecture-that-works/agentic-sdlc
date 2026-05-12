@@ -76,10 +76,10 @@ d. Add GitHub repository secrets:
 
 | Secret | How to obtain |
 |--------|--------------|
-| `GH_TOKEN` | Classic PAT with `repo` + `project` scopes — fine-grained PATs do not support Projects v2 |
+| `GH_TOKEN` | Classic PAT with `project`, `read:org`, `repo`, `user`, `workflow` scopes — fine-grained PATs do not support Projects v2 |
 | `CLAUDE_CODE_OAUTH_TOKEN` | From [claude.ai/settings](https://claude.ai/settings) → API keys |
 
-> **Important — `GH_TOKEN` scope requirement:** The `GH_TOKEN` repo secret **must** be a **classic PAT** with both `repo` **and** `project` scopes. Fine-grained PATs do not support GitHub Projects v2. Missing the `project` scope causes silent kanban board failures at runtime. `task setup` will warn if your local `gh auth` context lacks the scope, but that does not verify the secret — check the PAT settings page directly.
+> **Important — `GH_TOKEN` scope requirement:** The `GH_TOKEN` repo secret **must** be a **classic PAT** with all five of the following scopes: `project`, `read:org`, `repo`, `user`, `workflow`. Fine-grained PATs do not support GitHub Projects v2. Missing scopes cause silent failures at runtime — `project` breaks kanban board mutations, `workflow` blocks any PR that touches `.github/workflows/*.yml`, `read:org` is required for org-owned projects, `user` for identity calls (`gh api user`), and `repo` for issue/PR/commit operations. `task setup` will warn if your local `gh auth` context lacks the `project` scope, but that does not verify the secret — check the PAT settings page directly.
 
 ---
 

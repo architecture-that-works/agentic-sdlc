@@ -308,8 +308,25 @@ function Invoke-CommitAndPR {
             Remove-Item $msgFile.FullName -ErrorAction SilentlyContinue
         }
     } else {
-        Write-Log "  ✅ Already implemented — no new changes on this branch." -Color Green
-        Add-Comment -Number $Number -Body "🤖 Implementation`n`nNo new changes — branch already fully implements this issue. Proceeding to PR and review."
+        # No new changes this run. Determine whether the branch as a whole has any
+        # commits vs the default branch — if not, there is nothing to PR. This is
+        # the typical state for tracker/coordinator issues whose acceptance criteria
+        # are satisfied by previously-merged child PRs: the implement phase correctly
+        # produces no diff, and forcing a PR here would fail with "no commits between
+        # branches". Return $null so the caller (run.ps1) closes the issue as merged
+        # without invoking the review/merge stages.
+        $defaultBranch = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>$null
+        git fetch --quiet origin $defaultBranch 2>$null
+        $aheadCount = [int]((git rev-list --count "origin/${defaultBranch}..HEAD" 2>$null) | Out-String).Trim()
+
+        if ($aheadCount -eq 0) {
+            Write-Log "  ✅ Already implemented — branch has no commits ahead of $defaultBranch. Skipping PR." -Color Green
+            Add-Comment -Number $Number -Body "🤖✅ Already Implemented`n`nAll acceptance criteria are satisfied without code changes — branch ``$Branch`` has no commits ahead of ``$defaultBranch``. Tests pass. Closing as merged without raising a PR."
+            return $null
+        }
+
+        Write-Log "  ✅ No new changes this run — prior commits on branch. Proceeding to PR." -Color Green
+        Add-Comment -Number $Number -Body "🤖 Implementation`n`nNo new changes this run — branch already carries prior commits implementing this issue. Proceeding to PR and review."
     }
 
     # Capture stderr so any push rejection (workflow scope, branch protection,
@@ -390,6 +407,14 @@ function Invoke-Implement {
         Invoke-Refine      -Number $IssueNumber
         Invoke-Develop     -Number $IssueNumber -Branch $branch
         $prUrl = Invoke-CommitAndPR -Number $IssueNumber -Title $meta.title -Branch $branch
+
+        if ($null -eq $prUrl) {
+            # Invoke-CommitAndPR returned the no-diff sentinel — branch has no commits
+            # ahead of the default branch. Skip the PR/review/merge stages; the caller
+            # (Invoke-Orchestration) will mark this as merged and close the issue.
+            Write-Log "✅ Implement complete — issue already satisfied; no PR needed." -Color Green
+            return $null
+        }
 
         Write-Log "✅ Implement complete — PR at $prUrl" -Color Green
         return $prUrl
