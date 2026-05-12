@@ -8,7 +8,7 @@ from urllib.request import urlopen
 
 import pytest
 
-from src.main import HelloHandler, _identity
+from src.main import HelloHandler
 
 
 @pytest.fixture(scope="module")
