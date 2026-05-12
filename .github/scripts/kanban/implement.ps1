@@ -102,7 +102,7 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 {"body":"<full issue body>","estimate":<number or null>,"priority":"<one of the allowed values or null>"}
 "@
 
-    $raw = claude -p $prompt --model $KanbanModel_Sonnet 2>&1 | Out-String
+    $raw = $prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "Claude refinement failed: $raw" }
 
     $json = $raw.Trim()
@@ -192,7 +192,7 @@ INSTRUCTIONS:
     $writingPosted     = $false
     $testedOnce        = $false
 
-    claude -p $prompt --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1 |
+    $prompt | claude --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1 |
     ForEach-Object {
         $raw = [string]$_
         try {
@@ -287,8 +287,11 @@ function Invoke-CommitAndPR {
     git add -A 2>&1 | Out-Null
 
     # Guard: inspect every staged path against a denylist and silently unstage any match.
-    $denyPatterns = @('.env', '*.key', '*.pem', '*secret*', '*credential*')
+    # docs/adr/ is exempt — ADR filenames legitimately contain words like "secret" or
+    # "credential" (e.g. ADR-008-secrets-management.md) and must never be dropped.
+    $denyPatterns = @('.env', '*.key', '*.pem', '*.pfx', '*secret*', '*credential*')
     foreach ($file in @(git diff --staged --name-only 2>&1)) {
+        if ($file -like 'docs/adr/*') { continue }
         $leaf = Split-Path $file -Leaf
         if ($denyPatterns | Where-Object { $leaf -like $_ }) {
             git reset HEAD -- $file 2>&1 | Out-Null

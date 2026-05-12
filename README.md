@@ -37,7 +37,7 @@ Get a new project running in under 5 minutes.
 
 **1. Install prerequisites** — once, globally:
 
-- Python 3.13
+**Python 3.13** — required interpreter. Install it if not present: `uv python install 3.13`
 
 ```bash
 uv tool install copier                        # project generator
@@ -142,6 +142,7 @@ my_template_repo/
 - **Utility modules**: `m_*.py` naming in `src/utils/` — generic, no project-specific logic
 - **Domain folders**: add `src/<domain>/` as the project grows — never pollute `src/utils/`
 - **Test parity**: every `src/**/*.py` gets a matching `tests/**/test_*.py`
+- **Python 3.13**: required interpreter — install via `uv python install 3.13` (see [Quickstart §1](#quickstart))
 - **UV only**: `uv add`, `uv sync`, `uv run` — never `pip install`
 - **Native Secret Management**: uses local vault named 'LocalStore' for secret management
 

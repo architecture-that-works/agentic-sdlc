@@ -566,7 +566,7 @@ DIFF:
 $Diff
 "@
 
-    $msg = claude -p $prompt --model $KanbanModel_Aux 2>&1 | Out-String
+    $msg = $prompt | claude --model $KanbanModel_Aux 2>&1 | Out-String
     if ($LASTEXITCODE -eq 0 -and $msg.Trim()) {
         Write-Log "  Commit message via Claude." -Color DarkGray
         return $msg.Trim()
