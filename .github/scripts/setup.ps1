@@ -47,18 +47,27 @@ if (-not $ProjectOwner) {
 }
 
 # ── Scope check ───────────────────────────────────────────────────────────────
-# Warn when the active gh auth context lacks 'project' scope.
-# NOTE: local gh auth having project scope does NOT guarantee the GH_TOKEN repo
-# secret also has it — they are independent tokens. The warning below is a
-# reminder to verify the secret, not a guarantee.
+# Warn when the active gh auth context is missing any of the required PAT scopes.
+# Required scopes match README.md and SECURITY.md: project, read:org, repo, user, workflow.
+# NOTE: local gh auth scopes do NOT verify the GH_TOKEN repo secret — they are
+# independent tokens. The warning below is a reminder to verify the secret, not
+# a guarantee.
 Write-Host ""
 Write-Host "🔐 Checking gh auth token scopes..." -ForegroundColor Cyan
 $_authStatusOut = gh auth status --show-token 2>&1 | Out-String
-if ($_authStatusOut -match '\bproject\b') {
-    Write-Host "  ✅ 'project' scope detected in active gh auth context." -ForegroundColor Green
+
+$_requiredScopes = @('project', 'read:org', 'repo', 'user', 'workflow')
+$_presentScopes  = @()
+if ($_authStatusOut -match 'Token scopes:\s*(.+)') {
+    $_presentScopes = [regex]::Matches($Matches[1], "'([^']+)'") | ForEach-Object { $_.Groups[1].Value }
+}
+$_missingScopes = @($_requiredScopes | Where-Object { $_ -notin $_presentScopes })
+
+if ($_missingScopes.Count -eq 0) {
+    Write-Host "  ✅ All required PAT scopes detected: $($_requiredScopes -join ', ')" -ForegroundColor Green
 } else {
-    Write-Host "  ⚠️  WARNING: 'project' scope NOT detected in the active gh auth context." -ForegroundColor Yellow
-    Write-Host "  ⚠️  Orchestrator operations require a classic PAT with these scopes: project, read:org, repo, user, workflow." -ForegroundColor Yellow
+    Write-Host "  ⚠️  WARNING: missing PAT scopes in active gh auth context: $($_missingScopes -join ', ')" -ForegroundColor Yellow
+    Write-Host "  ⚠️  Required (classic PAT): $($_requiredScopes -join ', ')" -ForegroundColor Yellow
     Write-Host "  ⚠️  The GH_TOKEN repo secret must be a classic PAT with ALL the above scopes." -ForegroundColor Yellow
     Write-Host "  ⚠️  Local gh auth scopes do NOT verify the GH_TOKEN secret — check the PAT settings page directly." -ForegroundColor Yellow
     Write-Host "  ⚠️  Fine-grained PATs do not support Projects v2 — use a classic PAT." -ForegroundColor Yellow
