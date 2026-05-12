@@ -12,7 +12,7 @@ Copier-based Python project scaffold. Generates a production-ready structure wit
 |---|---|---|---|
 | **0–2** | AI Student / Hobbyist | 5 / 5 | ✅ Git, UV lock, env-based config, Copier generator works cold |
 | **3–4** | Junior AI Engineer | 8 / 8 | ✅ Blocking CI gates (lint · typecheck · test · pip-audit), SHA-pinned actions, Dependabot, `project_type` prompt |
-| **5–6** | Mid-Level AI Engineer | 11 / 11 | ✅ |
+| **5–6** | Mid-Level AI Engineer | 11 / 11 | ✅ Codified context (`AGENTS.md` + `CONTEXT.md` Module Map), MECE skills embedded in `.agents/skills/`, phase orchestration, label-triggered agentic pipeline, ADR practice |
 | **7–8** | Senior AI Engineer ◄ | 0 / 12 | 🔲 Cloud-native orchestration · Dockerfile + devcontainer · WIF credentials · CODEOWNERS · SECURITY.md · template isolation |
 | **9–10** | Principal AI Engineer | 0 / 6 | 🔲 Automated eval gates · self-improving CONTEXT.md · cold-start reproducibility · AI output evaluation harness |
 
