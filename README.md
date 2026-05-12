@@ -24,6 +24,7 @@ Copier-based Python project scaffold. Generates a production-ready structure wit
 
 - [SDLC Maturity](#sdlc-maturity)
 - [Quickstart](#quickstart)
+- [Validate the harness end-to-end](#validate-the-harness-end-to-end)
 - [Repository Structure](#repository-structure)
 - [Conventions](#conventions)
 - [AI Workflow](#ai-workflow)
@@ -79,6 +80,35 @@ d. Add GitHub repository secrets:
 | `CLAUDE_CODE_OAUTH_TOKEN` | From [claude.ai/settings](https://claude.ai/settings) → API keys |
 
 > **Important — `GH_TOKEN` scope requirement:** The `GH_TOKEN` repo secret **must** be a **classic PAT** with both `repo` **and** `project` scopes. Fine-grained PATs do not support GitHub Projects v2. Missing the `project` scope causes silent kanban board failures at runtime. `task setup` will warn if your local `gh auth` context lacks the scope, but that does not verify the secret — check the PAT settings page directly.
+
+---
+
+## Validate the harness end-to-end
+
+After generating a new project, confirm the hello-world server starts and responds correctly before writing your first feature.
+
+**1. Build the image**
+```bash
+docker build -t <name>:dev .
+```
+
+**2. Start the container**
+```bash
+docker run --rm -p 8000:8000 <name>:dev
+```
+
+**3. Open the root route in a browser**
+
+Navigate to `http://localhost:8000` — you should see an HTML page with the project name and version.
+
+**4. Check the health endpoint**
+```bash
+curl http://localhost:8000/healthz
+```
+
+Expected response: `ok`
+
+The hello-world handler in `src/main.py` is intentionally minimal — it is the starting point for your first feature, not production code. Replace `HelloHandler` with your own request logic and delete or extend the `/healthz` route to match your application's health semantics.
 
 ---
 

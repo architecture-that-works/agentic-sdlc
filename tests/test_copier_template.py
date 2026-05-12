@@ -80,6 +80,19 @@ def test_generated_project_passes_tests(project_type: str, tmp_path: Path) -> No
     assert ".venv/" in dockerignore_content, ".dockerignore must exclude .venv/"
     assert ".env" in dockerignore_content, ".dockerignore must exclude .env"
 
+    assert (tmp_path / "src" / "main.py").exists(), (
+        f"Generated project missing src/main.py for project_type={project_type!r}"
+    )
+
+    assert (tmp_path / ".env.example").exists(), (
+        f"Generated project missing .env.example for project_type={project_type!r}"
+    )
+
+    agents_md_content = (tmp_path / "AGENTS.md").read_text()
+    assert "{{" not in agents_md_content, (
+        f"AGENTS.md must not contain Jinja2 syntax for project_type={project_type!r}"
+    )
+
     result = subprocess.run(
         ["uv", "run", "pytest", "--tb=short", "-q"],
         cwd=tmp_path,
