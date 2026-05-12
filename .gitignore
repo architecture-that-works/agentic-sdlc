@@ -12,6 +12,13 @@ __pycache__/
 .env.*
 !.env.example
 .copier-answers.yml
+*.key
+*.pem
+*.pfx
+*secret*
+*credential*
+!docs/adr/*secret*
+!docs/adr/*credential*
 
 # Build
 dist/
