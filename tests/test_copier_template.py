@@ -39,7 +39,7 @@ def test_generated_project_passes_tests(project_type: str, tmp_path: Path) -> No
         ".devcontainer/devcontainer.json must not contain Jinja2 syntax"
     )
     assert (
-        "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm" in devcontainer_content
+        "mcr.microsoft.com/devcontainers/python:1-3.13-bookworm" in devcontainer_content
     )
     assert "ghcr.io/devcontainers/features/github-cli:1" in devcontainer_content
     assert "ghcr.io/devcontainers/features/powershell:1" in devcontainer_content

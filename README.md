@@ -36,6 +36,9 @@ Copier-based Python project scaffold. Generates a production-ready structure wit
 Get a new project running in under 5 minutes.
 
 **1. Install prerequisites** — once, globally:
+
+- Python 3.13
+
 ```bash
 uv tool install copier                        # project generator
 winget install --id Microsoft.PowerShell      # PowerShell 7 (Windows)
