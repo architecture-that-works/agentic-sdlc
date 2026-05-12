@@ -2,13 +2,12 @@
 
 ## Project Identity
 
-**{{ project_name }}** — {{ description }}
+Python + UV application.
 
 | Key | Value |
 |-----|-------|
 | Stack | Python + UV |
-| Project Type | {{ project_type }} |
-| Entry point | `main.py` |
+| Entry point | `src/main.py` |
 | Config | `src/config.py` (pydantic-settings, loads `.env`) |
 
 ## Session Initialisation
@@ -73,13 +72,13 @@ Invoke the relevant skill before implementing manually. Skills are located in `.
 
 Load exactly one domain skill per session. `application-engineering` is the default for `project_type: application`. If an endpoint invokes an agent loop, load both: `application-engineering` for the endpoint, `agentic-engineering` for the loop internals.
 
-Domain-specific information for this **{{ project_type }}** project is captured in ADRs matching this type — see `docs/adr/ADR-007-project-type-selection.md` and any domain ADRs with `Status: Accepted`.
+Domain-specific information for this project is captured in ADRs matching the project type — see `docs/adr/ADR-007-project-type-selection.md` and any domain ADRs with `Status: Accepted`.
 
 ## Repository Layout
 
 | Path | Purpose |
 |------|---------|
-| `main.py` | Entry point |
+| `src/main.py` | Entry point |
 | `src/config.py` | Centralised config (pydantic-settings, loads `.env`) |
 | `src/utils/` | Generic transferable modules (`m_*.py`) |
 | `src/<domain>/` | Domain-specific logic — add folders here as the project grows |
