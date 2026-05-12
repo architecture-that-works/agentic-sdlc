@@ -37,6 +37,7 @@ Navigation index for agents. Read CONTEXT.md, identify the target bounded contex
 
 | Module | Path | Bounded Context | Entry points |
 |---|---|---|---|
+| main | `src/main.py` | `src/` | `HelloHandler` (HTTPServer entry point) |
 | config | `src/config.py` | `src/` | `Settings` (pydantic-settings) |
 | utils | `src/utils/` | `src/utils/` | `m_*.py` modules — generic only |
 | tools | `src/tools/` | `src/tools/` | per-tool `main()` (executed directly) |
@@ -86,6 +87,7 @@ Concepts explicitly deferred or rejected. Prevents re-proposal in planning sessi
 
 | Concept | Reason deferred | Date |
 |---------|-----------------|------|
+| Embedded web framework (FastAPI/Flask) in the hello-world starter | Standard Library First constraint; stdlib http.server is sufficient | 2026-05-12 |
 | Multi-variant template (separate per-type scaffolds) | Single template with project_type prompt; specialised directory stubs deferred | 2026-05-10 |
 | Gemini as primary AI provider | Claude-first; Gemini reserved as future secondary slot | 2026-05-09 |
 | Separate `CLAUDE.md` for behavioural rules | Rejected in ADR-009; `AGENTS.md` is the single standing-instructions file (cross-tool convention) | 2026-05-11 |

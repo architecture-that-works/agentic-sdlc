@@ -8,6 +8,8 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
+    port: int = 8000
+
     # Logging
     log_profile: str = "TEST"  # PRD | TEST | DEBUG
     log_separator_width: int = 80
