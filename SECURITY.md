@@ -158,7 +158,134 @@ One-time setup steps for a freshly generated project:
 
 ## Deployment Credentials
 
-> Extended by Phase 5.
+The `deploy.yml` workflow deploys the container image built by `build.yml` to either
+Azure Container Apps or GCP Cloud Run. The target cloud is selected by the repository
+variable `DEPLOY_TARGET` (`azure` or `gcp`), set once at project setup. Both jobs
+authenticate via **Workload Identity Federation (WIF)** — no service principal secret
+or service account JSON key is ever stored in the repository.
 
-Credentials for the deployment pipeline (container registry, Kubernetes, Terraform state
-backend) will be documented here when Phase 5 components are introduced.
+### Required secrets and variables
+
+| Cloud | Repository variables | Repository secrets |
+|---|---|---|
+| Azure | `DEPLOY_TARGET=azure`, `AZURE_CONTAINER_APP_NAME`, `AZURE_RESOURCE_GROUP` | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` |
+| GCP   | `DEPLOY_TARGET=gcp`, `GCP_CLOUD_RUN_SERVICE`, `GCP_REGION` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT` |
+
+Variables live under **Settings → Secrets and variables → Actions → Variables**.
+Secrets live under **Settings → Secrets and variables → Actions → Secrets**.
+
+### Provisioning WIF for Azure
+
+One-time human action performed after `deploy.yml` lands on `main`. Requires Owner or
+User Access Administrator on the target subscription.
+
+1. **Create an Entra ID app registration**
+   ```bash
+   az ad app create --display-name "github-actions-<repo>"
+   APP_ID=$(az ad app list --display-name "github-actions-<repo>" --query "[0].appId" -o tsv)
+   az ad sp create --id "$APP_ID"
+   ```
+2. **Grant the service principal contributor on the resource group**
+   ```bash
+   SUB_ID=$(az account show --query id -o tsv)
+   az role assignment create \
+     --assignee "$APP_ID" \
+     --role contributor \
+     --scope "/subscriptions/$SUB_ID/resourceGroups/<AZURE_RESOURCE_GROUP>"
+   ```
+3. **Add a federated credential trusting this GitHub repository** (one per environment
+   you intend to deploy to — repeat for `staging` and `production`):
+   ```bash
+   az ad app federated-credential create --id "$APP_ID" --parameters '{
+     "name": "github-<repo>-staging",
+     "issuer": "https://token.actions.githubusercontent.com",
+     "subject": "repo:<owner>/<repo>:environment:staging",
+     "audiences": ["api://AzureADTokenExchange"]
+   }'
+   ```
+4. **Record the three identifiers as GitHub Actions secrets**:
+   - `AZURE_CLIENT_ID` — `$APP_ID`
+   - `AZURE_TENANT_ID` — `az account show --query tenantId -o tsv`
+   - `AZURE_SUBSCRIPTION_ID` — `$SUB_ID`
+5. **Record the deployment targets as repository variables**:
+   - `DEPLOY_TARGET=azure`
+   - `AZURE_CONTAINER_APP_NAME` — the Container App name
+   - `AZURE_RESOURCE_GROUP` — the resource group containing the Container App
+6. **Allow the Container App to pull the GHCR image** — either make the GHCR package
+   public, or configure registry credentials on the Container App (`az containerapp
+   registry set --server ghcr.io --username <user> --password <PAT>`). A PAT with
+   `read:packages` scope is sufficient.
+
+### Provisioning WIF for GCP
+
+One-time human action performed after `deploy.yml` lands on `main`. Requires `roles/iam.workloadIdentityPoolAdmin`
+and `roles/iam.serviceAccountAdmin` on the target project.
+
+1. **Create a workload identity pool and OIDC provider for GitHub**
+   ```bash
+   PROJECT_ID=<gcp-project-id>
+   gcloud iam workload-identity-pools create "github-pool" \
+     --project="$PROJECT_ID" --location="global" \
+     --display-name="GitHub Actions Pool"
+   gcloud iam workload-identity-pools providers create-oidc "github-provider" \
+     --project="$PROJECT_ID" --location="global" \
+     --workload-identity-pool="github-pool" \
+     --display-name="GitHub OIDC" \
+     --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
+     --issuer-uri="https://token.actions.githubusercontent.com" \
+     --attribute-condition="assertion.repository=='<owner>/<repo>'"
+   ```
+2. **Create a service account for the deploy workflow and grant Cloud Run deploy roles**
+   ```bash
+   gcloud iam service-accounts create github-deploy \
+     --project="$PROJECT_ID" --display-name="GitHub Actions Deploy"
+   SA_EMAIL="github-deploy@$PROJECT_ID.iam.gserviceaccount.com"
+   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+     --member="serviceAccount:$SA_EMAIL" --role="roles/run.admin"
+   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+     --member="serviceAccount:$SA_EMAIL" --role="roles/iam.serviceAccountUser"
+   ```
+3. **Bind the GitHub repository to the service account**
+   ```bash
+   PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+   gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
+     --project="$PROJECT_ID" \
+     --role="roles/iam.workloadIdentityUser" \
+     --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/attribute.repository/<owner>/<repo>"
+   ```
+4. **Record the WIF provider resource name and service account email as secrets**:
+   - `GCP_WORKLOAD_IDENTITY_PROVIDER` — `projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider`
+   - `GCP_SERVICE_ACCOUNT` — `$SA_EMAIL`
+5. **Record the deployment targets as repository variables**:
+   - `DEPLOY_TARGET=gcp`
+   - `GCP_CLOUD_RUN_SERVICE` — the Cloud Run service name
+   - `GCP_REGION` — the region the service runs in (e.g., `europe-west1`)
+6. **Allow Cloud Run to pull the GHCR image** — either make the GHCR package public,
+   or mirror the image to Artifact Registry. Cloud Run does not support pulling from a
+   private GHCR registry with credentials at runtime; mirroring is the supported path.
+
+### Running the GHCR image locally for manual testing
+
+Pull and run the same image the pipeline will deploy. Useful for reproducing a
+production issue or smoke-testing before triggering `deploy.yml`.
+
+1. **Authenticate Docker to GHCR** (only required while the package is private):
+   ```bash
+   echo "$GH_TOKEN" | docker login ghcr.io -u <github-username> --password-stdin
+   ```
+   The `GH_TOKEN` PAT needs `read:packages` scope.
+2. **Pull the image** — use a pinned SHA tag for reproducibility, or `latest` for the
+   most recent build on `main`:
+   ```bash
+   docker pull ghcr.io/<owner>/<repo>:<image_tag>
+   ```
+3. **Run the container**:
+   ```bash
+   docker run --rm -it \
+     --env-file .env \
+     -p 8000:8000 \
+     ghcr.io/<owner>/<repo>:<image_tag>
+   ```
+   Adjust the published port to match whatever the application binds to. `--env-file`
+   wires the same secrets used in local dev — never bake secret values into a `docker
+   run` command line, as they leak into shell history and process listings.
