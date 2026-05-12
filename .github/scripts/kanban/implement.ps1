@@ -102,7 +102,7 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 {"body":"<full issue body>","estimate":<number or null>,"priority":"<one of the allowed values or null>"}
 "@
 
-    $raw = claude -p $prompt --model $KanbanModel_Sonnet 2>&1 | Out-String
+    $raw = $prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "Claude refinement failed: $raw" }
 
     $json = $raw.Trim()
@@ -192,7 +192,7 @@ INSTRUCTIONS:
     $writingPosted     = $false
     $testedOnce        = $false
 
-    claude -p $prompt --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1 |
+    $prompt | claude --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1 |
     ForEach-Object {
         $raw = [string]$_
         try {
