@@ -92,3 +92,5 @@ Concepts explicitly deferred or rejected. Prevents re-proposal in planning sessi
 | Gemini as primary AI provider | Claude-first; Gemini reserved as future secondary slot | 2026-05-09 |
 | Separate `CLAUDE.md` for behavioural rules | Rejected in ADR-009; `AGENTS.md` is the single standing-instructions file (cross-tool convention) | 2026-05-11 |
 | Generic Module Map per project_type (separate maps for application / agent / ml) | Rejected in ADR-009; single Map at template-time lists only invariant rows; project_type-specific rows added as first feature lands | 2026-05-11 |
+| Codespace as HITL validation surface | HITL surface is the developer's laptop indefinitely; persistent Cloud Run Orchestrator Service is the Phase-3 cloud-runtime north star, not Codespaces | 2026-05-12 |
+| LangGraph (or any agent-framework library) as orchestrator runtime | Drag too high for a template — forks should not need to learn LangGraph. Steal patterns (declarative graph, checkpoint, interrupt) without the dependency | 2026-05-12 |
