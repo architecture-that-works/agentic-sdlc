@@ -3,6 +3,14 @@ name: Deploy container image
 # Single dispatch entry point. The target cloud is selected by the repository
 # variable `DEPLOY_TARGET` (set once at project setup) — exactly one job
 # below activates per run.
+#
+# HITL prerequisite — Workload Identity Federation must be provisioned by a human
+# before the first run of this workflow. WIF setup cannot be automated from inside
+# CI because it requires elevated cloud-side privileges (Owner / User Access
+# Administrator on Azure; iam.workloadIdentityPoolAdmin + iam.serviceAccountAdmin
+# on GCP). See SECURITY.md § "Provisioning WIF for Azure" / "Provisioning WIF for
+# GCP" for the one-time human steps. The repository secrets/variables consumed
+# below are populated as the final step of that procedure.
 
 on:
   workflow_dispatch:
@@ -32,6 +40,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # HITL: AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID are
+      # produced by the one-time human WIF provisioning steps in
+      # SECURITY.md § "Provisioning WIF for Azure". Missing values here mean
+      # WIF has not yet been provisioned — do not attempt to auto-create them.
       - name: Authenticate to Azure via Workload Identity Federation
         uses: azure/login@v2
         with:
@@ -59,6 +71,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # HITL: GCP_WORKLOAD_IDENTITY_PROVIDER / GCP_SERVICE_ACCOUNT are produced
+      # by the one-time human WIF provisioning steps in SECURITY.md §
+      # "Provisioning WIF for GCP". Missing values here mean WIF has not yet
+      # been provisioned — do not attempt to auto-create them.
       - name: Authenticate to GCP via Workload Identity Federation
         uses: google-github-actions/auth@v2
         with:

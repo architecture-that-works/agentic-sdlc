@@ -176,8 +176,10 @@ Secrets live under **Settings → Secrets and variables → Actions → Secrets*
 
 ### Provisioning WIF for Azure
 
-One-time human action performed after `deploy.yml` lands on `main`. Requires Owner or
-User Access Administrator on the target subscription.
+> **HITL — human action required.** This procedure cannot run from inside CI; it
+> requires Owner or User Access Administrator on the target subscription. Perform
+> it once, manually, after `deploy.yml` lands on `main`. The repository secrets
+> and variables produced in steps 4–5 are what `deploy.yml` consumes at runtime.
 
 1. **Create an Entra ID app registration**
    ```bash
@@ -218,8 +220,11 @@ User Access Administrator on the target subscription.
 
 ### Provisioning WIF for GCP
 
-One-time human action performed after `deploy.yml` lands on `main`. Requires `roles/iam.workloadIdentityPoolAdmin`
-and `roles/iam.serviceAccountAdmin` on the target project.
+> **HITL — human action required.** This procedure cannot run from inside CI; it
+> requires `roles/iam.workloadIdentityPoolAdmin` and `roles/iam.serviceAccountAdmin`
+> on the target project. Perform it once, manually, after `deploy.yml` lands on
+> `main`. The repository secrets and variables produced in steps 4–5 are what
+> `deploy.yml` consumes at runtime.
 
 1. **Create a workload identity pool and OIDC provider for GitHub**
    ```bash
