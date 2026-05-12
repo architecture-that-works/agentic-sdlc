@@ -287,8 +287,11 @@ function Invoke-CommitAndPR {
     git add -A 2>&1 | Out-Null
 
     # Guard: inspect every staged path against a denylist and silently unstage any match.
-    $denyPatterns = @('.env', '*.key', '*.pem', '*secret*', '*credential*')
+    # docs/adr/ is exempt — ADR filenames legitimately contain words like "secret" or
+    # "credential" (e.g. ADR-008-secrets-management.md) and must never be dropped.
+    $denyPatterns = @('.env', '*.key', '*.pem', '*.pfx', '*secret*', '*credential*')
     foreach ($file in @(git diff --staged --name-only 2>&1)) {
+        if ($file -like 'docs/adr/*') { continue }
         $leaf = Split-Path $file -Leaf
         if ($denyPatterns | Where-Object { $leaf -like $_ }) {
             git reset HEAD -- $file 2>&1 | Out-Null
