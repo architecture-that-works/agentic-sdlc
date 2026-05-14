@@ -226,20 +226,51 @@ function Invoke-Merge {
     Invoke-RebaseOnMaster -IssueNumber $IssueNumber -Branch $featureBranch
 
     Write-Log "  Waiting for CI checks on PR #$PRNumber..." -Color DarkGray
-    $checkOutput = gh pr checks $PRNumber --watch 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0) {
-        $allChecks = gh pr checks $PRNumber --json name,bucket 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
-        if (-not $allChecks -or $allChecks.Count -eq 0) {
-            Write-Log "  ⚠️ No CI checks reported for PR #$PRNumber — approval gate already passed, proceeding with merge." -Color Yellow
-            Add-Comment -Number $IssueNumber -Body "🤖⚠️ No CI checks reported — merging on approval gate alone."
-        } else {
-            $failedChecks = ($allChecks | Where-Object { $_.bucket -eq 'fail' } | ForEach-Object { $_.name }) -join ', '
-            $failedLabel = if ($failedChecks) { $failedChecks } else { 'unknown' }
+
+    # After rebase + force-push, GitHub Actions needs 5-30s to register the
+    # rerun. `gh pr checks --watch` exits immediately with "no checks reported"
+    # when none exist yet, and the JSON fallback returns the same plain-text
+    # error (non-JSON) — which previously crashed ConvertFrom-Json and dropped
+    # the issue back to Backlog even though CI eventually passed.
+    #
+    # Loop with a grace period: retry --watch while the message is "no checks
+    # reported"; treat any other non-zero exit as a real CI failure; cap total
+    # registration wait at $CIRegisterTimeoutSec.
+    $CIRegisterTimeoutSec = 60
+    $registerDeadline     = (Get-Date).AddSeconds($CIRegisterTimeoutSec)
+    $ciResolved           = $false
+    $ciGreen              = $false
+
+    while ((Get-Date) -lt $registerDeadline -and -not $ciResolved) {
+        $checkOutput = gh pr checks $PRNumber --watch 2>&1 | Out-String
+        if ($LASTEXITCODE -eq 0) {
+            $ciResolved = $true
+            $ciGreen    = $true
+            break
+        }
+        if ($checkOutput -notmatch '(?i)no checks reported') {
+            # Real failure — best-effort structured lookup for failed check names
+            $failedNames = ''
+            $jsonOut = gh pr checks $PRNumber --json name,bucket 2>$null | Out-String
+            if ($jsonOut.Trim().StartsWith('[')) {
+                try {
+                    $allChecks   = $jsonOut | ConvertFrom-Json -ErrorAction Stop
+                    $failedNames = ($allChecks | Where-Object { $_.bucket -eq 'fail' } | ForEach-Object { $_.name }) -join ', '
+                } catch { }
+            }
+            $failedLabel = if ($failedNames) { $failedNames } else { 'unknown' }
             Add-Comment -Number $IssueNumber -Body "🤖❌ CI Failed`n`nFailed checks: $failedLabel`n``````text`n$($checkOutput.Trim())`n``````"
             throw "CI checks failed for PR #$PRNumber."
         }
-    } else {
+        Write-Log "  CI not yet registered — retrying in 5s..." -Color DarkGray
+        Start-Sleep -Seconds 5
+    }
+
+    if ($ciGreen) {
         Write-Log "  CI green ✅" -Color Green
+    } elseif (-not $ciResolved) {
+        Write-Log "  ⚠️ No CI checks registered after ${CIRegisterTimeoutSec}s — proceeding on approval gate alone." -Color Yellow
+        Add-Comment -Number $IssueNumber -Body "🤖⚠️ No CI checks reported after ${CIRegisterTimeoutSec}s — merging on approval gate alone."
     }
 
     gh pr merge $PRNumber --merge --delete-branch 2>&1 | Out-Null
