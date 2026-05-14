@@ -45,15 +45,15 @@ Invoke the relevant skill before implementing manually. Skills are located in `.
 
 **Workflow** (sequential — refine → architecture → plan → tdd → harness → review → ship):
 
-| Skill | When to invoke |
-|-------|----------------|
-| `refine` | Starting a new feature — alignment on glossary, boundaries, and ADRs before any code |
-| `architecture` | Analysing dependencies, blast-radius, or module structure |
-| `plan` | Translating an Agent Brief into a Lean PRD and decomposed GitHub Issues |
-| `tdd` | Implementing features via Red-Green-Refactor |
-| `harness` | Provisioning environments, managing context health, Planner/Generator/Evaluator split |
-| `review` | Code review, auto-fix loop, PR validation |
-| `ship` | Pre-merge security checks, squash merge, knowledge base update |
+| Skill | When to invoke | References |
+|-------|----------------|------------|
+| `refine` | Starting a new feature — alignment on glossary, boundaries, and ADRs before any code | [REFERENCE.md](.agents/skills/refine/REFERENCE.md) · [EXAMPLES.md](.agents/skills/refine/EXAMPLES.md) |
+| `architecture` | Analysing dependencies, blast-radius, or module structure | [REFERENCE.md](.agents/skills/architecture/REFERENCE.md) · [EXAMPLES.md](.agents/skills/architecture/EXAMPLES.md) |
+| `plan` | Translating an Agent Brief into a Lean PRD and decomposed GitHub Issues | [REFERENCE.md](.agents/skills/plan/REFERENCE.md) · [EXAMPLES.md](.agents/skills/plan/EXAMPLES.md) |
+| `tdd` | Implementing features via Red-Green-Refactor | — |
+| `harness` | Provisioning environments, managing context health, Planner/Generator/Evaluator split | — |
+| `review` | Code review, auto-fix loop, PR validation | — |
+| `ship` | Pre-merge security checks, squash merge, knowledge base update | — |
 
 **Meta** (project-type agnostic, cross-cutting — load on demand):
 

@@ -59,7 +59,7 @@ For each kind of work, read these files before opening anything else. If an unex
 | `src/tools/` change | `src/tools/*.py`, matching `tests/tools/test_*.py` |
 | ADR addition | `docs/adr/ADR_STRUCTURE.md`, `ADR-000` template |
 | CI workflow change | `.github/workflows/*.yml`, `Taskfile.yml`, `pyproject.toml` |
-| skill change | `.agents/skills/<name>/SKILL.md`, `AGENTS.md` skill index |
+| skill change | `.agents/skills/<name>/SKILL.md`, `.agents/skills/<name>/REFERENCE.md`, `.agents/skills/<name>/EXAMPLES.md`, `AGENTS.md` skill index |
 | new `src/<domain>/` | `CONTEXT.md` Module Map (extend first), `AGENTS.md` Rules, then proceed |
 | dependency / config | `pyproject.toml`, `uv.lock`, `.devcontainer/`, `Dockerfile` |
 | template / Copier change | `copier.yml`, `.template/`, `pyproject.toml.jinja2` |
