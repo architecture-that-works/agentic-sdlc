@@ -225,3 +225,53 @@ def test_state_json_issue_number_correct(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     state = _read_state(tmp_path, 123)
     assert state["issue"] == 123
+
+
+# ── $safeStr truncation logic ─────────────────────────────────────────────────
+# Replicates the fixed assignment block from Invoke-Architecture (non-trivial branch).
+
+_SAFE_STR_SNIPPET = textwrap.dedent("""\
+    function Get-SafeStr {
+        param([string[]]$safe)
+        if ($safe.Count -gt 0) {
+            $safeStr = ($safe | Select-Object -First 5) -join ', '
+            if ($safe.Count -gt 5) { $safeStr += " … +$($safe.Count - 5) more" }
+        } else {
+            $safeStr = 'none'
+        }
+        return $safeStr
+    }
+""")
+
+
+def test_safe_str_truncation_appends_count_when_more_than_five() -> None:
+    """8 safe modules → first 5 joined, then ' … +3 more' appended."""
+    mods = [f"mod_{i}" for i in range(8)]
+    mods_ps = ", ".join(f"'{m}'" for m in mods)
+    result = _ps(_SAFE_STR_SNIPPET + f"$safe = @({mods_ps})\nGet-SafeStr -safe $safe")
+    assert result.returncode == 0, result.stderr
+    output = result.stdout.strip()
+    assert " … +3 more" in output, f"Expected ' … +3 more' in output, got: {output!r}"
+    for m in mods[:5]:
+        assert m in output, f"Expected first-5 module {m!r} in output"
+
+
+def test_safe_str_exactly_five_no_truncation() -> None:
+    """Exactly 5 safe modules must produce no truncation indicator."""
+    mods = [f"mod_{i}" for i in range(5)]
+    mods_ps = ", ".join(f"'{m}'" for m in mods)
+    result = _ps(_SAFE_STR_SNIPPET + f"$safe = @({mods_ps})\nGet-SafeStr -safe $safe")
+    assert result.returncode == 0, result.stderr
+    output = result.stdout.strip()
+    assert "more" not in output, (
+        f"5 modules must not produce a truncation indicator, got: {output!r}"
+    )
+    for m in mods:
+        assert m in output
+
+
+def test_safe_str_empty_is_none() -> None:
+    """Empty safe list must produce the string 'none'."""
+    result = _ps(_SAFE_STR_SNIPPET + "$safe = @()\nGet-SafeStr -safe $safe")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "none"

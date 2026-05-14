@@ -266,8 +266,12 @@ function Invoke-Architecture {
         }
 
         $atRiskStr = if ($atRisk.Count -gt 0) { $atRisk -join ', ' } else { 'none' }
-        $safeStr   = if ($safe.Count   -gt 0) { ($safe | Select-Object -First 5) -join ', '
-                     if ($safe.Count -gt 5) { $safeStr += " … +$($safe.Count - 5) more" } } else { 'none' }
+        if ($safe.Count -gt 0) {
+            $safeStr = ($safe | Select-Object -First 5) -join ', '
+            if ($safe.Count -gt 5) { $safeStr += " … +$($safe.Count - 5) more" }
+        } else {
+            $safeStr = 'none'
+        }
         $rec       = if ($atRisk.Count -gt 0) { 'refactor first — high fan-in modules detected' } else { 'proceed' }
 
         $blastComment = @(

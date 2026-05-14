@@ -8,7 +8,7 @@
 | Module | Fan-in | Fan-out | Classification |
 |--------|--------|---------|----------------|
 | `config` | 1 | 0 | deep module (target state) |
-| `main` | 0 | 1 | isolated |
+| `main` | 0 | 1 | deep module (target state) |
 | `utils.m_log` | 1 | 0 | deep module (target state) |
 
 ## Legend

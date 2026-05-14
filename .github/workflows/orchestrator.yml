@@ -109,11 +109,18 @@ jobs:
             "issue_number=$issue" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
           }
 
-      - name: Run full pipeline (implement → review loop → merge)
+      - name: Run full pipeline (refine → architecture → implement → review → merge)
         if: steps.resolve.outputs.issue_number != ''
         env:
           PIPELINE_ISSUE: ${{ steps.resolve.outputs.issue_number }}
-        run: pwsh -File .github/scripts/kanban/run.ps1 -Issue $env:PIPELINE_ISSUE -MaxRetries 3
+        run: |
+          # Phase A   — refine (implement.ps1 Invoke-Refine)
+          # Phase A.5 — architecture (architecture.ps1 Invoke-Architecture):
+          #             emits .planning/<issue>/BLAST_RADIUS.md and docs/CODEBASE_MAP.md,
+          #             posts blast-radius PR comment, records state transitions.
+          # Phase B   — develop (implement.ps1 Invoke-Develop via Claude Code)
+          # Phase C   — commit + PR (implement.ps1 Invoke-CommitAndPR)
+          pwsh -File .github/scripts/kanban/run.ps1 -Issue $env:PIPELINE_ISSUE -MaxRetries 3
 
       - name: Drain remaining backlog
         if: always() && steps.resolve.outputs.issue_number != ''
