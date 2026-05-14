@@ -74,7 +74,7 @@ Schema changes and API contracts only. No file paths.
 What makes a good test for this module. Drives the RED phase in `tdd`.
 
 ## Out of Scope
-Anything explicitly deferred. Feeds `.out-of-scope/` after merge.
+Anything explicitly deferred. Feeds `.out-of-scope.md` after merge.
 ```
 
 ### Step 3 — Issue Decomposition
