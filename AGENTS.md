@@ -57,10 +57,10 @@ Invoke the relevant skill before implementing manually. Skills are located in `.
 
 **Meta** (project-type agnostic, cross-cutting — load on demand):
 
-| Skill | When to invoke |
-|-------|----------------|
-| `version-control` | Branching (`feature/{number}-{slug}`), commits, PRs — any phase that touches git |
-| `write-skills` | Creating or updating skills in `.agents/skills/` |
+| Skill | When to invoke | References |
+|-------|----------------|------------|
+| `version-control` | Branching (`feature/{number}-{slug}`), commits, PRs — any phase that touches git | — |
+| `write-skills` | Creating or updating skills in `.agents/skills/` | [REFERENCE.md](.agents/skills/write-skills/REFERENCE.md) · [EXAMPLES.md](.agents/skills/write-skills/EXAMPLES.md) |
 
 **Domain** (extend `tdd` REFACTOR with implementation patterns — named `*-engineering`):
 

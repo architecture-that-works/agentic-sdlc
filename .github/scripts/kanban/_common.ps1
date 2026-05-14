@@ -220,6 +220,9 @@ function New-FeatureBranch {
 # ── Project board helpers ─────────────────────────────────────────────────────
 
 $script:_CachedProjectId  = $null
+$script:_CachedItems      = $null
+$script:_ProjectIdFailed  = $false
+$script:_ItemsFailed      = $false
 $script:_ResolvedOwner    = $null
 $script:_AuthDiagPrinted  = $false
 
@@ -272,48 +275,74 @@ function Invoke-GhProjectRetry {
 }
 
 function Get-ProjectId {
-    if (-not $script:_CachedProjectId) {
-        if ($env:KANBAN_PROJECT_ID) {
-            # Use the setup-time resolved node ID — avoids a gh project list call every run.
-            $script:_CachedProjectId = $env:KANBAN_PROJECT_ID
-        } else {
-            $owner = Get-ResolvedOwner
-            if (-not $owner) { return $null }
-            $out = Invoke-GhProjectRetry -Description 'gh project list' -Block {
-                gh project list --owner $owner --format json --jq `
-                    ".projects[] | select(.number == $KanbanProjectNumber) | .id" 2>&1 | Out-String
-            }
-            if ($LASTEXITCODE -ne 0) {
-                Write-Log "  ⚠️ gh project list failed: $($out.Trim())" -Color Yellow
-                return $null
-            }
-            $script:_CachedProjectId = $out.Trim()
-        }
+    if ($script:_CachedProjectId) { return $script:_CachedProjectId }
+    if ($script:_ProjectIdFailed) { return $null }
+
+    if ($env:KANBAN_PROJECT_ID) {
+        # Use the setup-time resolved node ID — avoids a gh project list call every run.
+        $script:_CachedProjectId = $env:KANBAN_PROJECT_ID
+        return $script:_CachedProjectId
     }
+    $owner = Get-ResolvedOwner
+    if (-not $owner) { $script:_ProjectIdFailed = $true; return $null }
+    $out = Invoke-GhProjectRetry -Description 'gh project list' -Block {
+        gh project list --owner $owner --format json --jq `
+            ".projects[] | select(.number == $KanbanProjectNumber) | .id" 2>&1 | Out-String
+    }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ gh project list failed: $($out.Trim())" -Color Yellow
+        $script:_ProjectIdFailed = $true
+        return $null
+    }
+    $script:_CachedProjectId = $out.Trim()
     return $script:_CachedProjectId
 }
 
-# Fetches all project items once per process and caches the result.
-# A GitHub Project board's item set is effectively static during a single
-# orchestrator pass; one fetch serves every downstream Get-ProjectItemId /
-# Get-ProjectFieldValues lookup, dropping ~5 GraphQL queries per pass to 1.
+# Fetches all project items once per process and caches the result. A GitHub
+# Project board's item set is effectively static during a single orchestrator
+# pass; one fetch serves every downstream Get-ProjectItemId / Get-ProjectStatus
+# / Get-ProjectFieldValues lookup, dropping ~5 GraphQL queries per pass to 1.
+#
 # $script:_CachedItems = $null means "not yet fetched"; an empty array means
 # "fetched but board is empty" (do not re-fetch).
+#
+# On failure we set $script:_ItemsFailed and return $null on every subsequent
+# call this pass — without that flag, each Move-ToLane / Get-ProjectFieldValues
+# call retriggers the full 3-attempt retry sequence, turning one outage into
+# ~12 GraphQL hits per issue.
 function Get-AllProjectItems {
     if ($null -ne $script:_CachedItems) { return $script:_CachedItems }
+    if ($script:_ItemsFailed) { return $null }
+
     $owner = Get-ResolvedOwner
-    if (-not $owner) { return $null }
+    if (-not $owner) { $script:_ItemsFailed = $true; return $null }
     $out = Invoke-GhProjectRetry -Description 'gh project item-list' -Block {
         gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 2>&1 | Out-String
     }
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ gh project item-list failed: $($out.Trim())" -Color Yellow
+        $script:_ItemsFailed = $true
         return $null
     }
     $parsed = $null
-    try { $parsed = $out | ConvertFrom-Json } catch { return $null }
+    try { $parsed = $out | ConvertFrom-Json } catch {
+        Write-Log "  ⚠️ gh project item-list returned malformed JSON — skipping project-board ops this pass." -Color Yellow
+        $script:_ItemsFailed = $true
+        return $null
+    }
     $script:_CachedItems = @($parsed.items)
     return $script:_CachedItems
+}
+
+function Get-ProjectStatus {
+    param([int]$IssueNumber)
+    $items = Get-AllProjectItems
+    if ($null -eq $items) { return $null }
+    $match = $items | Where-Object {
+        $_.content.number -eq $IssueNumber -and $_.content.repository -eq $KanbanRepo
+    } | Select-Object -First 1
+    if (-not $match) { return $null }
+    return $match.status
 }
 
 function Get-ProjectItemId {
@@ -339,6 +368,16 @@ function Move-ToLane {
         Write-Log "  Could not resolve project item for issue #$IssueNumber — skipping lane move." -Color Yellow
         return
     }
+
+    # Skip the GraphQL write when the lane is already correct — saves one
+    # item-edit per Set-AgentState call in steady state, and is essential
+    # during transient GraphQL outages to avoid pointless mutations.
+    $current = Get-ProjectStatus -IssueNumber $IssueNumber
+    if ($current -eq $LaneName) {
+        Write-Log "  Issue #$IssueNumber already in lane $LaneName — skipping." -Color DarkGray
+        return
+    }
+
     $ghArgs = @('project','item-edit','--id',$itemId,'--field-id',$KanbanStatusFieldId,'--project-id',$projectId,'--single-select-option-id',$OptionId)
     $out = Invoke-GhProjectRetry -Description 'gh project item-edit' -Block {
         gh @ghArgs 2>&1 | Out-String
@@ -347,6 +386,14 @@ function Move-ToLane {
         Write-Log "  ⚠️ Lane move failed for issue #$IssueNumber → $LaneName : $($out.Trim())" -Color Yellow
     } else {
         Write-Log "  Issue #$IssueNumber → $LaneName" -Color DarkGray
+        # Reflect the new lane in the cache so a subsequent same-pass call
+        # to Move-ToLane (e.g. via Set-AgentState) sees the update and skips.
+        if ($null -ne $script:_CachedItems) {
+            $cached = $script:_CachedItems | Where-Object {
+                $_.content.number -eq $IssueNumber -and $_.content.repository -eq $KanbanRepo
+            } | Select-Object -First 1
+            if ($cached) { $cached.status = $LaneName }
+        }
     }
 }
 

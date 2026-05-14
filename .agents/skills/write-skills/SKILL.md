@@ -9,14 +9,16 @@ description: Use when creating new skills, editing existing skills, splitting an
 
 A **skill** is a constraint document for AI agents — a reference that prevents hallucinated approaches by encoding proven patterns and hard rules. Skills are reusable across projects and sessions.
 
-**Primary artifact:** Valid, MECE-compliant SKILL.md
+**Primary artifact:** Valid, MECE-compliant SKILL.md plus its companion REFERENCE.md, EXAMPLES.md, and optionally `scripts/`.
 
 **Skills are:** Proven techniques, hard constraints, patterns, tool references.
 **Skills are NOT:** Project-specific conventions, one-off solutions, or rules enforceable by a script or linter.
 
+See [REFERENCE.md](REFERENCE.md) for the full SKILL.md template, routing-signal rules, ASO rules, and the baseline-first protocol in depth. See [EXAMPLES.md](EXAMPLES.md) for a worked end-to-end skill creation.
+
 ## Scope
 
-**Owns:** Skill creation standards, SKILL.md / REFERENCE.md / EXAMPLES.md / scripts/ directory shape, validation process (baseline → draft → verify), MECE enforcement and split/gap detection against the AGENTS.md Skills index and each existing skill's Scope block, routing signal format, update and split guidance, ASO rules.
+**Owns:** Skill creation standards, SKILL.md / REFERENCE.md / EXAMPLES.md / `scripts/` directory shape, validation process (baseline → draft → verify), MECE enforcement and split/gap detection against the AGENTS.md Skills index and each existing skill's Scope block, routing signal format, update and split guidance, ASO rules.
 
 **Does not own:** Project-specific agent instructions (→ `CONTEXT.md` / `AGENTS.md`), individual skill content.
 
@@ -30,7 +32,7 @@ A **skill** is a constraint document for AI agents — a reference that prevents
 - Validating a skill before deploying it
 
 **Do NOT create a skill for:**
-- Project-specific conventions — use `CONTEXT.md` or `AGENTS.md`
+- Project-specific conventions (→ `CONTEXT.md` / `AGENTS.md`)
 - One-off solutions that won't recur across projects
 - Rules enforceable by a linter, hook, or script
 
@@ -45,7 +47,7 @@ A **skill** is a constraint document for AI agents — a reference that prevents
 3. Write the skill closing those specific loopholes
 4. Verify compliance
 
-Write skill before baseline? Delete it. Start over. No exceptions: don't keep it as "reference," don't adapt it while writing. Delete means delete.
+Write skill before baseline? Delete it. Start over. No exceptions: don't keep it as "reference," don't adapt it while writing.
 
 **Closing loopholes:** State the rule AND forbid the specific workaround. A rule without a closed escape route will be rationalized away.
 
@@ -67,6 +69,31 @@ Every skill must be mutually exclusive and collectively exhaustive within the sk
 When a MECE alarm fires, stop and resolve it before continuing. Do not write around it.
 
 ## Quick Reference
+
+### Directory Shape — Anthropic Open Skill Spec
+
+Every skill directory MUST conform to:
+
+```
+.agents/skills/
+  skill-name/
+    SKILL.md              # Required — overview, scope, quick start. Hard cap: 500 lines.
+    REFERENCE.md          # Required — deep-dive content overflowed from SKILL.md
+    EXAMPLES.md           # Required — at least one runnable end-to-end example sequence
+    scripts/              # Required when the skill implies deterministic operations (stubs allowed)
+    supporting-file.*     # Only if needed
+```
+
+**Hard rules:**
+- `SKILL.md` ≤ 500 physical lines. Overflow content moves to REFERENCE.md.
+- `EXAMPLES.md` contains ≥ 1 runnable example sequence — copy-pasteable commands, prompts, or concrete artifacts. Prose-only descriptions do not count.
+- `scripts/` is omitted only when the skill is pure documentation/process with no deterministic operation to script. When present, Phase-2 stubs that `throw` are acceptable while the logic is pending.
+
+**What goes where:**
+- `SKILL.md`: frontmatter, overview, scope, When-to-Use triggers, Core Pattern, quick-reference tables, common mistakes
+- `REFERENCE.md`: full decision trees, complete schema templates, metric tables, step-by-step procedures
+- `EXAMPLES.md`: end-to-end example sequences with real commands or concrete artifacts
+- `scripts/`: deterministic operations the skill implies
 
 ### Frontmatter Rules
 
@@ -94,117 +121,39 @@ description: Use when executing implementation plans with independent tasks in t
 2. Write frontmatter (`name`, `description` — triggering conditions only)
 3. Write Scope block (`Owns`, `Does not own`, `Interfaces with`)
 4. Write constraints closing the specific loopholes from step 1 only
-5. Validate — agent re-attempts scenario, verify compliance
-6. New loophole found → return to step 1 for that loophole
+5. Author `REFERENCE.md` (deep content) and `EXAMPLES.md` (≥1 runnable sequence). Add `scripts/` if the skill implies deterministic operations.
+6. Add the skill to the `## Skills` index in `AGENTS.md` with links to its REFERENCE.md and EXAMPLES.md
+7. Validate — agent re-attempts scenario; if a new loophole is found, return to step 1 for it
 
 **Update:**
 1. Run baseline — verify agent fails with the current skill
 2. Check MECE alarm conditions — does the fix expand scope or trigger a split?
-3. Add constraints closing the specific gap
+3. Add constraints closing the specific gap; if content overflows, push to REFERENCE.md or add an example to EXAMPLES.md
 4. Validate — passes new scenario AND all previous scenarios
 
 **Split:**
 1. Confirm two independent scopes — each must have its own standalone trigger
-2. Create two new skills with `Interfaces with` cross-references to each other
+2. Create two new skill directories, each conforming to the four-file shape above
 3. Distribute existing content — no duplication allowed
-4. Delete the original skill
-5. Update all skills that referenced the original
+4. Delete the original skill directory
+5. Update every skill (and `AGENTS.md`) that referenced the original
 
-### File Structure
+### AGENTS.md Index
 
-```
-.agents/skills/
-  skill-name/
-    SKILL.md              # Required — overview, scope, quick start (≤ 500 lines)
-    REFERENCE.md          # Required for non-trivial skills — deep-dive content overflowed from SKILL.md
-    EXAMPLES.md           # Required for non-trivial skills — at least one golden end-to-end example
-    scripts/              # Required for skills that imply deterministic operations — executable helpers
-    supporting-file.*     # Only if needed
-```
-
-Keep inline in `SKILL.md`: overview, scope (`Owns` / `Does not own` / `Interfaces with`), quick-reference tables, common mistakes. Keep under 500 lines.
-Move to `REFERENCE.md`: full decision trees, complete schema templates, metric tables, step-by-step procedures.
-Move to `EXAMPLES.md`: runnable end-to-end example sequences — at least one per skill.
-Move to `scripts/`: deterministic operations the skill implies (kept as stubs until Phase 2 lands the logic).
-
-## Implementation
-
-### SKILL.md Template
-
-```markdown
----
-name: skill-name-with-hyphens
-description: Use when [triggering conditions only]
----
-
-# Skill Name
-
-## Overview
-Core principle in 1-2 sentences. What problem does this skill prevent?
-
-## Scope
-**Owns:** What this skill is solely responsible for.
-**Does not own:** What explicitly falls outside (→ `other-skill`).
-**Interfaces with:** `other-skill` — what the handoff is and why.
-
-## When to Use
-- **Trigger:** Specific symptom or situation.
-- **Do NOT use for:** Explicit exclusions (→ `other-skill`).
-
-## Core Pattern
-The key constraint or technique with a before/after example.
-
-## Quick Reference
-Table or bullets for scanning during active work.
-
-## Implementation
-Inline code < 50 lines, or link to supporting file.
-
-## Common Mistakes
-What the agent gets wrong without this skill + the fix.
-```
-
-### Routing Signals
-
-Routing signals are pointers inside skill content that direct an agent to the correct skill for a given concern. They are not documentation — agents follow them actively.
-
-**Format:** `→ \`skill-name\``
-
-**Usage rules:**
-- Every `Does not own` entry MUST have a `→ skill-name` pointer
-- Every `Do NOT use for` exclusion MUST have a `→ skill-name` pointer
-- Mandatory pre-reads use: `**REQUIRED:** See → \`skill-name\``
-- Never leave a gap without a pointer — "not here" without "go there" is an agent dead end
-
-**In practice:**
-```markdown
-**Does not own:** Model serving (→ `mlops`), feature pipeline implementation (→ `data-engineering`).
-**Do NOT use for:** Production deployment (→ `mlops`).
-**REQUIRED:** See → `design-system` before defining bounded contexts.
-```
-
-### Agent Search Optimization (ASO)
-
-Agents select which skill to read from the `description` field alone.
-
-1. **Description = when to use, not what the skill does** — see frontmatter rules
-2. **Keyword coverage** — use words the agent would search for: error messages, synonyms, exact command names as they appear in the agent's context
-3. **Token efficiency** — dense and direct; no motivational text, no repeated explanations; move large reference material to supporting files
-4. **Naming** — action/insight-oriented: `condition-based-waiting` not `async-helpers`
+Every skill must appear in the `## Skills` section of `AGENTS.md`. Where `REFERENCE.md` and `EXAMPLES.md` exist, they are linked in the References column. A skill that ships without an index entry is invisible to the agent.
 
 ## Common Mistakes
 
-**Writing skill before baseline.**
-Delete it. Start over. The baseline defines what the skill must prevent — without it the constraints are guesses.
+**Writing skill before baseline.** Delete it. Start over. The baseline defines what the skill must prevent — without it the constraints are guesses.
 
-**Description summarizes workflow instead of trigger.**
-Ask: "does this tell the agent WHEN to use the skill, or WHAT it does?" Rewrite if the latter.
+**Description summarizes workflow instead of trigger.** Ask: "does this tell the agent WHEN to use the skill, or WHAT it does?" Rewrite if the latter.
 
-**`Does not own` entries without routing pointers.**
-Every exclusion must name where that concern lives. "Not here" without "go there" is a dead end.
+**`Does not own` entries without routing pointers.** Every exclusion must name where that concern lives — see Routing Signals in [REFERENCE.md](REFERENCE.md).
 
-**Scope too broad** ("Owns: everything in this domain").
-Scope must be specific enough that a second skill in the same domain has a non-overlapping `Owns` list.
+**Scope too broad** ("Owns: everything in this domain"). Scope must be specific enough that a second skill in the same domain has a non-overlapping `Owns` list.
 
-**Scope creep on update — new content added without checking MECE.**
-Re-read the Scope block before every update. If new content doesn't fit in `Owns`, update Scope explicitly or route to the correct skill. If it triggers a MECE alarm, stop and split.
+**Scope creep on update.** Re-read the Scope block before every update. If new content doesn't fit in `Owns`, update Scope explicitly or route to the correct skill. If it triggers a MECE alarm, stop and split.
+
+**Shipping without REFERENCE.md / EXAMPLES.md.** A SKILL.md without its companion files is incomplete per the open skill spec. EXAMPLES.md in particular is what an agent reads to learn the *shape* of compliant output — without it, the constraint hits but the worked pattern is missing.
+
+**SKILL.md over 500 lines.** The cap is hard. Long-tail content (decision trees, full templates, deep procedures) belongs in REFERENCE.md.
