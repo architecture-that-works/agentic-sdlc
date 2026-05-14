@@ -83,13 +83,11 @@ Invariants that must not be violated in any implementation.
 
 ## Out of Scope
 
-Concepts explicitly deferred or rejected. Prevents re-proposal in planning sessions.
+Top-5 summary of explicitly deferred or rejected concepts. Full ledger with date and source ADR cross-links: [`.out-of-scope.md`](.out-of-scope.md). Plan-phase deduplication MUST search `.out-of-scope.md`, not this table.
 
 | Concept | Reason deferred | Date |
 |---------|-----------------|------|
 | Embedded web framework (FastAPI/Flask) in the hello-world starter | Standard Library First constraint; stdlib http.server is sufficient | 2026-05-12 |
-| Multi-variant template (separate per-type scaffolds) | Single template with project_type prompt; specialised directory stubs deferred | 2026-05-10 |
-| Gemini as primary AI provider | Claude-first; Gemini reserved as future secondary slot | 2026-05-09 |
 | Separate `CLAUDE.md` for behavioural rules | Rejected in ADR-009; `AGENTS.md` is the single standing-instructions file (cross-tool convention) | 2026-05-11 |
 | Generic Module Map per project_type (separate maps for application / agent / ml) | Rejected in ADR-009; single Map at template-time lists only invariant rows; project_type-specific rows added as first feature lands | 2026-05-11 |
 | Codespace as HITL validation surface | HITL surface is the developer's laptop indefinitely; persistent Cloud Run Orchestrator Service is the Phase-3 cloud-runtime north star, not Codespaces | 2026-05-12 |
