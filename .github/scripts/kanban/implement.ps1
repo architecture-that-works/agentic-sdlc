@@ -1,26 +1,30 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Stage 2 — Implementing: Refine → Develop → PR.
+    Stage 2 — Implementing: Refine → Architecture → Develop → PR.
 
 .DESCRIPTION
     Internal function library — dot-sourced by run.ps1. Not a direct Taskfile target.
 
-    Phase A  Refine  — structures the issue body using the ISSUES.md template if
-                       not already structured. Assigns estimate and priority if absent.
-    Phase B  Develop — invokes Claude Code non-interactively to implement all
-                       requirements and verify with uv run pytest.
-    Phase C  PR      — commits (Claude-generated message), pushes, opens PR.
+    Phase A  Refine       — structures the issue body using the ISSUES.md template if
+                            not already structured. Assigns estimate and priority if absent.
+    Phase A.5 Architecture — blast-radius computation; emits BLAST_RADIUS.md and
+                            CODEBASE_MAP.md; records state transitions.
+    Phase B  Develop      — invokes Claude Code non-interactively to implement all
+                            requirements and verify with uv run pytest.
+    Phase C  PR           — commits (Claude-generated message), pushes, opens PR.
 #>
 
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_common.ps1"
+. "$PSScriptRoot\architecture.ps1"
 
 # ── Phase A: Refine ───────────────────────────────────────────────────────────
 
 function Invoke-Refine {
     param([int]$Number)
     Write-Log "  Phase A — Refine issue #$Number" -Color Yellow
+    Set-PipelineState -IssueNumber $Number -Phase 'refining'
 
     $issue    = gh issue view $Number --repo $KanbanRepo --json title,body,comments | ConvertFrom-Json
     $template = Get-IssueTemplate
@@ -154,6 +158,7 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 function Invoke-Develop {
     param([int]$Number, [string]$Branch)
     Write-Log "  Phase B — Develop issue #$Number on $Branch" -Color Yellow
+    Set-PipelineState -IssueNumber $Number -Phase 'implementing'
     Move-ToLane -IssueNumber $Number -OptionId $KanbanOpt_Implementing -LaneName 'Implementing'
     Add-Comment -Number $Number -Body "· branch checked out — starting"
 
@@ -416,8 +421,9 @@ function Invoke-Implement {
     Write-Log "▶ Implement — issue #$IssueNumber on $branch" -Color Cyan
 
     try {
-        Invoke-Refine      -Number $IssueNumber
-        Invoke-Develop     -Number $IssueNumber -Branch $branch
+        Invoke-Refine        -Number $IssueNumber
+        Invoke-Architecture  -IssueNumber $IssueNumber
+        Invoke-Develop       -Number $IssueNumber -Branch $branch
         $prUrl = Invoke-CommitAndPR -Number $IssueNumber -Title $meta.title -Branch $branch
 
         if ($null -eq $prUrl) {
