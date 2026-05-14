@@ -183,7 +183,7 @@ INSTRUCTIONS:
 1. Read AGENTS.md and CONTEXT.md first to understand the project boundaries and constraints.
 2. Read the relevant parts of the codebase before writing any code.
 3. Implement every requirement listed in the issue body completely.
-4. Follow all conventions in AGENTS.md. The skill files in ``.agents/skills/`` are your constraint documents — read the relevant skill before implementing, navigate relevant skills via ``.agents/SKILL_STRUCTURE.md``.
+4. Follow all conventions in AGENTS.md. The skill files in ``.agents/skills/`` are your constraint documents — locate the relevant skill via the Skills index in AGENTS.md, then read its SKILL.md (and REFERENCE.md / EXAMPLES.md if linked) before implementing.
 5. After implementation run ``uv run pytest`` to verify the test suite passes.
 6. If tests fail, diagnose and fix the root cause before stopping.
 7. Do NOT commit any changes — only implement.

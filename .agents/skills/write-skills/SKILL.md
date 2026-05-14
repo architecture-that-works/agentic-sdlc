@@ -16,7 +16,7 @@ A **skill** is a constraint document for AI agents — a reference that prevents
 
 ## Scope
 
-**Owns:** Skill creation standards, SKILL.md template, validation process (baseline → draft → verify), MECE enforcement and split/gap detection against `SKILL_STRUCTURE.md`, routing signal format, update and split guidance, ASO rules.
+**Owns:** Skill creation standards, SKILL.md / REFERENCE.md / EXAMPLES.md / scripts/ directory shape, validation process (baseline → draft → verify), MECE enforcement and split/gap detection against the AGENTS.md Skills index and each existing skill's Scope block, routing signal format, update and split guidance, ASO rules.
 
 **Does not own:** Project-specific agent instructions (→ `CONTEXT.md` / `AGENTS.md`), individual skill content.
 
@@ -51,9 +51,9 @@ Write skill before baseline? Delete it. Start over. No exceptions: don't keep it
 
 ### The MECE Law
 
-**REQUIRED:** Read → `SKILL_STRUCTURE.md` before writing or updating any skill.
+**REQUIRED:** Before writing or updating any skill, read the Skills index in `AGENTS.md` and the `Scope` block (`Owns` / `Does not own` / `Interfaces with`) of every adjacent skill the new content might overlap with.
 
-Every skill must be mutually exclusive and collectively exhaustive within the skill system defined there.
+Every skill must be mutually exclusive and collectively exhaustive within the skill system the AGENTS.md index defines.
 
 - **Mutually exclusive:** No `Owns` entry in one skill duplicates an `Owns` entry in another
 - **Collectively exhaustive:** Every concern in the domain has exactly one skill that owns it
@@ -115,12 +115,17 @@ description: Use when executing implementation plans with independent tasks in t
 ```
 .agents/skills/
   skill-name/
-    SKILL.md              # Required
+    SKILL.md              # Required — overview, scope, quick start (≤ 500 lines)
+    REFERENCE.md          # Required for non-trivial skills — deep-dive content overflowed from SKILL.md
+    EXAMPLES.md           # Required for non-trivial skills — at least one golden end-to-end example
+    scripts/              # Required for skills that imply deterministic operations — executable helpers
     supporting-file.*     # Only if needed
 ```
 
-Keep inline: principles, patterns under 50 lines, bulleted plans.
-Move out: large reference tables, scripts, anything over 50 lines.
+Keep inline in `SKILL.md`: overview, scope (`Owns` / `Does not own` / `Interfaces with`), quick-reference tables, common mistakes. Keep under 500 lines.
+Move to `REFERENCE.md`: full decision trees, complete schema templates, metric tables, step-by-step procedures.
+Move to `EXAMPLES.md`: runnable end-to-end example sequences — at least one per skill.
+Move to `scripts/`: deterministic operations the skill implies (kept as stubs until Phase 2 lands the logic).
 
 ## Implementation
 
