@@ -13,7 +13,7 @@ Prevents unbounded scope and re-proposed rejected ideas by turning the Agent Bri
 
 ## Scope
 
-**Owns:** Lean PRD synthesis, tracer bullet framing, user story format, issue decomposition with HITL/AFK labelling, deduplication against open issues and `.out-of-scope/`, testing decisions per PRD.
+**Owns:** Lean PRD synthesis, tracer bullet framing, user story format, issue decomposition with HITL/AFK labelling, deduplication against open issues and `.out-of-scope.md`, testing decisions per PRD.
 
 **Does not own:** Domain glossary or shared language (→ `refine`), static analysis or blast-radius data (→ `architecture`), code implementation (→ `tdd`), PR creation or branch naming (→ `version-control`).
 
@@ -32,13 +32,13 @@ Prevents unbounded scope and re-proposed rejected ideas by turning the Agent Bri
 - Signed-off Agent Brief (from `refine`)
 - Blast-radius report (from `architecture`)
 - Access to `gh` CLI for deduplication and issue creation
-- `.out-of-scope/` knowledge base
+- `.out-of-scope.md` knowledge base (flat file — one `## ` heading per rejected concept)
 
 ## Primary Outputs
 
 - Lean PRD published as a GitHub Issue
 - Decomposed child issues, each labelled `HITL` or `AFK`
-- `.out-of-scope/` entries for explicitly deferred concepts
+- `.out-of-scope.md` entries for explicitly deferred concepts
 
 ## Core Pattern
 
@@ -48,7 +48,7 @@ Before writing a single word of PRD:
 ```bash
 gh issue list --search "<key terms>" --json number,title,state
 ```
-Also check `.out-of-scope/` for rejected concepts. If the idea was rejected before, it does not get re-proposed — reference the original rejection instead.
+Also check `.out-of-scope.md` for rejected concepts. If the idea was rejected before, it does not get re-proposed — reference the original rejection instead.
 
 ### Step 2 — Lean PRD
 
@@ -99,7 +99,7 @@ gh issue create \
 
 | Step | Action | Tool |
 |---|---|---|
-| Deduplicate | Search open issues + `.out-of-scope/` | `gh issue list` |
+| Deduplicate | Search open issues + `.out-of-scope.md` | `gh issue list` |
 | PRD | Create as GitHub Issue | `gh issue create` |
 | Decompose | One issue per vertical slice | `gh issue create` |
 | Label | HITL or AFK on every issue | `--label` flag |
@@ -109,7 +109,7 @@ gh issue create \
 ## Common Mistakes
 
 **Skipping deduplication.**
-A concept rejected in `.out-of-scope/` will be re-proposed without this check. Always search before writing.
+A concept rejected in `.out-of-scope.md` will be re-proposed without this check. Always search before writing.
 
 **Horizontal slices in decomposition.**
 "Implement the data layer" is a horizontal slice — it delivers nothing observable end-to-end. Every issue must cut through all layers from schema to consumer.
