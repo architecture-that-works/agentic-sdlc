@@ -50,7 +50,9 @@ function Invoke-Orchestration {
         $jq      = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .status"
         $owner   = Get-ResolvedOwner
         $laneOut = if ($owner) {
-            gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 --jq $jq 2>&1 | Out-String
+            Invoke-GhProjectRetry -Description 'gh project item-list' -Block {
+                gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 --jq $jq 2>&1 | Out-String
+            }
         } else { '' }
         $status  = if ($LASTEXITCODE -eq 0 -and $laneOut.Trim()) { $laneOut.Trim() } else { '(unknown)' }
 

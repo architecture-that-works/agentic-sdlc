@@ -249,6 +249,28 @@ function Get-ResolvedOwner {
     return $null
 }
 
+# Retries transient GraphQL/5xx failures from `gh project ...` calls.
+# GitHub's Projects v2 GraphQL endpoint occasionally returns "Something went wrong
+# while executing your query" with an incident reference — these clear within seconds.
+function Invoke-GhProjectRetry {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][scriptblock]$Block,
+        [string]$Description = 'gh project',
+        [int]$MaxAttempts = 3
+    )
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        $out = & $Block
+        if ($LASTEXITCODE -eq 0) { return $out }
+        $text = ($out | Out-String)
+        $isTransient = $text -match 'GraphQL: Something went wrong|HTTP 5\d\d|Bad gateway|service unavailable|timeout|i/o timeout'
+        if (-not $isTransient -or $attempt -eq $MaxAttempts) { return $out }
+        $delayMs = [int](500 * [Math]::Pow(2, $attempt - 1))
+        Write-Log "  ⚠️ $Description transient failure (attempt $attempt/$MaxAttempts) — retrying in ${delayMs}ms" -Color DarkYellow
+        Start-Sleep -Milliseconds $delayMs
+    }
+}
+
 function Get-ProjectId {
     if (-not $script:_CachedProjectId) {
         if ($env:KANBAN_PROJECT_ID) {
@@ -257,8 +279,10 @@ function Get-ProjectId {
         } else {
             $owner = Get-ResolvedOwner
             if (-not $owner) { return $null }
-            $out = gh project list --owner $owner --format json --jq `
-                ".projects[] | select(.number == $KanbanProjectNumber) | .id" 2>&1 | Out-String
+            $out = Invoke-GhProjectRetry -Description 'gh project list' -Block {
+                gh project list --owner $owner --format json --jq `
+                    ".projects[] | select(.number == $KanbanProjectNumber) | .id" 2>&1 | Out-String
+            }
             if ($LASTEXITCODE -ne 0) {
                 Write-Log "  ⚠️ gh project list failed: $($out.Trim())" -Color Yellow
                 return $null
@@ -274,7 +298,9 @@ function Get-ProjectItemId {
     $owner = Get-ResolvedOwner
     if (-not $owner) { return $null }
     $jq = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .id"
-    $out = gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 --jq $jq 2>&1 | Out-String
+    $out = Invoke-GhProjectRetry -Description 'gh project item-list' -Block {
+        gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 --jq $jq 2>&1 | Out-String
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ gh project item-list failed: $($out.Trim())" -Color Yellow
         return $null
@@ -295,7 +321,9 @@ function Move-ToLane {
         return
     }
     $ghArgs = @('project','item-edit','--id',$itemId,'--field-id',$KanbanStatusFieldId,'--project-id',$projectId,'--single-select-option-id',$OptionId)
-    $out = gh @ghArgs 2>&1 | Out-String
+    $out = Invoke-GhProjectRetry -Description 'gh project item-edit' -Block {
+        gh @ghArgs 2>&1 | Out-String
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Lane move failed for issue #$IssueNumber → $LaneName : $($out.Trim())" -Color Yellow
     } else {
@@ -310,7 +338,9 @@ function Get-ProjectFieldValues {
     $owner = Get-ResolvedOwner
     if (-not $owner) { return $null }
     $jq = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | {estimate: .estimate, priority: .priority}"
-    $out = gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 --jq $jq 2>&1 | Out-String
+    $out = Invoke-GhProjectRetry -Description 'gh project item-list' -Block {
+        gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 --jq $jq 2>&1 | Out-String
+    }
     if ($LASTEXITCODE -ne 0 -or -not $out.Trim()) { return $null }
     return $out.Trim() | ConvertFrom-Json -ErrorAction SilentlyContinue
 }
