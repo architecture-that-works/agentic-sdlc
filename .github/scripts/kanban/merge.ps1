@@ -228,13 +228,19 @@ function Invoke-Merge {
     Write-Log "  Waiting for CI checks on PR #$PRNumber..." -Color DarkGray
     $checkOutput = gh pr checks $PRNumber --watch 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
-        $failedChecks = gh pr checks $PRNumber --json name,conclusion `
-            --jq '[.[] | select(.conclusion == "FAILURE" or .conclusion == "failure")] | map(.name) | join(", ")' 2>&1 | Out-String
-        $failedLabel = if ($failedChecks.Trim() -and $failedChecks.Trim() -ne 'null') { $failedChecks.Trim() } else { 'unknown' }
-        Add-Comment -Number $IssueNumber -Body "🤖❌ CI Failed`n`nFailed checks: $failedLabel`n``````text`n$($checkOutput.Trim())`n``````"
-        throw "CI checks failed for PR #$PRNumber."
+        $allChecks = gh pr checks $PRNumber --json name,bucket 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if (-not $allChecks -or $allChecks.Count -eq 0) {
+            Write-Log "  ⚠️ No CI checks reported for PR #$PRNumber — approval gate already passed, proceeding with merge." -Color Yellow
+            Add-Comment -Number $IssueNumber -Body "🤖⚠️ No CI checks reported — merging on approval gate alone."
+        } else {
+            $failedChecks = ($allChecks | Where-Object { $_.bucket -eq 'fail' } | ForEach-Object { $_.name }) -join ', '
+            $failedLabel = if ($failedChecks) { $failedChecks } else { 'unknown' }
+            Add-Comment -Number $IssueNumber -Body "🤖❌ CI Failed`n`nFailed checks: $failedLabel`n``````text`n$($checkOutput.Trim())`n``````"
+            throw "CI checks failed for PR #$PRNumber."
+        }
+    } else {
+        Write-Log "  CI green ✅" -Color Green
     }
-    Write-Log "  CI green ✅" -Color Green
 
     gh pr merge $PRNumber --merge --delete-branch 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "gh pr merge failed for PR #$PRNumber" }
