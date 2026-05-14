@@ -293,19 +293,38 @@ function Get-ProjectId {
     return $script:_CachedProjectId
 }
 
-function Get-ProjectItemId {
-    param([int]$IssueNumber)
+# Fetches all project items once per process and caches the result.
+# A GitHub Project board's item set is effectively static during a single
+# orchestrator pass; one fetch serves every downstream Get-ProjectItemId /
+# Get-ProjectFieldValues lookup, dropping ~5 GraphQL queries per pass to 1.
+# $script:_CachedItems = $null means "not yet fetched"; an empty array means
+# "fetched but board is empty" (do not re-fetch).
+function Get-AllProjectItems {
+    if ($null -ne $script:_CachedItems) { return $script:_CachedItems }
     $owner = Get-ResolvedOwner
     if (-not $owner) { return $null }
-    $jq = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .id"
     $out = Invoke-GhProjectRetry -Description 'gh project item-list' -Block {
-        gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 --jq $jq 2>&1 | Out-String
+        gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 2>&1 | Out-String
     }
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ gh project item-list failed: $($out.Trim())" -Color Yellow
         return $null
     }
-    return $out.Trim()
+    $parsed = $null
+    try { $parsed = $out | ConvertFrom-Json } catch { return $null }
+    $script:_CachedItems = @($parsed.items)
+    return $script:_CachedItems
+}
+
+function Get-ProjectItemId {
+    param([int]$IssueNumber)
+    $items = Get-AllProjectItems
+    if ($null -eq $items) { return $null }
+    $match = $items | Where-Object {
+        $_.content.number -eq $IssueNumber -and $_.content.repository -eq $KanbanRepo
+    } | Select-Object -First 1
+    if (-not $match) { return $null }
+    return $match.id
 }
 
 function Move-ToLane {
@@ -335,14 +354,13 @@ function Move-ToLane {
 
 function Get-ProjectFieldValues {
     param([int]$IssueNumber)
-    $owner = Get-ResolvedOwner
-    if (-not $owner) { return $null }
-    $jq = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | {estimate: .estimate, priority: .priority}"
-    $out = Invoke-GhProjectRetry -Description 'gh project item-list' -Block {
-        gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 --jq $jq 2>&1 | Out-String
-    }
-    if ($LASTEXITCODE -ne 0 -or -not $out.Trim()) { return $null }
-    return $out.Trim() | ConvertFrom-Json -ErrorAction SilentlyContinue
+    $items = Get-AllProjectItems
+    if ($null -eq $items) { return $null }
+    $match = $items | Where-Object {
+        $_.content.number -eq $IssueNumber -and $_.content.repository -eq $KanbanRepo
+    } | Select-Object -First 1
+    if (-not $match) { return $null }
+    return [pscustomobject]@{ estimate = $match.estimate; priority = $match.priority }
 }
 
 function Get-PriorityOptionId {

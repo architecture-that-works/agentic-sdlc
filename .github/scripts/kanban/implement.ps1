@@ -22,7 +22,7 @@ function Invoke-Refine {
     param([int]$Number)
     Write-Log "  Phase A — Refine issue #$Number" -Color Yellow
 
-    $issue    = gh issue view $Number --repo $KanbanRepo --json title,body | ConvertFrom-Json
+    $issue    = gh issue view $Number --repo $KanbanRepo --json title,body,comments | ConvertFrom-Json
     $template = Get-IssueTemplate
 
     # Determine what needs work
@@ -35,6 +35,15 @@ function Invoke-Refine {
         $needsBodyRefine = $missing.Count -gt 0
     } else {
         $needsBodyRefine = $true
+    }
+
+    # Short-circuit: a prior pass that completed refinement posts a "· refined —" comment
+    # at the bottom of Invoke-Refine. Body is locally verifiable, the marker proves
+    # estimate/priority were addressed — so we can skip Get-ProjectFieldValues entirely.
+    $hasRefinedMarker = @($issue.comments | Where-Object { $_.body -like '* refined*' }).Count -gt 0
+    if (-not $needsBodyRefine -and $hasRefinedMarker) {
+        Write-Log "  Issue already fully refined — skipping." -Color DarkGray
+        return
     }
 
     # Estimate and Priority are GitHub Project fields — not labels.

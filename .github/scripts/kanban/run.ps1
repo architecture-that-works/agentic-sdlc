@@ -46,18 +46,8 @@ function Invoke-Orchestration {
     $stashed = $false
 
     try {
-        $meta    = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
-        $jq      = ".items[] | select(.content.number == $IssueNumber and .content.repository == `"$KanbanRepo`") | .status"
-        $owner   = Get-ResolvedOwner
-        $laneOut = if ($owner) {
-            Invoke-GhProjectRetry -Description 'gh project item-list' -Block {
-                gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 --jq $jq 2>&1 | Out-String
-            }
-        } else { '' }
-        $status  = if ($LASTEXITCODE -eq 0 -and $laneOut.Trim()) { $laneOut.Trim() } else { '(unknown)' }
-
+        $meta = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
         Write-Log "━━━ Orchestrator: issue #$IssueNumber — $($meta.title)" -Color Cyan
-        Write-Log "    Current lane: $status" -Color DarkGray
 
         Ensure-AgentLabels
         Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
