@@ -6,7 +6,7 @@
 .DESCRIPTION
     When implemented (Issue #9), this script will:
     - Read a Lean PRD from a GitHub Issue or local Markdown file
-    - Run a deduplication pass against open GitHub Issues and .out-of-scope/ entries
+    - Run a deduplication pass against open GitHub Issues and .out-of-scope.md entries
     - Parse PRD sections (Tracer Bullet, User Stories, Implementation Decisions, Out of Scope)
     - Classify each decomposed issue as HITL or AFK using the decision rubric
     - Apply Fibonacci sizing estimates based on scope heuristics
@@ -18,13 +18,13 @@
     - PRD Markdown section parser
     - HITL/AFK classification rules from REFERENCE.md
     - Dry-run mode (default) + --Execute flag for live issue creation
-    - .out-of-scope/ record generation for concepts deferred in the PRD
+    - .out-of-scope.md section generation for concepts deferred in the PRD
 
 .PARAMETER PRDIssueNumber
     GitHub Issue number containing the Lean PRD to decompose.
 
 .PARAMETER OutOfScopePath
-    Directory containing .out-of-scope/ knowledge base files (default: .out-of-scope).
+    Path to the .out-of-scope.md flat-file ledger (default: .out-of-scope.md).
 
 .PARAMETER DryRun
     If set (default), emits the decomposition manifest without creating any GitHub Issues.
@@ -42,7 +42,7 @@ param(
     [Parameter(Mandatory)]
     [string]$PRDIssueNumber,
 
-    [string]$OutOfScopePath = ".out-of-scope",
+    [string]$OutOfScopePath = ".out-of-scope.md",
     [switch]$DryRun,
     [switch]$Execute
 )

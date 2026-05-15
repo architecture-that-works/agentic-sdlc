@@ -52,7 +52,7 @@ For each module touched by this PRD, state:
 
 ## Out of Scope
 
-Concepts explicitly deferred. Each entry here becomes a `.out-of-scope/` record post-merge.
+Concepts explicitly deferred. Each entry here becomes a `.out-of-scope.md` section post-merge.
 Format: "X — deferred because Y."
 ```
 
@@ -121,16 +121,16 @@ gh issue list --search "<term1> <term2>" --json number,title,state,labels
 # Step 2: Search closed issues (in case an idea was rejected and closed)
 gh issue list --search "<term1>" --state closed --json number,title,state
 
-# Step 3: Check .out-of-scope/ knowledge base
-ls .out-of-scope/
-cat .out-of-scope/<relevant-file>.md
+# Step 3: Check .out-of-scope.md knowledge base
+grep "^## " .out-of-scope.md
+grep -A5 "<relevant concept>" .out-of-scope.md
 
 # Step 4: Cross-reference PRD user stories against found issues
 # If overlap:   reference the existing issue; do not re-create it
-# If rejected:  reference the .out-of-scope/ entry; do not re-propose
+# If rejected:  reference the .out-of-scope.md entry; do not re-propose
 ```
 
-**Rule:** If a concept was rejected and added to `.out-of-scope/`, it cannot be re-proposed
+**Rule:** If a concept was rejected and added to `.out-of-scope.md`, it cannot be re-proposed
 in this PRD. If new information makes reconsideration warranted, open a `refine` session
 first — do not sneak it into a `plan` session.
 
@@ -148,17 +148,20 @@ first — do not sneak it into a `plan` session.
 
 ---
 
-## .out-of-scope/ Record Format
+## .out-of-scope.md Record Format
+
+Each deferred concept is appended as a `## ` section to `.out-of-scope.md` at the repo root.
 
 ```markdown
----
-concept: <name of the concept>
-rejected_date: YYYY-MM-DD
-reason: <why this was deferred or rejected>
-proposed_in: Issue #N or PRD: <title>
----
+## <Concept Name>
+
+**Date:** YYYY-MM-DD
+**Reason:** <why deferred or rejected>
+**Source ADR:** <ADR reference or N/A>
 
 <Additional context if needed. One paragraph max.>
+
+---
 ```
 
-Store in `.out-of-scope/<slug>.md`. The slug is a kebab-case version of the concept name.
+Append to `.out-of-scope.md`; do not create per-concept files. Headings are the searchable unit — `grep "^## " .out-of-scope.md` lists all rejected concepts.

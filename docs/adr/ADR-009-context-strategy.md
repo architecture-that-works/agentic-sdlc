@@ -73,6 +73,42 @@ maturity criterion 4.8 ("Pre-computed codebase map / context graph") without dup
 replacing the Module Map. Agents MUST NOT substitute `docs/CODEBASE_MAP.md` for the Module
 Map when initialising a session.
 
+## Addendum — Out-of-Scope Ledger Split (issue #80)
+
+**Context:** The original ADR-009 decision designated `CONTEXT.md` as the canonical source of
+truth. The "Out of Scope" section in `CONTEXT.md` was a table of rejected concepts. The `plan`
+skill spec referenced `.out-of-scope/` (a directory) as the deduplication target, but no such
+path existed, making the deduplication step non-operational.
+
+Issue #80 migrates the ledger to a single flat file (`.out-of-scope.md`) so that rejected
+concepts are searchable via `grep` and `gh repo view` without any directory traversal. This
+addendum explicitly authorises the resulting split in source-of-truth responsibility.
+
+**Decision:**
+
+| Dimension | CONTEXT.md | .out-of-scope.md |
+|-----------|------------|------------------|
+| Authorship | Manually maintained — agents update per ADR-009 confirmation criterion | Manually maintained — agents append entries after plan-phase decisions |
+| Purpose | Human entry point — domain glossary, bounded contexts, Module Map, architectural constraints | Machine source of truth — plan-phase deduplication; one `## ` heading per rejected concept |
+| Audience | Humans and agents at session start (mandatory read) | Plan skill only, via `grep` or `gh repo view` |
+| Update trigger | Refine session or new `src/<domain>/` discovery | Every plan session that defers a concept |
+| Canonical? | Yes — remains the single canonical human entry point | Authoritative for deduplication only |
+
+**Authorisation statement:** CONTEXT.md remains the canonical human entry point and the single
+source of truth for domain glossary, bounded contexts, the Module Map, the Issue-Type Index,
+and architectural constraints. `.out-of-scope.md` is hereby authorised as the machine source
+of truth for plan-phase deduplication of rejected concepts. The two files are complementary,
+not competing: CONTEXT.md §Out of Scope holds a top-5 summary view with an explicit cross-link;
+`.out-of-scope.md` holds the full ledger with date and source ADR cross-links.
+
+**Confirmation:**
+
+* `.out-of-scope.md` exists at repo root; contains one `## ` heading per rejected concept.
+* `CONTEXT.md` §Out of Scope is a top-5 summary table with an explicit cross-link to `.out-of-scope.md`.
+* `plan/SKILL.md` Required Inputs references `.out-of-scope.md` (flat file), not `.out-of-scope/` (directory).
+* Plan-phase deduplication instructions in `plan/SKILL.md` reference `.out-of-scope.md`.
+* Revisit if the ledger grows past 50 entries (signal that a directory structure is warranted).
+
 ## Pros and Cons of the Options
 
 ### Option A — Homework draft verbatim

@@ -25,9 +25,9 @@ gh issue list --search "SSE streaming endpoint" --json number,title,state
 gh issue list --search "stream Claude" --json number,title,state
 # → []
 
-# Check .out-of-scope/
-ls .out-of-scope/
-# → embedded-web-framework.md   (FastAPI rejected — not relevant to this SSE work)
+# Check .out-of-scope.md
+grep "^## " .out-of-scope.md
+# → ## Embedded web framework (FastAPI/Flask) in the hello-world starter   (FastAPI rejected — not relevant to this SSE work)
 # SSE itself is not rejected — proceed.
 ```
 
@@ -153,7 +153,7 @@ Plan session produces:
 
 - 1 Lean PRD (HITL) — awaits human sign-off before implementation begins
 - 3 decomposed issues: 2 AFK (fully automatable), 1 HITL (requires human review)
-- No duplicates found; no `.out-of-scope/` entries violated
-- Multi-turn streaming and auth added to `.out-of-scope/` records post-merge
+- No duplicates found; no `.out-of-scope.md` entries violated
+- Multi-turn streaming and auth appended as `## ` sections to `.out-of-scope.md` post-merge
 
 **Next:** `tdd` session opens Issue #1 (tracer bullet) and enters the RED phase.
