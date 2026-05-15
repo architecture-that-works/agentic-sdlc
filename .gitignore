@@ -6,6 +6,7 @@ Preference
 __pycache__/
 *.py[cod]
 .venv/
+my_template_repo.code-workspace
 
 # Environment
 .env
