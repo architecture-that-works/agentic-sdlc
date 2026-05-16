@@ -12,12 +12,12 @@ commit-msg = "src.tools.commit:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0.0",
-    "pyright>=1.1.0",
-    "ruff>=0.9.0",
+    "pytest>=9.0.3",
+    "pyright>=1.1.409",
+    "ruff>=0.15.13",
     "pytest-cov>=7.1.0",
     "pip-audit>=2.10.0",
-    "copier>=9.0.0",
+    "copier>=9.15.1",
 ]
 
 [build-system]
