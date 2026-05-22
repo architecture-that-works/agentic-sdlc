@@ -19,4 +19,4 @@
 | Shallow module | Interface ≈ implementation complexity — refactoring trigger |
 | High fan-in    | Risk: a change here propagates to many callers |
 
-*Last generated: 2026-05-22 10:00:59 UTC | 7 .py file(s) in src/*
+*Last generated: 2026-05-22 10:17:34 UTC | 7 .py file(s) in src/*
