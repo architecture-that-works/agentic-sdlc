@@ -43,6 +43,7 @@ Navigation index for agents. Read CONTEXT.md, identify the target bounded contex
 | tools | `src/tools/` | `src/tools/` | per-tool `main()` (executed directly) |
 | tests | `tests/` | mirrors `src/` and `tools/` | `pytest` discovery |
 | orchestrator | `.github/scripts/kanban/` | `.github/scripts/kanban/` | `run.ps1`, `start.ps1`, `retry.ps1`; `config.ps1` for pipeline configuration |
+| scripts | `.github/scripts/` | `.github/scripts/` | `sync-issues.ps1` (ISSUES.md → GitHub Issues + Project board), `setup.ps1`, `check-module-map.ps1`, `runner.ps1` |
 | skills | `.agents/skills/` | `.agents/skills/` | one directory per skill, each with `SKILL.md` |
 | ADRs | `docs/adr/` | `docs/adr/` | `ADR_STRUCTURE.md` (master index) |
 | CI | `.github/workflows/` | (cross-cutting) | `ci.yml`, `build.yml` |
@@ -55,6 +56,7 @@ For each kind of work, read these files before opening anything else. If an unex
 | Working on... | Read first (nothing else unless surprised) |
 |---|---|
 | orchestrator change | `.github/scripts/kanban/config.ps1`, `_common.ps1`, the affected stage script (`implement.ps1` / `review.ps1` / `merge.ps1` / `start.ps1`) |
+| sync-issues change | `.github/scripts/sync-issues.ps1`, `tests/scripts/test_sync_issues.py` |
 | `src/utils/` change | `src/utils/m_*.py`, matching `tests/utils/test_*.py` |
 | `src/tools/` change | `src/tools/*.py`, matching `tests/tools/test_*.py` |
 | ADR addition | `docs/adr/ADR_STRUCTURE.md`, `ADR-000` template |
