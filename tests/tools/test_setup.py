@@ -3,7 +3,13 @@ from unittest.mock import patch
 
 import pytest
 
-from src.tools.setup import load_answers, main, replace_sentinels, set_github_variable
+from src.tools.setup import (
+    load_answers,
+    main,
+    prompt_for_answers,
+    replace_sentinels,
+    set_github_variable,
+)
 
 
 # --- load_answers ---
@@ -92,15 +98,65 @@ def test_set_github_variable_calls_gh_cli() -> None:
     )
 
 
+# --- prompt_for_answers ---
+
+
+def test_prompt_for_answers_returns_user_input() -> None:
+    inputs = iter(["my-app", "My description", "agent"])
+    with patch("builtins.input", side_effect=inputs):
+        result = prompt_for_answers()
+    assert result == {
+        "project_name": "my-app",
+        "description": "My description",
+        "project_type": "agent",
+    }
+
+
+def test_prompt_for_answers_uses_defaults_on_empty_input() -> None:
+    with patch("builtins.input", return_value=""):
+        result = prompt_for_answers()
+    assert result["project_name"] == "my-project"
+    assert result["description"] == "A new project"
+    assert result["project_type"] == "application"
+
+
+def test_prompt_for_answers_uses_default_for_empty_field_only() -> None:
+    inputs = iter(["custom-name", "", ""])
+    with patch("builtins.input", side_effect=inputs):
+        result = prompt_for_answers()
+    assert result["project_name"] == "custom-name"
+    assert result["description"] == "A new project"
+    assert result["project_type"] == "application"
+
+
 # --- main ---
 
 
-def test_main_exits_when_answers_file_missing(
+def test_main_uses_fallback_when_answers_file_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(SystemExit):
+
+    context_file = tmp_path / "CONTEXT.md"
+    context_file.write_text(
+        "# __PROJECT_NAME__\n__PROJECT_DESCRIPTION__\nType: __PROJECT_TYPE__\n",
+        encoding="utf-8",
+    )
+
+    inputs = iter(["fallback-proj", "Fallback desc", "application"])
+    with (
+        patch("src.tools.setup._CONTEXT_FILE", context_file),
+        patch("builtins.input", side_effect=inputs),
+        patch("src.tools.setup.set_github_variable") as mock_gh,
+    ):
         main()
+
+    result = context_file.read_text(encoding="utf-8")
+    assert "fallback-proj" in result
+    assert "Fallback desc" in result
+    assert "application" in result
+    assert "__PROJECT_NAME__" not in result
+    mock_gh.assert_called_once_with("application")
 
 
 def test_main_replaces_sentinels_and_sets_github_var(
