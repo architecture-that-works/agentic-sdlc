@@ -240,5 +240,42 @@ foreach ($kv in $ghVars.GetEnumerator()) {
     }
 }
 
+# ── Provision base labels ─────────────────────────────────────────────────────
+
+Write-Host ""
+Write-Host "🏷️  Provisioning base labels..." -ForegroundColor Cyan
+
+$_LabelRepo = gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>&1 | Out-String
+$_LabelRepo = $_LabelRepo.Trim()
+
+if ($LASTEXITCODE -ne 0 -or -not $_LabelRepo) {
+    Write-Host "  ⚠️  Could not resolve repo — skipping label provisioning." -ForegroundColor Yellow
+} else {
+    $BaseLabels = @(
+        @{ Name = 'AFK';                Color = '0075ca'; Description = 'Agent executes start-to-finish without interruption' }
+        @{ Name = 'HITL';               Color = 'e4e669'; Description = 'Requires human decision or approval before closing' }
+        @{ Name = 'planning';           Color = 'c5def5'; Description = 'Planning artifact — PRD or Agent Brief' }
+        @{ Name = 'enhancement';        Color = 'a2eeef'; Description = 'New feature or request' }
+        @{ Name = 'bug';                Color = 'd73a4a'; Description = 'Something is not working' }
+        @{ Name = 'agent:backlog';      Color = '0075ca'; Description = 'Queued in Backlog for orchestrator pickup' }
+        @{ Name = 'agent:implementing'; Color = 'e4e669'; Description = 'Agent is actively implementing (refine + develop)' }
+        @{ Name = 'agent:review';       Color = '969696'; Description = 'Agent self-review passed — awaiting human approval' }
+        @{ Name = 'agent:merged';       Color = '0e8a16'; Description = 'Merged and closed by orchestrator' }
+        @{ Name = 'agent:failed';       Color = 'd73a4a'; Description = 'Agent error — see issue comments' }
+    )
+    foreach ($lbl in $BaseLabels) {
+        $out = gh label create $lbl.Name `
+            --color $lbl.Color `
+            --description $lbl.Description `
+            --repo $_LabelRepo `
+            --force 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  ⚠️  Failed to create label '$($lbl.Name)': $($out.Trim())" -ForegroundColor Yellow
+        } else {
+            Write-Host "  ✅ Label '$($lbl.Name)'" -ForegroundColor DarkGray
+        }
+    }
+}
+
 Write-Host ""
 Write-Host "✅ Setup complete. Run 'task start' to pick up backlog issues." -ForegroundColor Green
