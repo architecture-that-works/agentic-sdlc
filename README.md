@@ -4,7 +4,7 @@ Copier-based Python project scaffold. Generates a production-ready structure wit
 
 ## SDLC Maturity
 
-**Current: 1.25 / 10 — AI Student / Hobbyist** · Assessed: 2026-05-12
+**Current: 1.25 / 10 — AI Student / Hobbyist** · Assessed: 2026-05-22
 
 > Re-assess: load [`ASSESSMENT_PROMPT.md`](ASSESSMENT_PROMPT.md) into a Claude Code session, then update this table.
 
@@ -24,28 +24,65 @@ Copier-based Python project scaffold. Generates a production-ready structure wit
 
 - [SDLC Maturity](#sdlc-maturity)
 - [Quickstart](#quickstart)
+  - [5-Minute AFK Setup](#5-minute-afk-setup)
+  - [AFK Label → PR Flow](#afk-label--pr-flow)
+  - [Generate a new project](#generate-a-new-project)
 - [Validate the harness end-to-end](#validate-the-harness-end-to-end)
 - [Repository Structure](#repository-structure)
 - [Conventions](#conventions)
 - [AI Workflow](#ai-workflow)
+- [Advanced / Self-hosted opt-in](#advanced--self-hosted-opt-in)
 
 ---
 
 ## Quickstart
 
-Get a new project running in under 5 minutes.
+### 5-Minute AFK Setup
+
+The fastest path from zero to autonomous AI development:
+
+**1. Fork** this repository.
+
+**2. Set two repository secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | How to obtain |
+|--------|--------------|
+| `CLAUDE_CODE_OAUTH_TOKEN` | From [claude.ai/settings](https://claude.ai/settings) → API keys |
+| `GH_TOKEN` | Classic PAT with `project`, `read:org`, `repo`, `user`, `workflow` scopes |
+
+**3. Label an issue** `agent:backlog` — the orchestrator picks it up on the next poll.
+
+**4. Walk away** — the orchestrator runs branch → implement → review → merge autonomously.
+
+> **`GH_TOKEN` scope requirement:** Must be a **classic PAT** with all five scopes: `project`, `read:org`, `repo`, `user`, `workflow`. Fine-grained PATs do not support GitHub Projects v2. Missing scopes cause silent failures at runtime — `project` breaks kanban board mutations, `workflow` blocks any PR that touches `.github/workflows/*.yml`, `read:org` is required for org-owned projects, `user` for identity calls, and `repo` for issue/PR/commit operations.
+
+### AFK Label → PR Flow
+
+```mermaid
+flowchart LR
+    A([agent:backlog]) --> B([agent:refining])
+    B --> C([agent:architecting])
+    C --> D([agent:implementing])
+    D --> E([agent:review])
+    E --> F([agent:merged])
+    E -- rejected --> D
+    D -- max retries --> G([agent:failed])
+    G -- task retry --> A
+```
+
+### Generate a new project
+
+To scaffold a new project from this template:
 
 **1. Install prerequisites** — once, globally:
-
-**Python 3.13** — required interpreter. Install it if not present: `uv python install 3.13`
 
 ```bash
 uv tool install copier                        # project generator
 winget install --id Microsoft.PowerShell      # PowerShell 7 (Windows)
-winget install --id Task.Task                 # Taskfile runner
 ```
 
-**2. Generate a new project**
+**2. Generate**
+
 ```bash
 uvx copier copy gh:your-username/my_template_repo path/to/new-project
 ```
@@ -56,33 +93,10 @@ Copier will prompt for:
 - `project_type` — target project type: `application` (default), `agent`, or `ml`
 
 **3. Replace the logging stub**
+
 ```bash
 # Drop your m_log.py into src/utils/ — interface: f_log(), setup_logging(), f_log_execution()
 ```
-
-**4. Wire up the Orchestrator Workflow** — once per project:
-
-a. Create a GitHub Project (Projects v2, Kanban board) with a **Status** field containing at least: `Backlog`, `Implementing`, `Review`, `Merged`.
-
-b. Set the two required values in `.env`:
-```
-KANBAN_PROJECT_NUMBER=<your project number>
-KANBAN_PROJECT_OWNER=<your GitHub username or org>
-```
-
-c. Run setup — auto-discovers field IDs and sets GitHub Actions variables:
-```bash
-task setup
-```
-
-d. Add GitHub repository secrets:
-
-| Secret | How to obtain |
-|--------|--------------|
-| `GH_TOKEN` | Classic PAT with `project`, `read:org`, `repo`, `user`, `workflow` scopes — fine-grained PATs do not support Projects v2 |
-| `CLAUDE_CODE_OAUTH_TOKEN` | From [claude.ai/settings](https://claude.ai/settings) → API keys |
-
-> **Important — `GH_TOKEN` scope requirement:** The `GH_TOKEN` repo secret **must** be a **classic PAT** with all five of the following scopes: `project`, `read:org`, `repo`, `user`, `workflow`. Fine-grained PATs do not support GitHub Projects v2. Missing scopes cause silent failures at runtime — `project` breaks kanban board mutations, `workflow` blocks any PR that touches `.github/workflows/*.yml`, `read:org` is required for org-owned projects, `user` for identity calls (`gh api user`), and `repo` for issue/PR/commit operations. `task setup` will warn if your local `gh auth` context lacks the `project` scope, but that does not verify the secret — check the PAT settings page directly.
 
 ---
 
@@ -206,16 +220,18 @@ The Orchestrator Workflow is the autonomous execution layer. Once an issue is qu
 Every issue carries exactly one `agent:` label at any time. The label name matches the project board lane name.
 
 ```
-agent:backlog ──► agent:implementing ──► agent:review ──► agent:merged
-     ▲                   │                    │
-     │                   │  (rejected)         │  (max retries exceeded)
-     │                   ▼                    ▼
-     └──────── agent:implementing ◄──── agent:failed ──► Backlog
+agent:backlog ──► agent:refining ──► agent:architecting ──► agent:implementing ──► agent:review ──► agent:merged
+     ▲                                                              │                    │
+     │                                                              │  (rejected)         │  (max retries exceeded)
+     │                                                              ▼                    ▼
+     └──────────────────────────────────────────────── agent:implementing ◄──── agent:failed ──► Backlog
 ```
 
 | Label | Lane | Meaning |
 |---|---|---|
 | `agent:backlog` | Backlog | Queued — orchestrator will pick up on next poll |
+| `agent:refining` | Refining | Orchestrator aligning on requirements and boundaries |
+| `agent:architecting` | Architecting | Blast-radius analysis and module map update |
 | `agent:implementing` | Implementing | Branch created, Claude Code actively implementing |
 | `agent:review` | Review | PR open, agent self-review running or passed |
 | `agent:merged` | Merged | PR squash-merged, issue closed |
@@ -226,7 +242,9 @@ agent:backlog ──► agent:implementing ──► agent:review ──► agen
 | Event | From → To |
 |---|---|
 | `task sync` or label applied manually | issue created → `agent:backlog` |
-| Orchestrator picks up (GHA or `task start`) | `agent:backlog` → `agent:implementing` |
+| Orchestrator picks up (GHA or `task start`) | `agent:backlog` → `agent:refining` |
+| Refine phase complete | `agent:refining` → `agent:architecting` |
+| Architecture phase complete | `agent:architecting` → `agent:implementing` |
 | PR opened, review phase begins | `agent:implementing` → `agent:review` (lane moves immediately) |
 | Review passes | stays `agent:review` until orchestrator merges |
 | Review rejected | `agent:review` → `agent:implementing` (orchestrator retries implement) |
@@ -237,13 +255,12 @@ agent:backlog ──► agent:implementing ──► agent:review ──► agen
 #### Task commands
 
 ```bash
-task setup                  # one-time bootstrap — discover Project field IDs into .env + GHA vars
 task sync                   # parse ISSUES.md and push pending blocks to GitHub Issues
 task start                  # HITL — interactive Backlog picker; runs full orchestration here
 task start ISSUE=13         # HITL orchestration for issue #13, skipping the picker
 task retry ISSUE=13         # reset a stuck or failed issue back to agent:backlog
-task runner                 # start the self-hosted GHA runner in this terminal
-task runner OFFLINE=1       # gracefully stop the GHA runner (drains current job first)
+task runner                 # (self-hosted) start the GHA runner in this terminal — see Advanced section
+task runner OFFLINE=1       # (self-hosted) gracefully stop the GHA runner (drains current job first)
 ```
 
 GHA-triggered orchestration runs (label events on `agent:backlog`) process issues
@@ -252,5 +269,51 @@ GHA-triggered orchestration runs (label events on `agent:backlog`) process issue
 #### Issue body template
 
 Issues used with the Orchestrator Workflow should follow the structure defined in `ISSUES.md`. The orchestrator's refine phase will apply the template automatically if the body is missing required fields. It also assigns `estimate:N` (Fibonacci SP) and `priority:X` labels if absent — issues entering implementation are always fully specified.
+
+---
+
+## Advanced / Self-hosted opt-in
+
+For teams running their own GitHub Actions runner or needing full local control over the orchestration environment.
+
+### Wire up the Orchestrator Workflow
+
+**1. Install prerequisites**
+
+```bash
+winget install --id Task.Task                 # Taskfile runner
+```
+
+**2. Create a GitHub Project**
+
+Create a GitHub Project (Projects v2, Kanban board) with a **Status** field containing at least: `Backlog`, `Implementing`, `Review`, `Merged`.
+
+**3. Configure local environment**
+
+Set the two required values in `.env`:
+```
+KANBAN_PROJECT_NUMBER=<your project number>
+KANBAN_PROJECT_OWNER=<your GitHub username or org>
+```
+
+**4. Run setup**
+
+Auto-discovers field IDs and sets GitHub Actions variables:
+```bash
+task setup
+```
+
+> `task setup` will warn if your local `gh auth` context lacks the `project` scope, but that does not verify the secret — check the PAT settings page directly.
+
+### Self-hosted runner
+
+Start the self-hosted GHA runner in a dedicated terminal:
+
+```bash
+task runner                 # start the runner — blocks the terminal while active
+task runner OFFLINE=1       # gracefully stop the runner (drains the current job first)
+```
+
+The runner must be registered in your repository's Settings → Actions → Runners before `task runner` can connect. See the [GitHub docs on self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners) for registration steps.
 
 ---
