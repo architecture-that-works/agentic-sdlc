@@ -123,15 +123,15 @@ foreach ($match in $Found) {
     $ExtraLabels = @()
     $Estimate    = $null
     $Priority    = $null
-    $BodyLines   = $Body -split '\r?\n'
-    $headerCount = 0
-    foreach ($line in $BodyLines) {
-        if     ($line -match '^LABELS:\s*(.+)')       { $ExtraLabels = ($Matches[1] -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }; $headerCount++ }
-        elseif ($line -match '^ESTIMATE:\s*(\d+)')    { $Estimate = [int]$Matches[1]; $headerCount++ }
-        elseif ($line -match '^PRIORITY:\s*(P[0-4])') { $Priority = $Matches[1]; $headerCount++ }
+    foreach ($line in ($Body -split '\r?\n')) {
+        if     ($line -match '^LABELS:\s*(.+)')       { $ExtraLabels = ($Matches[1] -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ } }
+        elseif ($line -match '^ESTIMATE:\s*(\d+)')    { $Estimate = [int]$Matches[1] }
+        elseif ($line -match '^PRIORITY:\s*(P[0-4])') { $Priority = $Matches[1] }
         else   { break }
     }
-    $Body = ($BodyLines | Select-Object -Skip $headerCount) -join "`n"
+    $Body = $Body -replace '(?m)^LABELS:\s*.+(\r?\n|$)', ''
+    $Body = $Body -replace '(?m)^ESTIMATE:\s*\d+(\r?\n|$)', ''
+    $Body = $Body -replace '(?m)^PRIORITY:\s*P[0-4](\r?\n|$)', ''
     $Body = $Body.TrimStart()
     foreach ($lbl in $ExtraLabels) { Ensure-Label $lbl }
 
