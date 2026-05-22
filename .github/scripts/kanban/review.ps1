@@ -48,7 +48,6 @@ function Invoke-Review {
     $sp          = Get-IssueEstimate -IssueNumber $IssueNumber
     $reviewModel = Get-PhaseModel -Estimate $sp -Phase 'review'
     Write-Log "▶ Review — issue #$IssueNumber / PR #$PRNumber  model=$reviewModel  SP=$sp" -Color Cyan
-    Ensure-AgentLabels
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:review'
     Add-Comment -Number $IssueNumber -Body "· reviewing PR #$PRNumber"
 

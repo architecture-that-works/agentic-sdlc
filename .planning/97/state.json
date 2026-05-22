@@ -1,8 +1,0 @@
-{
-  "issue": 97,
-  "transitions": [
-  {"phase":"refining","timestamp":"05/22/2026 11:43:02"},
-  {"phase":"architecting","timestamp":"05/22/2026 11:43:03"},
-  {"phase":"implementing","timestamp":"2026-05-22T11:43:12.7954874+02:00"}
-  ]
-}

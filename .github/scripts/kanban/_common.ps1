@@ -67,28 +67,9 @@ function Write-Log {
 }
 
 # ── Label helpers ─────────────────────────────────────────────────────────────
-
-function Ensure-Label {
-    param([string]$Name, [string]$Color, [string]$Description)
-    $exists = gh label list --repo $KanbanRepo --json name |
-        ConvertFrom-Json | Where-Object { $_.name -eq $Name }
-    if (-not $exists) {
-        $out = gh label create $Name --color $Color --description $Description --repo $KanbanRepo 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) {
-            Write-Log "  ⚠️ Failed to create label '$Name': $($out.Trim())" -Color Yellow
-        } else {
-            Write-Log "  Created label '$Name'" -Color DarkGray
-        }
-    }
-}
-
-function Ensure-AgentLabels {
-    Ensure-Label 'agent:backlog'      '0075ca' 'Queued in Backlog for orchestrator pickup'
-    Ensure-Label 'agent:implementing' 'e4e669' 'Agent is actively implementing (refine + develop)'
-    Ensure-Label 'agent:review'       '969696' 'Agent self-review passed — awaiting human approval'
-    Ensure-Label 'agent:merged'       '0e8a16' 'Merged and closed by orchestrator'
-    Ensure-Label 'agent:failed'       'd73a4a' 'Agent error — see issue comments'
-}
+# Base labels (agent:*, HITL, etc.) are provisioned once by setup.ps1 § "Provision
+# base labels". The pipeline assumes a configured project and never re-creates them
+# per issue.
 
 function Set-IssueLabel {
     param([int]$Number, [string]$Add = '', [string]$Remove = '')

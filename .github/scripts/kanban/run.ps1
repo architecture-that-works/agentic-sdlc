@@ -49,7 +49,6 @@ function Invoke-Orchestration {
         $meta = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
         Write-Log "━━━ Orchestrator: issue #$IssueNumber — $($meta.title)" -Color Cyan
 
-        Ensure-AgentLabels
         Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
 
         $stashOut = git stash 2>&1

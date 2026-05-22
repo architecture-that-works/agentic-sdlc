@@ -31,9 +31,6 @@ $ErrorActionPreference = 'Stop'
 
 if ($MaxRetries -lt 0) { $MaxRetries = $KanbanMaxRetries }
 
-Ensure-AgentLabels
-Ensure-Label -Name 'HITL' -Color 'e4e669' -Description 'Human in the loop — GHA orchestrator suppressed'
-
 # ── Fetch Backlog items for this repo ─────────────────────────────────────────
 
 $_owner = Get-ResolvedOwner

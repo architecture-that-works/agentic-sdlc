@@ -52,26 +52,22 @@ Chosen option: **Option B**, because it preserves the cross-tool `AGENTS.md` con
 * `.agents/skills/` (at repo root) contains the skill files referenced by `AGENTS.md`. Source of truth lives in this template repo; the junction at `~/.claude/skills/` → `.agents/skills/` makes them available to Claude on the developer's machine. Copier copies the directory verbatim into every generated project.
 * Revisit when a fourth `project_type` is added or when the Issue-Type Index outgrows ten rows (signal that the bounded-context anchoring is too coarse).
 
-## Addendum — CODEBASE_MAP.md and the Module Map
+## Addendum — Generated codebase-map artefact removed (supersedes the #79 addition)
 
-**Context:** Issue #79 introduced `docs/CODEBASE_MAP.md`, a generated dependency graph
-written by the architecture phase on every pipeline run. The Module Map in `CONTEXT.md`
-remains the single source of truth for agent navigation. This addendum records why the two
-documents coexist without conflict and where each is authoritative.
+**Context:** Issue #79 added a committed dependency-graph artefact written by the architecture
+phase on every pipeline run, intended to satisfy SDLC maturity criterion 4.8 ("Pre-computed
+codebase map / context graph"). It has since been **removed**: the architecture phase no longer
+writes a committed map, and the file was deleted from the tree.
 
-| Dimension | Module Map (`CONTEXT.md`) | Codebase Map (`docs/CODEBASE_MAP.md`) |
-|-----------|---------------------------|---------------------------------------|
-| Authorship | Manually maintained — updated by agents per ADR-009 confirmation criterion | Generated automatically by the architecture phase; never edited by hand |
-| Purpose | Agent navigation index — answers "which 3–5 files are relevant to this issue?" | Structural metrics — fan-in / fan-out, module depth classification, blast-radius evidence |
-| Scope | Every file the agent may need to read, across all bounded contexts | All `.py` files in `src/` via AST analysis |
-| Update trigger | PR that adds a new `src/<domain>/` | Every orchestrator pipeline run |
-| Agent reads? | Yes — mandatory, first thing every session (Context Protocol) | No — written to filesystem; agents read only the summary in the blast-radius comment |
+**Decision:** The Module Map in `CONTEXT.md` is the **single, leading source of truth** for repo
+structure and agent navigation. The architecture phase still performs static analysis
+(fan-in / fan-out, module depth) but emits the result only as transient blast-radius evidence —
+`.planning/<issue>/BLAST_RADIUS.md` (gitignored, never merged) plus the blast-radius issue/PR
+comment. No generated map is committed to the repository.
 
-**Conclusion:** There is no conflict. The Module Map remains the sole authoritative navigation
-index for agents. `docs/CODEBASE_MAP.md` is a generated artefact that satisfies SDLC
-maturity criterion 4.8 ("Pre-computed codebase map / context graph") without duplicating or
-replacing the Module Map. Agents MUST NOT substitute `docs/CODEBASE_MAP.md` for the Module
-Map when initialising a session.
+**Consequence:** Agents initialise a session from `CONTEXT.md` (Context Protocol). There is no
+generated artefact to substitute for it. SDLC criterion 4.8 is no longer satisfied by a
+committed map; revisit if a persisted context graph is wanted again.
 
 ## Addendum — Out-of-Scope Ledger Split (issue #80)
 

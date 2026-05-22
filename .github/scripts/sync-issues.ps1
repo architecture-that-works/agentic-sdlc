@@ -62,34 +62,9 @@ $ProjectName = if ($ProjectNumber -gt 0) {
 } else { $null }
 if (-not $ProjectName) { $ProjectName = if ($ProjectNumber -gt 0) { "#$ProjectNumber" } else { '(no project configured)' } }
 
-# ── Label registry — known labels with canonical colours ─────────────────────
-# Add entries here for any label that sync-issues.ps1 should be able to create.
-# Labels not listed here fall back to colour 'ededed' (light grey).
-
-$script:LabelRegistry = @{
-    'AFK'         = @{ Color = '0075ca'; Description = 'Agent executes start-to-finish without interruption' }
-    'HITL'        = @{ Color = 'e4e669'; Description = 'Requires human decision or approval before closing' }
-    'planning'    = @{ Color = 'c5def5'; Description = 'Planning artifact — PRD or Agent Brief' }
-    'enhancement' = @{ Color = 'a2eeef'; Description = 'New feature or request' }
-    'bug'         = @{ Color = 'd73a4a'; Description = 'Something is not working' }
-}
-
-# ── Ensure repo label ────────────────────────────────────────────────────────
-
-function Ensure-Label([string]$Name, [string]$Color = 'ededed', [string]$Description = '') {
-    # Prefer registry values when the caller passes no colour.
-    if ($Color -eq 'ededed' -and $script:LabelRegistry.ContainsKey($Name)) {
-        $Color       = $script:LabelRegistry[$Name].Color
-        $Description = $script:LabelRegistry[$Name].Description
-    }
-    $existing = gh label list --repo $Repo --json name | ConvertFrom-Json | Where-Object { $_.name -eq $Name }
-    if (-not $existing) {
-        Write-Host "  Creating label '$Name'" -ForegroundColor Cyan
-        if (-not $DryRun) {
-            gh label create $Name --color $Color --description $Description --repo $Repo | Out-Null
-        }
-    }
-}
+# Base labels (AFK, HITL, planning, enhancement, bug, agent:*) are provisioned once
+# by setup.ps1 § "Provision base labels". Sync assumes a configured repo and applies
+# labels declared in LABELS: headers without re-creating them per issue.
 
 # ── Parse ISSUES.md ───────────────────────────────────────────────────────────
 
@@ -133,7 +108,6 @@ foreach ($match in $Found) {
     }
     $Body = ($BodyLines | Select-Object -Skip $headerCount) -join "`n"
     $Body = $Body.TrimStart()
-    foreach ($lbl in $ExtraLabels) { Ensure-Label $lbl }
 
     $Labels   = $ExtraLabels
     $LabelCsv = $Labels -join ','

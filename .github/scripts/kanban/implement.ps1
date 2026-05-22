@@ -8,8 +8,8 @@
 
     Phase A  Refine       — structures the issue body using the ISSUES.md template if
                             not already structured. Assigns estimate and priority if absent.
-    Phase A.5 Architecture — blast-radius computation; emits BLAST_RADIUS.md and
-                            CODEBASE_MAP.md; records state transitions.
+    Phase A.5 Architecture — blast-radius computation; emits .planning/<issue>/BLAST_RADIUS.md;
+                            records state transitions.
     Phase B  Develop      — invokes Claude Code non-interactively to implement all
                             requirements and verify with uv run pytest.
     Phase C  PR           — commits (Claude-generated message), pushes, opens PR.

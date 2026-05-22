@@ -116,7 +116,7 @@ jobs:
         run: |
           # Phase A   — refine (implement.ps1 Invoke-Refine)
           # Phase A.5 — architecture (architecture.ps1 Invoke-Architecture):
-          #             emits .planning/<issue>/BLAST_RADIUS.md and docs/CODEBASE_MAP.md,
+          #             emits .planning/<issue>/BLAST_RADIUS.md,
           #             posts blast-radius PR comment, records state transitions.
           # Phase B   — develop (implement.ps1 Invoke-Develop via Claude Code)
           # Phase C   — commit + PR (implement.ps1 Invoke-CommitAndPR)

@@ -21,6 +21,10 @@ my_template_repo.code-workspace
 !docs/adr/*secret*
 !docs/adr/*credential*
 
+# Pipeline planning artefacts — per-issue scratch (BLAST_RADIUS.md, state.json).
+# Kept only transiently in the feature branch working tree; never committed/merged.
+.planning/
+
 # Build
 dist/
 *.egg-info/
