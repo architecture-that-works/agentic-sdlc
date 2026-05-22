@@ -15,9 +15,25 @@ _SENTINELS: dict[str, str] = {
 _CONTEXT_FILE = Path("CONTEXT.md")
 _ANSWERS_FILE = Path(".copier-answers.yml")
 
+# (key, prompt label, default value)
+_PROMPTS: list[tuple[str, str, str]] = [
+    ("project_name", "Project name", "my-project"),
+    ("description", "Project description", "A new project"),
+    ("project_type", "Project type (application/agent/data)", "application"),
+]
+
 
 def load_answers(answers_path: Path) -> dict:
     return yaml.safe_load(answers_path.read_text(encoding="utf-8"))
+
+
+def prompt_for_answers() -> dict:
+    """Prompt the user for required fields; pressing Enter accepts the shown default."""
+    answers = {}
+    for key, label, default in _PROMPTS:
+        value = input(f"{label} [{default}]: ").strip()
+        answers[key] = value if value else default
+    return answers
 
 
 def replace_sentinels(content: str, answers: dict) -> str:
@@ -35,13 +51,15 @@ def set_github_variable(project_type: str) -> None:
 
 
 def main() -> None:
-    if not _ANSWERS_FILE.exists():
+    if _ANSWERS_FILE.exists():
+        answers = load_answers(_ANSWERS_FILE)
+    else:
         print(
-            f"Error: {_ANSWERS_FILE} not found. Run copier copy first.", file=sys.stderr
+            f"Warning: {_ANSWERS_FILE} not found. Enter values manually (press Enter for defaults).",
+            file=sys.stderr,
         )
-        sys.exit(1)
+        answers = prompt_for_answers()
 
-    answers = load_answers(_ANSWERS_FILE)
     content = _CONTEXT_FILE.read_text(encoding="utf-8")
     updated = replace_sentinels(content, answers)
     _CONTEXT_FILE.write_text(updated, encoding="utf-8")
