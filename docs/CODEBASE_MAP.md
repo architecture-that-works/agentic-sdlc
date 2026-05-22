@@ -7,13 +7,7 @@
 
 | Module | Fan-in | Fan-out | Classification |
 |--------|--------|---------|----------------|
-| `config` | 0 | 0 | isolated |
-| `main` | 0 | 2 | deep module (target state) |
-| `tools.__init__` | 0 | 0 | isolated |
-| `tools.commit` | 0 | 3 | deep module (target state) |
-| `tools.setup` | 0 | 3 | deep module (target state) |
-| `utils.__init__` | 0 | 0 | isolated |
-| `utils.m_log` | 0 | 4 | deep module (target state) |
+| *(analysis unavailable)* | — | — | — |
 
 ## Legend
 
@@ -25,4 +19,4 @@
 | Shallow module | Interface ≈ implementation complexity — refactoring trigger |
 | High fan-in    | Risk: a change here propagates to many callers |
 
-*Last generated: 2026-05-22 09:43:09 UTC | 7 .py file(s) in src/*
+*Last generated: 2026-05-22 10:00:59 UTC | 7 .py file(s) in src/*
