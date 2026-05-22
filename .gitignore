@@ -12,7 +12,6 @@ my_template_repo.code-workspace
 .env
 .env.*
 !.env.example
-.copier-answers.yml
 *.key
 *.pem
 *.pfx
