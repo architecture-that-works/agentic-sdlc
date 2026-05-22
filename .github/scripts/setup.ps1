@@ -123,6 +123,42 @@ if ($ProjectNodeId) {
 $estimateField = $fields | Where-Object { $_.name -match '^estimate$' } | Select-Object -First 1
 $priorityField = $fields | Where-Object { $_.type -eq 'ProjectV2SingleSelectField' -and $_.name -match '^priority$' } | Select-Object -First 1
 
+# ── Auto-provision missing custom fields ──────────────────────────────────────
+
+$_needsRefetch = $false
+
+if (-not $estimateField) {
+    Write-Host "  'Estimate' field not found — creating Number field..." -ForegroundColor Yellow
+    $createOut = gh project field-create $ProjectNumber --owner $ProjectOwner --name "Estimate" --data-type NUMBER 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  ⚠️  Could not create 'Estimate' field: $($createOut.Trim())" -ForegroundColor Yellow
+    } else {
+        Write-Host "  ✅ Created 'Estimate' Number field." -ForegroundColor Green
+        $_needsRefetch = $true
+    }
+}
+
+if (-not $priorityField) {
+    Write-Host "  'Priority' field not found — creating Single Select field with P0,P1,P2,P3,P4..." -ForegroundColor Yellow
+    $createOut = gh project field-create $ProjectNumber --owner $ProjectOwner --name "Priority" --data-type SINGLE_SELECT --single-select-options "P0,P1,P2,P3,P4" 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  ⚠️  Could not create 'Priority' field: $($createOut.Trim())" -ForegroundColor Yellow
+    } else {
+        Write-Host "  ✅ Created 'Priority' Single Select field with options P0,P1,P2,P3,P4." -ForegroundColor Green
+        $_needsRefetch = $true
+    }
+}
+
+if ($_needsRefetch) {
+    Write-Host "  Re-fetching field list after provisioning..." -ForegroundColor Cyan
+    $fieldsJson = gh project field-list $ProjectNumber --owner $ProjectOwner --format json 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 0) {
+        $fields        = ($fieldsJson | ConvertFrom-Json).fields
+        $estimateField = $fields | Where-Object { $_.name -match '^estimate$' } | Select-Object -First 1
+        $priorityField = $fields | Where-Object { $_.type -eq 'ProjectV2SingleSelectField' -and $_.name -match '^priority$' } | Select-Object -First 1
+    }
+}
+
 if ($estimateField) {
     Write-Host "  Found field: '$($estimateField.name)' (ID: $($estimateField.id))" -ForegroundColor Green
 } else {
