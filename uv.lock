@@ -460,11 +460,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.111.0" },
-<<<<<<< HEAD
     { name = "msgpack", specifier = ">=1.2.1" },
     { name = "pip", specifier = ">=26.1.2" },
-=======
->>>>>>> dd6d067a42c90270fd3adb8364bb78b61c0d0780
     { name = "pydantic-settings", specifier = ">=2.14.2" },
 ]
 
