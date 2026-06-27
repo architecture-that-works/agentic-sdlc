@@ -4,15 +4,15 @@ Copier-based Python project scaffold. Generates a production-ready structure wit
 
 ## SDLC Maturity
 
-**Current: 1.25 / 10 — AI Student / Hobbyist** · Assessed: 2026-05-22
+**Current: 5.50 / 10 — Medior AI Engineer** · Assessed: 2026-06-27
 
 > Re-assess: load [`ASSESSMENT_PROMPT.md`](ASSESSMENT_PROMPT.md) into a Claude Code session, then update this table.
 
 | Stage | Role | Criteria | Status |
 |---|---|---|---|
-| **0–2** | AI Student / Hobbyist ◄ | 5 / 8 | 🔲 Pinned Python honored by Dockerfile + devcontainer · `.gitignore` covers full secret-pattern set · README states Python version |
-| **3–4** | Junior AI Engineer | 5 / 7 | 🔲 Secret-scanning CI gate · Dependabot covers `pip`/`uv` (currently `github-actions` only) |
-| **5–6** | Medior AI Engineer | 9 / 12 | 🔲 `CONTEXT.md` codifies SOLID/DRY/KISS/TDD · skill dirs gain `REFERENCE.md`/`EXAMPLES.md`/`scripts/` · diagnosis skill |
+| **0–2** | AI Student / Hobbyist | 8 / 8 | ✅ All criteria met |
+| **3–4** | Junior AI Engineer | 7 / 7 | ✅ All criteria met |
+| **5–6** | Medior AI Engineer ◄ | 9 / 12 | 🔲 `CONTEXT.md` codifies SOLID/DRY/KISS/TDD · skill dirs gain `REFERENCE.md`/`EXAMPLES.md`/`scripts/` · diagnosis skill |
 | **7–8** | Senior AI Engineer | 3 / 10 | 🔲 Deploy workflow on live surface · `CODEOWNERS` covers SECURITY.md/CODEOWNERS/adr/workflows · `SECURITY.md` disclosure + permission model · pre-commit harness · codebase-map generator · LLM-optimized error wrapper |
 | **9–10** | Principal AI Engineer | 1 / 13 | 🔲 Cross-family adversarial review · Hypothesis PBT · LLM-judge harness · EU AI Act lineage + telemetry · CI-failure diagnose-and-patch agent |
 
