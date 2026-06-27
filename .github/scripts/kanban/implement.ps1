@@ -18,6 +18,10 @@
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_common.ps1"
 . "$PSScriptRoot\architecture.ps1"
+# Dot-source the self-grill subagent so Invoke-Refine can call Invoke-Grill
+# directly. The script is dot-source-safe — it skips its standalone-mode
+# section when $MyInvocation.InvocationName -eq '.'.
+. "$PSScriptRoot\..\..\..\.agents\skills\refine\scripts\grill.ps1"
 
 # ── Phase A: Refine ───────────────────────────────────────────────────────────
 
@@ -42,11 +46,13 @@ function Invoke-Refine {
     }
 
     # Short-circuit: a prior pass that completed refinement posts a "· refined —" comment
-    # at the bottom of Invoke-Refine. Body is locally verifiable, the marker proves
-    # estimate/priority were addressed — so we can skip Get-ProjectFieldValues entirely.
+    # AND injects the AGENT-BRIEF marker via the self-grill subagent. Both must
+    # be present — the marker proves the self-grill phase ran on the current
+    # carrier (per ADR-011), the comment proves estimate/priority were addressed.
     $hasRefinedMarker = @($issue.comments | Where-Object { $_.body -like '* refined*' }).Count -gt 0
-    if (-not $needsBodyRefine -and $hasRefinedMarker) {
-        Write-Log "  Issue already fully refined — skipping." -Color DarkGray
+    $hasBriefMarker   = $issue.body -like "*$KanbanBriefBeginMarker*"
+    if (-not $needsBodyRefine -and $hasRefinedMarker -and $hasBriefMarker) {
+        Write-Log "  Issue already fully refined (body + Agent Brief present) — skipping." -Color DarkGray
         return
     }
 
@@ -67,39 +73,42 @@ function Invoke-Refine {
         $needsPriority = -not $projectFields.priority
     }
 
-    if (-not $needsBodyRefine -and -not $needsEstimate -and -not $needsPriority) {
-        Write-Log "  Issue already fully refined — skipping." -Color DarkGray
-        return
-    }
+    # If body/estimate/priority are all set, skip the structured-output Claude
+    # pass but still drive the self-grill phase so the Agent Brief gets
+    # populated. The grill runs in its own try block at the bottom of this
+    # function — fall through to it.
+    $needsClaudeStructureCall = $needsBodyRefine -or $needsEstimate -or $needsPriority
+    $parsed = $null
 
-    $bodyInstruction = if ($needsBodyRefine -and $template) {
-        "REWRITE the body to match this field structure exactly (fill all fields from the raw issue — do not invent requirements):`n`n$template"
-    } elseif ($needsBodyRefine) {
-        "REWRITE the body with: **Goal**, **Description**, **Requirements** (numbered), **Acceptance Criteria** (bulleted)."
-    } else {
-        "Body is already structured — copy it unchanged into the 'body' field."
-    }
+    if ($needsClaudeStructureCall) {
+        $bodyInstruction = if ($needsBodyRefine -and $template) {
+            "REWRITE the body to match this field structure exactly (fill all fields from the raw issue — do not invent requirements):`n`n$template"
+        } elseif ($needsBodyRefine) {
+            "REWRITE the body with: **Goal**, **Description**, **Requirements** (numbered), **Acceptance Criteria** (bulleted)."
+        } else {
+            "Body is already structured — copy it unchanged into the 'body' field."
+        }
 
-    $estimateInstruction = if ($needsEstimate) {
-        'ASSIGN estimate: Fibonacci SP — 1=trivial single-file, 2=small bounded, 3=moderate multi-file, 5=clear multi-component, 8=complex architectural, 13=large multi-area, 21=epic requiring human collaboration.'
-    } else {
-        'Estimate already set — output null.'
-    }
+        $estimateInstruction = if ($needsEstimate) {
+            'ASSIGN estimate: Fibonacci SP — 1=trivial single-file, 2=small bounded, 3=moderate multi-file, 5=clear multi-component, 8=complex architectural, 13=large multi-area, 21=epic requiring human collaboration.'
+        } else {
+            'Estimate already set — output null.'
+        }
 
-    # Discover the actual priority option names configured in this project.
-    $priorityOpts = @([System.Environment]::GetEnvironmentVariables('Process').Keys) |
-        Where-Object { $_ -match '^KANBAN_PRIORITY_OPT_' } |
-        ForEach-Object { $_ -replace '^KANBAN_PRIORITY_OPT_', '' } |
-        Sort-Object
-    $priorityOptsStr = if ($priorityOpts) { $priorityOpts -join ', ' } else { 'P0, P1, P2, P3, P4' }
+        # Discover the actual priority option names configured in this project.
+        $priorityOpts = @([System.Environment]::GetEnvironmentVariables('Process').Keys) |
+            Where-Object { $_ -match '^KANBAN_PRIORITY_OPT_' } |
+            ForEach-Object { $_ -replace '^KANBAN_PRIORITY_OPT_', '' } |
+            Sort-Object
+        $priorityOptsStr = if ($priorityOpts) { $priorityOpts -join ', ' } else { 'P0, P1, P2, P3, P4' }
 
-    $priorityInstruction = if ($needsPriority) {
-        "ASSIGN priority using exactly one of the project's configured values: $priorityOptsStr"
-    } else {
-        'Priority already set — output null.'
-    }
+        $priorityInstruction = if ($needsPriority) {
+            "ASSIGN priority using exactly one of the project's configured values: $priorityOptsStr"
+        } else {
+            'Priority already set — output null.'
+        }
 
-    $prompt = @"
+        $prompt = @"
 You are refining a GitHub issue so it is fully specified before implementation begins.
 
 ISSUE TITLE: $($issue.title)
@@ -115,42 +124,79 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 {"body":"<full issue body>","estimate":<number or null>,"priority":"<one of the allowed values or null>"}
 "@
 
-    $raw = $prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0) { throw "Claude refinement failed: $raw" }
+        $raw = $prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) { throw "Claude refinement failed: $raw" }
 
-    $json = $raw.Trim()
-    if ($json -match '(?s)```(?:json)?\s*(\{.+\})\s*```') { $json = $Matches[1] }
-    $parsed = $json | ConvertFrom-Json -ErrorAction SilentlyContinue
-    if (-not $parsed) {
-        Write-Log "  ⚠️ Refine: could not parse response — skipping." -Color Yellow
-        return
-    }
+        $json = $raw.Trim()
+        if ($json -match '(?s)```(?:json)?\s*(\{.+\})\s*```') { $json = $Matches[1] }
+        $parsed = $json | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if (-not $parsed) {
+            Write-Log "  ⚠️ Refine: could not parse structured-output response — falling through to self-grill." -Color Yellow
+        }
 
-    if ($needsBodyRefine -and $parsed.body) {
-        $tmp = New-TemporaryFile
-        try {
-            $parsed.body.Trim() | Out-File $tmp.FullName -Encoding utf8
-            gh issue edit $Number --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-Null
-        } finally {
-            Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+        if ($parsed -and $needsBodyRefine -and $parsed.body) {
+            $tmp = New-TemporaryFile
+            try {
+                $parsed.body.Trim() | Out-File $tmp.FullName -Encoding utf8
+                gh issue edit $Number --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-Null
+            } finally {
+                Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+            }
+        }
+
+        if ($parsed -and $needsEstimate -and $null -ne $parsed.estimate -and $parsed.estimate -ne 'null') {
+            Set-ProjectEstimate -IssueNumber $Number -Estimate ([int]$parsed.estimate)
+        }
+
+        if ($parsed -and $needsPriority -and $parsed.priority -and $parsed.priority -ne 'null') {
+            Set-ProjectPriority -IssueNumber $Number -Priority $parsed.priority
         }
     }
 
-    if ($needsEstimate -and $null -ne $parsed.estimate -and $parsed.estimate -ne 'null') {
-        Set-ProjectEstimate -IssueNumber $Number -Estimate ([int]$parsed.estimate)
-    }
-
-    if ($needsPriority -and $parsed.priority -and $parsed.priority -ne 'null') {
-        Set-ProjectPriority -IssueNumber $Number -Priority $parsed.priority
-    }
-
     $changes = @()
-    if ($needsBodyRefine)                                                                   { $changes += 'body structured' }
-    if ($needsEstimate -and $null -ne $parsed.estimate -and $parsed.estimate -ne 'null')   { $changes += "estimate=$($parsed.estimate)" }
-    if ($needsPriority -and $parsed.priority -and $parsed.priority -ne 'null')             { $changes += "priority=$($parsed.priority)" }
+    if ($needsBodyRefine -and $parsed -and $parsed.body)                                                  { $changes += 'body structured' }
+    if ($needsEstimate -and $parsed -and $null -ne $parsed.estimate -and $parsed.estimate -ne 'null')     { $changes += "estimate=$($parsed.estimate)" }
+    if ($needsPriority -and $parsed -and $parsed.priority -and $parsed.priority -ne 'null')               { $changes += "priority=$($parsed.priority)" }
+
+    # ── Self-grill subagent — AFK alignment phase (issue #85) ─────────────────
+    # Spawn the Grill-Me protocol against the refined body. The subagent reads
+    # the codebase, generates an Agent Brief, populates open/decided questions,
+    # and surfaces glossary diffs — see .agents/skills/refine/scripts/grill.ps1.
+    $populatedBy = 'self-grill-subagent'
+    try {
+        Write-Log "  ▶ Self-grill subagent for issue #$Number" -Color DarkGray
+        $refreshed   = gh issue view $Number --repo $KanbanRepo --json title,body | ConvertFrom-Json
+        $grillResult = Invoke-Grill -Title $refreshed.title -Body $refreshed.body
+
+        if ($grillResult -and $grillResult.agent_brief) {
+            Set-AgentBrief -IssueNumber $Number -Brief $grillResult.agent_brief -PopulatedBy $populatedBy
+
+            $open    = @($grillResult.open_questions)
+            $decided = @($grillResult.decided_questions)
+            Set-PlanningQuestions -IssueNumber $Number -Open $open -Decided $decided
+
+            $hitlCount = 0
+            foreach ($q in $open) {
+                $url = New-HitlChildIssue -ParentNumber $Number -ParentTitle $refreshed.title -Question $q
+                if ($url) { $hitlCount++ }
+            }
+            if ($hitlCount -gt 0) {
+                $changes += "HITL children=$hitlCount"
+                Add-Comment -Number $Number -Body "· self-grill — $hitlCount HITL child issue(s) emitted; resolve before backlog entry"
+            } else {
+                $changes += 'agent-brief written, open_questions=0'
+            }
+        } else {
+            Write-Log "  ⚠️ Self-grill returned no agent_brief — falling back to phase-1 stub provenance." -Color Yellow
+            $populatedBy = 'refine (fallback)'
+        }
+    } catch {
+        Write-Log "  ⚠️ Self-grill subagent failed: $_" -Color Yellow
+        $populatedBy = 'refine (fallback)'
+    }
 
     # Mark readiness.refined in the issue-carried state block (cross-runtime carrier).
-    Set-PlanningReadiness -IssueNumber $Number -Stage 'refined' -StageLabel 'refine'
+    Set-PlanningReadiness -IssueNumber $Number -Stage 'refined' -StageLabel 'refine' -PopulatedBy $populatedBy
 
     Add-Comment -Number $Number -Body "· refined — $($changes -join ', ')"
     Write-Log "  Issue #$Number refined: $($changes -join ', ')" -Color Green

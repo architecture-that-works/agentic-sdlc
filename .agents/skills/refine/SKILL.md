@@ -123,6 +123,51 @@ Store ADRs in `docs/adr/`. Reference by number in `CONTEXT.md` Architectural Con
 
 **Context sensitivity:** High. Begin only in Smart Zone (< 100k tokens). If already in Transition Zone, compact before starting. Never begin a grill-me session in the Dumb Zone (> 250k tokens).
 
+## AFK Invocation Pattern (self-grill subagent)
+
+The interactive grill-me protocol has an AFK analog: a subagent spawned by the
+kanban orchestrator's `Invoke-Refine` phase. The subagent enforces Rules 1-4
+above without a human in the loop and emits a structured `GrillResult`
+(`src/utils/m_planning.py::GrillResult`) bundling the Agent Brief, open and
+decided questions, and proposed glossary diffs.
+
+**Carrier (post-ADR-011).** The output is written into the GitHub issue body —
+the single cross-runtime carrier. `.planning/` remains runtime-only scratch and
+never carries state across environments.
+
+- Agent Brief → Markdown section bounded by `<!-- AGENT-BRIEF:BEGIN/END -->`
+  markers. Frontmatter records `populated_by: self-grill-subagent`.
+- Open/decided questions → the `open_questions[]` / `decided_questions[]` arrays
+  inside the AGENT-STATE JSON block. Open questions block backlog entry per the
+  readiness gate (`Test-Readiness`).
+- One `HITL`-labelled child issue per unresolvable open question, linked back
+  to the parent with "decision needed" framing.
+
+**Readiness lanes.** `refine`, `architect`, and `plan` are NOT kanban lanes —
+they are pre-backlog readiness flags in the same JSON state block. The 4-lane
+FSM (`backlog → implementing → review → merged`) is the only set of lanes the
+project board surfaces.
+
+**Standalone harness probe.** The subagent is invocable directly for one-shot
+test runs from a developer machine:
+
+```powershell
+# Grill a live GitHub issue and print the JSON to stdout:
+pwsh .agents/skills/refine/scripts/grill.ps1 -Issue 42
+
+# Probe an under-specified body without touching GitHub:
+pwsh .agents/skills/refine/scripts/grill.ps1 `
+    -Title 'Add SSE endpoint' `
+    -Body  'we want streaming completions'
+
+# Render the assembled prompt only — no Claude call:
+pwsh .agents/skills/refine/scripts/grill.ps1 -Issue 42 -DryRun
+```
+
+The output is validated against `GrillResult` (pydantic) before the orchestrator
+writes anything to the issue. Validation failure raises and aborts the refine
+phase — partial alignment never makes it to the issue body.
+
 ## Common Mistakes
 
 **Asking before reading the codebase.**

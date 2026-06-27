@@ -100,6 +100,14 @@ function Set-IssueLabel {
 $KanbanStateBeginMarker = '<!-- AGENT-STATE:BEGIN -->'
 $KanbanStateEndMarker   = '<!-- AGENT-STATE:END -->'
 
+# AGENT-BRIEF is the self-grill subagent's structured Agent Brief, rendered
+# as a Markdown section inside the issue body (same carrier as AGENT-STATE,
+# different markers so each can be regex-replaced independently). The brief
+# is the human-readable face of the JSON state — humans review it, plan
+# consumes it, and HITL child issues link to its section anchor.
+$KanbanBriefBeginMarker = '<!-- AGENT-BRIEF:BEGIN -->'
+$KanbanBriefEndMarker   = '<!-- AGENT-BRIEF:END -->'
+
 # 4-lane FSM. Failure recovery (agent:failed) returns the issue to the
 # 'backlog' lane — it is an in-Backlog label, not a separate lane.
 $KanbanAllowedTransitions = @{
@@ -232,7 +240,8 @@ function Set-PlanningReadiness {
     param(
         [Parameter(Mandatory)][int]$IssueNumber,
         [Parameter(Mandatory)][ValidateSet('refined','architected','planned')][string]$Stage,
-        [string]$StageLabel
+        [string]$StageLabel,
+        [string]$PopulatedBy
     )
     if (-not $StageLabel) {
         $StageLabel = switch ($Stage) {
@@ -240,6 +249,13 @@ function Set-PlanningReadiness {
             'architected' { 'architect' }
             'planned'     { 'plan' }
         }
+    }
+    # `(phase-1 stub)` remains the default provenance for the architect/plan
+    # stubs that have not yet been replaced. The self-grill subagent (issue #85)
+    # passes -PopulatedBy 'self-grill-subagent' so audit trails distinguish the
+    # real alignment phase from the stub copies.
+    if (-not $PopulatedBy) {
+        $PopulatedBy = "$StageLabel (phase-1 stub)"
     }
 
     $state = Get-PlanningState -IssueNumber $IssueNumber
@@ -259,7 +275,7 @@ function Set-PlanningReadiness {
     }
     $flag = [pscustomobject]@{
         done         = $true
-        populated_by = "$StageLabel (phase-1 stub)"
+        populated_by = $PopulatedBy
         timestamp    = $ts
     }
     $state.readiness | Add-Member -NotePropertyName $Stage -NotePropertyValue $flag -Force
@@ -291,6 +307,155 @@ function Set-PlanningReadiness {
     }
 
     Set-PlanningState -IssueNumber $IssueNumber -State $state
+}
+
+# Merges the self-grill subagent's open_questions[] and decided_questions[]
+# into the issue-carried planning state. Open questions are REPLACED on each
+# refine run (the latest grill is the authoritative open set); decided
+# questions are APPENDED so the audit history grows monotonically.
+function Set-PlanningQuestions {
+    param(
+        [Parameter(Mandatory)][int]$IssueNumber,
+        [pscustomobject[]]$Open    = @(),
+        [pscustomobject[]]$Decided = @()
+    )
+
+    $state = Get-PlanningState -IssueNumber $IssueNumber
+    if ($null -eq $state) {
+        Write-Log "  ⚠️ Could not load planning state for #${IssueNumber} — skipping question merge." -Color Yellow
+        return
+    }
+
+    if ($null -eq $state.open_questions)    { $state | Add-Member -NotePropertyName open_questions    -NotePropertyValue @() -Force }
+    if ($null -eq $state.decided_questions) { $state | Add-Member -NotePropertyName decided_questions -NotePropertyValue @() -Force }
+
+    $state.open_questions    = @($Open)
+    $state.decided_questions = @(@($state.decided_questions) + @($Decided))
+
+    Set-PlanningState -IssueNumber $IssueNumber -State $state
+}
+
+# ── Agent Brief writer (self-grill subagent output → issue body) ─────────────
+# Renders the AgentBrief pydantic model into a Markdown section bounded by the
+# AGENT-BRIEF markers. Frontmatter records `populated_by` so a future reader
+# (human or agent) can tell at a glance whether the brief is the phase-1 copy
+# or the self-grill subagent's output.
+
+function Set-AgentBrief {
+    param(
+        [Parameter(Mandatory)][int]$IssueNumber,
+        [Parameter(Mandatory)][pscustomobject]$Brief,
+        [string]$PopulatedBy = 'self-grill-subagent'
+    )
+
+    $body = gh issue view $IssueNumber --repo $KanbanRepo --json body --jq '.body' 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not read issue body for #${IssueNumber} — skipping Agent Brief write." -Color Yellow
+        return
+    }
+    $body = $body.TrimEnd("`r", "`n")
+
+    $ts = (Get-Date).ToUniversalTime().ToString('o')
+
+    $interfaces  = if ($Brief.interfaces)  { ($Brief.interfaces  | ForEach-Object { "- $_" }) -join "`n" } else { '- _(none stated)_' }
+    $constraints = if ($Brief.constraints) { ($Brief.constraints | ForEach-Object { "- $_" }) -join "`n" } else { '- _(none stated)_' }
+    $outOfScope  = if ($Brief.out_of_scope){ ($Brief.out_of_scope| ForEach-Object { "- $_" }) -join "`n" } else { '- _(none stated)_' }
+    $tracer      = if ($Brief.tracer_bullet) { $Brief.tracer_bullet } else { '_(not yet identified)_' }
+
+    $section = @"
+$KanbanBriefBeginMarker
+## Agent Brief
+
+``````yaml
+feature_name: $($Brief.feature_name)
+populated_by: $PopulatedBy
+timestamp:    $ts
+``````
+
+**Problem Statement**
+$($Brief.problem_statement)
+
+**Interfaces**
+$interfaces
+
+**Constraints**
+$constraints
+
+**Out of Scope**
+$outOfScope
+
+**Tracer Bullet**
+$tracer
+$KanbanBriefEndMarker
+"@
+
+    $pattern = [regex]::Escape($KanbanBriefBeginMarker) + '.*?' + [regex]::Escape($KanbanBriefEndMarker)
+    $opts    = [System.Text.RegularExpressions.RegexOptions]::Singleline
+    if ([regex]::IsMatch($body, $pattern, $opts)) {
+        $newBody = [regex]::Replace($body, $pattern, { param($m) $section }, $opts)
+    } else {
+        $newBody = "$body`n`n$section"
+    }
+
+    $tmp = New-TemporaryFile
+    try {
+        $newBody | Out-File $tmp.FullName -Encoding utf8
+        $out = gh issue edit $IssueNumber --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "  ⚠️ Failed to write Agent Brief on #${IssueNumber}: $($out.Trim())" -Color Yellow
+        }
+    } finally {
+        Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+    }
+}
+
+# Spawns one HITL child issue per unresolvable open_question. Each child links
+# back to the parent and frames the question as "decision needed" so a human
+# reviewer can act on it directly. Returns the created issue URLs for the
+# caller to surface in a parent-issue summary comment.
+function New-HitlChildIssue {
+    param(
+        [Parameter(Mandatory)][int]$ParentNumber,
+        [Parameter(Mandatory)][string]$ParentTitle,
+        [Parameter(Mandatory)][pscustomobject]$Question
+    )
+
+    $shortText = ($Question.text -replace '\s+', ' ').Trim()
+    if ($shortText.Length -gt 70) { $shortText = $shortText.Substring(0, 67) + '...' }
+    $title = "HITL decision needed (#${ParentNumber}): $shortText"
+
+    $recommendation = if ($Question.decision) { $Question.decision } else { '_(no recommendation supplied)_' }
+    $body = @"
+**Decision needed** — surfaced by the self-grill subagent while refining #$ParentNumber ($ParentTitle).
+
+**Question**
+$($Question.text)
+
+**Agent's recommendation**
+$recommendation
+
+**Why this needs a human**
+The self-grill subagent could not resolve this branch from the codebase alone — it requires user judgement (taste, policy, deadline, or strategic trade-off). Once resolved, paste the decision into the parent issue's ``decided_questions[]`` and re-run refine.
+
+**Parent**: #$ParentNumber
+"@
+
+    $tmp = New-TemporaryFile
+    try {
+        $body | Out-File $tmp.FullName -Encoding utf8
+        $url = gh issue create `
+            --repo $KanbanRepo `
+            --title $title `
+            --body-file $tmp.FullName `
+            --label 'HITL' 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "  ⚠️ Could not create HITL child for #${ParentNumber}: $($url.Trim())" -Color Yellow
+            return $null
+        }
+        return $url.Trim()
+    } finally {
+        Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+    }
 }
 
 # ── Atomic state transition (label + lane in one call) ───────────────────────
