@@ -3,8 +3,8 @@ name = "my-template-repo"
 version = "0.1.1"
 requires-python = "==3.13.*"
 dependencies = [
-    "anthropic>=0.102.0",
-    "pydantic-settings>=2.14.1",
+    "anthropic>=0.111.0",
+    "pydantic-settings>=2.14.2",
 ]
 
 [project.scripts]
