@@ -24,6 +24,9 @@ from datetime import UTC, datetime
 import pytest
 
 from src.utils.m_planning import (
+    AgentBrief,
+    GlossaryDiff,
+    GrillResult,
     Lane,
     PlanningState,
     Question,
@@ -222,6 +225,120 @@ def test_readiness_gate_blocks_on_open_questions() -> None:
         open_questions=[Question(text="Unresolved alignment question")],
     )
     assert state.is_ready_for_backlog() is False
+
+
+# ── Self-grill subagent contract (issue #85) ─────────────────────────────────
+
+
+def test_grill_result_validates_minimal_payload() -> None:
+    """Smallest valid GrillResult: brief + empty question/diff lists."""
+    payload = {
+        "agent_brief": {
+            "feature_name": "self-grill-subagent",
+            "problem_statement": "AFK refine needs an actual alignment phase.",
+        },
+        "open_questions": [],
+        "decided_questions": [],
+        "glossary_diffs": [],
+    }
+    result = GrillResult.model_validate(payload)
+    assert result.agent_brief.feature_name == "self-grill-subagent"
+    assert result.open_questions == []
+    assert result.decided_questions == []
+    assert result.glossary_diffs == []
+
+
+def test_grill_result_round_trips_full_payload() -> None:
+    """A populated GrillResult must round-trip JSON without losing any field."""
+    payload = {
+        "agent_brief": {
+            "feature_name": "sse-endpoint",
+            "problem_statement": "Browser needs streaming completions.",
+            "interfaces": ["GET /stream?q=<prompt> -> text/event-stream"],
+            "constraints": ["ADR-003: Standard Library First"],
+            "out_of_scope": ["Multi-turn streaming"],
+            "tracer_bullet": "GET /stream?q=hello -> 3 tokens -> [DONE]",
+        },
+        "open_questions": [
+            {
+                "text": "Authentication model for /stream?",
+                "raised_by": "self-grill-subagent",
+                "decision": "Recommend: bearer token — consistent with existing endpoints.",
+            }
+        ],
+        "decided_questions": [
+            {
+                "text": "Use SSE rather than chunked encoding?",
+                "raised_by": "self-grill-subagent",
+                "decided_by": "self-grill-subagent",
+                "decision": "SSE — evidence: ADR-010 already accepts SSE.",
+            }
+        ],
+        "glossary_diffs": [
+            {
+                "term": "SSE Endpoint",
+                "definition": "GET endpoint returning text/event-stream.",
+                "disambiguation": "Not WebSocket — no bidirectional channel.",
+                "action": "add",
+            }
+        ],
+    }
+    result = GrillResult.model_validate(payload)
+
+    dumped = result.model_dump_json(by_alias=True)
+    restored = GrillResult.model_validate(json.loads(dumped))
+    assert restored.model_dump(by_alias=True) == result.model_dump(by_alias=True)
+
+
+def test_grill_result_rejects_missing_agent_brief() -> None:
+    """agent_brief is required — refine must abort if the subagent omits it."""
+    with pytest.raises(Exception):  # pydantic.ValidationError
+        GrillResult.model_validate({"open_questions": [], "decided_questions": []})
+
+
+def test_agent_brief_holds_only_interface_terms() -> None:
+    """The brief carries contracts, not file paths (Rule 4)."""
+    brief = AgentBrief(
+        feature_name="grill-me-afk",
+        problem_statement="Phase-1 refine is a JSON formatter, not alignment.",
+        interfaces=["GrillResult JSON -> AGENT-BRIEF + AGENT-STATE blocks"],
+        constraints=["ADR-011: issue body is the carrier"],
+    )
+    assert brief.interfaces[0].startswith("GrillResult")
+    assert brief.tracer_bullet is None  # optional
+
+
+def test_glossary_diff_defaults_to_add_action() -> None:
+    diff = GlossaryDiff(term="HITL child issue", definition="Decision needed.")
+    assert diff.action == "add"
+
+
+def test_glossary_diff_action_constrained() -> None:
+    """The action enum is Literal['add','revise','remove']."""
+    with pytest.raises(Exception):  # pydantic.ValidationError
+        GlossaryDiff.model_validate(
+            {"term": "X", "definition": "Y", "action": "invent"}
+        )
+
+
+# ── populated_by provenance — phase-1 stub vs. self-grill (issue #85) ────────
+
+
+def test_self_grill_populated_by_string_round_trips() -> None:
+    """The readiness flag must accept the 'self-grill-subagent' string set by
+    Invoke-Refine, not just the phase-1 stub provenance."""
+    now = datetime.now(UTC)
+    state = PlanningState(
+        issue_number=85,
+        readiness=Readiness(
+            refined=ReadinessFlag(
+                done=True, populated_by="self-grill-subagent", timestamp=now
+            ),
+        ),
+    )
+    dumped = state.model_dump_json(by_alias=True)
+    restored = PlanningState.model_validate(json.loads(dumped))
+    assert restored.readiness.refined.populated_by == "self-grill-subagent"
 
 
 def test_transition_alias_round_trip() -> None:

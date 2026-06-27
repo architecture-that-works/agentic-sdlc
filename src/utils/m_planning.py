@@ -15,12 +15,19 @@ Fields
 - ``open_questions``     — unresolved alignment questions blocking backlog entry.
 - ``decided_questions``  — resolved questions, kept for audit.
 - ``transitions``        — append-only audit log of lane transitions.
+
+The self-grill subagent (``.agents/skills/refine/scripts/grill.ps1``) emits a
+``GrillResult`` — bundling the ``AgentBrief`` interface-first specification,
+open/decided questions, and proposed glossary diffs. ``Invoke-Refine`` validates
+the subagent's JSON against this contract before writing anything back to the
+issue body.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -98,3 +105,43 @@ class PlanningState(BaseModel):
             and self.readiness.planned.done
             and len(self.open_questions) == 0
         )
+
+
+class GlossaryDiff(BaseModel):
+    """Proposed change to ``CONTEXT.md`` Glossary surfaced by the self-grill subagent."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    term: str
+    definition: str
+    disambiguation: str | None = None
+    action: Literal["add", "revise", "remove"] = "add"
+
+
+class AgentBrief(BaseModel):
+    """Interface-first specification — direct input to the ``plan`` skill.
+
+    Per refine/SKILL.md Rule 4 (Interface before implementation), the brief must
+    describe contracts and schemas only — never file paths or line numbers.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    feature_name: str
+    problem_statement: str
+    interfaces: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    out_of_scope: list[str] = Field(default_factory=list)
+    tracer_bullet: str | None = None
+
+
+class GrillResult(BaseModel):
+    """Structured output of the self-grill subagent. Validated before the
+    orchestrator writes anything back to the GitHub issue body."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    agent_brief: AgentBrief
+    open_questions: list[Question] = Field(default_factory=list)
+    decided_questions: list[Question] = Field(default_factory=list)
+    glossary_diffs: list[GlossaryDiff] = Field(default_factory=list)
