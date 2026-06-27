@@ -22,14 +22,12 @@ tasks:
     cmds:
       - pwsh -NoProfile -File .github/scripts/kanban/start.ps1 -Issue {{.ISSUE}} -MaxRetries {{.RETRIES}}
 
+  runner:
+    desc: "AFK — dispatch GHA to drain the whole agent:backlog queue in the cloud (laptop can be closed)"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/kanban/runner.ps1 {{.CLI_ARGS}}
+
   retry:
     desc: "Recovery — reset a stuck or failed issue back to agent:backlog (ISSUE=N required)"
     cmds:
       - pwsh -NoProfile -File .github/scripts/kanban/retry.ps1 -Issue {{.ISSUE}}
-
-  runner:
-    desc: "GHA runner — start in this terminal; OFFLINE=1 to soft-close (drains current job first)"
-    vars:
-      OFFLINE: '{{default "0" .OFFLINE}}'
-    cmds:
-      - pwsh -NoProfile -File .github/scripts/runner.ps1{{if eq .OFFLINE "1"}} -Offline{{end}}

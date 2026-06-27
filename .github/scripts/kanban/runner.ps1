@@ -1,0 +1,81 @@
+#Requires -Version 7.0
+<#
+.SYNOPSIS
+    AFK runner — dispatch the GHA orchestrator to process EVERY open
+    agent:backlog issue in the cloud, then return immediately so the laptop
+    can be closed.
+
+.DESCRIPTION
+    Dispatches orchestrator.yml (stage=implement, issue_number=0). The workflow
+    resolves the oldest agent:backlog issue, runs the full pipeline, and its
+    drain step re-dispatches while any agent:backlog issues remain — so a single
+    invocation drains the whole queue, one issue at a time (serialised by the
+    implement-pipeline concurrency group).
+
+    This is the cloud counterpart to `task start` (HITL, local). It does NOT run
+    anything in this terminal beyond the dispatch — close the laptop afterwards.
+
+    Pre-flight:
+      - Exits cleanly if there are zero open agent:backlog issues.
+      - Warns (and confirms, unless -Force) if KANBAN_RUNNER_PROFILE=self-hosted,
+        since then a self-hosted runner must be online for the queue to drain.
+      - Prints the queue and the Actions URL to watch.
+
+.PARAMETER Force
+    Skip the self-hosted confirmation prompt (for non-interactive use).
+
+.EXAMPLE
+    task runner             # dispatch the cloud drain, then walk away
+    task runner -- -Force   # same, no prompt even on a self-hosted profile
+#>
+param([switch]$Force)
+
+$ErrorActionPreference = 'Stop'
+. "$PSScriptRoot\_common.ps1"
+
+# ── Pre-flight: is there anything to drain? ──────────────────────────────────
+$backlog = gh issue list --repo $KanbanRepo `
+    --label 'agent:backlog' --state open `
+    --json number,title --jq 'sort_by(.number)' | ConvertFrom-Json
+$count = @($backlog).Count
+if ($count -eq 0) {
+    Write-Log "No open agent:backlog issues — nothing to drain." -Color Yellow
+    exit 0
+}
+
+Write-Host ""
+Write-Host "  agent:backlog queue — $KanbanRepo  ($count issue$(if ($count -ne 1) { 's' }))" -ForegroundColor Cyan
+Write-Host "  $('─' * 60)" -ForegroundColor DarkGray
+foreach ($i in $backlog) {
+    Write-Host ("  #{0,-4} {1}" -f $i.number, $i.title) -ForegroundColor White
+}
+Write-Host ""
+
+# ── Where will it run? ───────────────────────────────────────────────────────
+# `gh api` is more portable than `gh variable get` across gh versions.
+# ($profile is a PowerShell automatic variable — use a distinct name.)
+$runnerProfile = gh api "repos/$KanbanRepo/actions/variables/KANBAN_RUNNER_PROFILE" `
+    --jq '.value' 2>$null
+if ($runnerProfile -eq 'self-hosted') {
+    Write-Log "  ⚠️ KANBAN_RUNNER_PROFILE=self-hosted — the queue runs on a self-hosted runner." -Color Yellow
+    Write-Log "     Ensure that runner is registered and online, or switch to hosted:" -Color Yellow
+    Write-Log "     gh variable set KANBAN_RUNNER_PROFILE --body 'hosted'" -Color Yellow
+    if (-not $Force) {
+        if ((Read-Host "  Dispatch to the self-hosted runner anyway? (y/N)") -notmatch '^(y|yes)$') {
+            Write-Log "Aborted." -Color DarkGray
+            exit 0
+        }
+    }
+} else {
+    Write-Log "  Runner: hosted (ubuntu-latest) — laptop can be closed after dispatch." -Color Green
+}
+
+# ── Dispatch the cloud drain ─────────────────────────────────────────────────
+gh workflow run orchestrator.yml --repo $KanbanRepo `
+    --field stage=implement --field issue_number=0
+if ($LASTEXITCODE -ne 0) { throw "Failed to dispatch orchestrator.yml" }
+
+Write-Log "  🚀 Dispatched — oldest-first drain of $count issue$(if ($count -ne 1) { 's' }) started." -Color Green
+Write-Log "  Watch: https://github.com/$KanbanRepo/actions/workflows/orchestrator.yml" -Color Cyan
+Write-Host ""
+Write-Log "  The drain step re-dispatches until the queue is empty. You can walk away." -Color DarkGray

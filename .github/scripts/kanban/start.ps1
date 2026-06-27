@@ -62,9 +62,22 @@ if ($Issue -gt 0) {
     Write-Host ""
     Write-Host "  Backlog — $KanbanRepo" -ForegroundColor Cyan
     Write-Host "  $('─' * 60)" -ForegroundColor DarkGray
+
+    # Every Backlog-lane issue is selectable. Annotate by agent:* label so it is
+    # visible which issues GHA would pick (agent:backlog) vs failed retries vs
+    # board-only drift — the lane is a superset of the agent:backlog label.
+    $backlogNums = gh issue list --repo $KanbanRepo --label 'agent:backlog' --state open `
+        --json number --jq '[.[].number]' | ConvertFrom-Json
+    $failedNums  = gh issue list --repo $KanbanRepo --label 'agent:failed'  --state open `
+        --json number --jq '[.[].number]' | ConvertFrom-Json
+
     $i = 1
     foreach ($item in $items) {
-        Write-Host ("  {0,2}. #{1,-4} {2}" -f $i, $item.content.number, $item.content.title) -ForegroundColor White
+        $n = $item.content.number
+        if ($backlogNums -contains $n)    { $tag = '[backlog]'; $c = 'Green'    }
+        elseif ($failedNums -contains $n) { $tag = '[failed] '; $c = 'Yellow'   }
+        else                              { $tag = '[other]  '; $c = 'DarkGray' }
+        Write-Host ("  {0,2}. {1} #{2,-4} {3}" -f $i, $tag, $n, $item.content.title) -ForegroundColor $c
         $i++
     }
     Write-Host ""
