@@ -149,8 +149,60 @@ Return ONLY valid JSON — no markdown fences, no explanation:
     if ($needsEstimate -and $null -ne $parsed.estimate -and $parsed.estimate -ne 'null')   { $changes += "estimate=$($parsed.estimate)" }
     if ($needsPriority -and $parsed.priority -and $parsed.priority -ne 'null')             { $changes += "priority=$($parsed.priority)" }
 
+    # Mark readiness.refined in the issue-carried state block (cross-runtime carrier).
+    Set-PlanningReadiness -IssueNumber $Number -Stage 'refined' -StageLabel 'refine'
+
     Add-Comment -Number $Number -Body "· refined — $($changes -join ', ')"
     Write-Log "  Issue #$Number refined: $($changes -join ', ')" -Color Green
+}
+
+# ── Phase A.5 / A.6 stubs — write readiness flags into the issue-carried state ─
+# Architect and Plan stages are stubbed for phase 1: they record the readiness
+# flag with provenance ('<stage> (phase-1 stub)') so the readiness gate can
+# clear. Phase 2 will swap in real architect/plan logic without changing the
+# state contract.
+
+function Invoke-Architect {
+    param([int]$Number)
+    Write-Log "  Phase A.5 — Architect stub for issue #$Number" -Color Yellow
+
+    # Append a Markdown section to the issue body if not already present.
+    $body = gh issue view $Number --repo $KanbanRepo --json body --jq '.body' 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 0 -and $body -notmatch '(?m)^##\s*Architecture\s*$') {
+        $section = "`n`n## Architecture`n`n_phase-1 stub — populated by the orchestrator after the architecture pass runs._"
+        $newBody = ($body.TrimEnd("`r","`n")) + $section
+        $tmp = New-TemporaryFile
+        try {
+            $newBody | Out-File $tmp.FullName -Encoding utf8
+            gh issue edit $Number --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-Null
+        } finally {
+            Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+        }
+    }
+
+    Set-PlanningReadiness -IssueNumber $Number -Stage 'architected' -StageLabel 'architect'
+    Write-Log "  Issue #$Number — readiness.architected ✓" -Color DarkGray
+}
+
+function Invoke-Plan {
+    param([int]$Number)
+    Write-Log "  Phase A.6 — Plan stub for issue #$Number" -Color Yellow
+
+    $body = gh issue view $Number --repo $KanbanRepo --json body --jq '.body' 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 0 -and $body -notmatch '(?m)^##\s*Plan\s*$') {
+        $section = "`n`n## Plan`n`n_phase-1 stub — populated by the orchestrator after the plan pass runs._"
+        $newBody = ($body.TrimEnd("`r","`n")) + $section
+        $tmp = New-TemporaryFile
+        try {
+            $newBody | Out-File $tmp.FullName -Encoding utf8
+            gh issue edit $Number --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-Null
+        } finally {
+            Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+        }
+    }
+
+    Set-PlanningReadiness -IssueNumber $Number -Stage 'planned' -StageLabel 'plan'
+    Write-Log "  Issue #$Number — readiness.planned ✓" -Color DarkGray
 }
 
 # ── Phase B: Develop ──────────────────────────────────────────────────────────

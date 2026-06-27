@@ -41,6 +41,7 @@ at the same time — never merge an ADR without a corresponding index update.
 | [ADR-008](ADR-008-secrets-management.md) | Secrets Management | Accepted | all | GitHub Secrets for dev/CI; Azure Key Vault (corporate) / GCP Secret Manager (personal) for production |
 | [ADR-009](ADR-009-context-strategy.md) | Context Strategy | Accepted | all | Module Map + Issue-Type Index in CONTEXT.md, Context Protocol in AGENTS.md, blocking ship gate on Module Map updates |
 | [ADR-010](ADR-010-runner-profile-variable.md) | Runner Profile Variable | Proposed | all | `KANBAN_RUNNER_PROFILE` variable switches orchestrator between GHA-hosted ubuntu-latest (default) and self-hosted runner |
+| [ADR-011](ADR-011-orchestrator-state-carrier.md) | Orchestrator State Carrier | Accepted | all | Issue body is the single cross-runtime state carrier (fenced JSON + Markdown); 4-lane FSM with allowed-transitions table; pre-backlog readiness gate; rejects local/gitignored file state |
 
 ---
 
