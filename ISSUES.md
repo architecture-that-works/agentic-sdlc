@@ -84,4 +84,43 @@ Default new issues to **P3** (new work) or **P4** (improvement). Escalation to P
 
 ---
 
+## Roadmap — Parked (NOT synced — here for visibility)
+
+Everything **below** the `<!-- ISSUES -->` sentinel is ready to `task sync`; this section sits
+**above** it, so sync ignores it. Promote an item by rewriting it as a proper
+`ISSUE: … END_ISSUE` block below the sentinel once it's ready. Source: *Agentic Harness Evolution*
+assessment (2026-06-27). Detailed pointer: memory `project_harness_roadmap.md`.
+
+**Synced Phase-1 (now live):** #119 LLM-optimized error wrapper · #120 pre-commit + sub-60s CI ·
+#121 PageRank codebase-map.
+
+### Gated Phase-1 (need a decision before they earn a synced block)
+- **Dynamic Plan/Act state machine** (Cline Plan/Act) — replaces the sequential skill chain with a
+  read-only Plan / destructive Act loop. **Conflicts** with the adopted refine/architect/plan
+  readiness gate; decide first: fixed sequence vs. dynamic loop. Spawns an ADR-009 update. High / High.
+- **OpenTelemetry lineage context** (extends ADR-003; Principal "EU AI Act lineage + telemetry") —
+  spans are *observability/audit*; the issue stays the *state* carrier (ADR-011). Gated on open
+  question 1. High.
+
+### Phase 2 — validation & resilience (after Phase 1 lands)
+- **Hypothesis property-based testing** (Principal "Hypothesis PBT").
+- **Cross-family adversarial review** — already tracked as **#89** (re-align, do not duplicate).
+- **LLM-judge harness for ADRs** (Principal "LLM-judge harness").
+- **CI-failure diagnose-and-patch subagent** (Principal "CI-failure diagnose-and-patch agent").
+
+### Phase 3 — Cloud Run north star (partly tracked as #88)
+- **Durable-execution event model** — GitHub Webhooks → Pub/Sub; durable, idempotent transitions.
+- **ACP headless integration** (Cline ACP) — monitor the orchestrator from Zed/Neovim/JetBrains.
+- **Ephemeral sandbox execution** (OpenAI Sandbox Agents / Daytona / Docker / E2B).
+
+### Open questions (resolve before promoting the gated items)
+1. **Telemetry egress vs. repo isolation** — OTel spans to an external backend (LangSmith/Datadog),
+   or local `.jsonl` to preserve "everything-as-files"? (Gates the OTel item.)
+2. **Review gating authority** — if cross-family review (#89) rejects Claude's work, route to
+   `agent:failed` + notify, or force an autonomous Claude refactor loop?
+3. **Sandboxing liability (Phase 3)** — orchestrator runs Bash in its own container, or provisions
+   isolated remote sandboxes for untrusted LLM-generated code?
+
+---
+
 <!-- ISSUES -->
