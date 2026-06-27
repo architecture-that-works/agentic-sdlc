@@ -264,9 +264,8 @@ agent:backlog ──► agent:refining ──► agent:architecting ──► ag
 task sync                   # parse ISSUES.md and push pending blocks to GitHub Issues
 task start                  # HITL — interactive Backlog picker; runs full orchestration here
 task start ISSUE=13         # HITL orchestration for issue #13, skipping the picker
+task runner                 # AFK — dispatch GHA to drain the whole agent:backlog queue (laptop can be closed)
 task retry ISSUE=13         # reset a stuck or failed issue back to agent:backlog
-task runner                 # (self-hosted) start the GHA runner in this terminal — see Advanced section
-task runner OFFLINE=1       # (self-hosted) gracefully stop the GHA runner (drains current job first)
 ```
 
 GHA-triggered orchestration runs (label events on `agent:backlog`) process issues
@@ -328,13 +327,11 @@ task setup
 
 ### Self-hosted runner
 
-Start the self-hosted GHA runner in a dedicated terminal:
+With `KANBAN_RUNNER_PROFILE=self-hosted`, the `implement` job targets a runner registered with the `[self-hosted, gha-project]` labels. Register and run it yourself — pre-install `uv`, `claude`, `git`, and `gh`:
 
-```bash
-task runner                 # start the runner — blocks the terminal while active
-task runner OFFLINE=1       # gracefully stop the runner (drains the current job first)
-```
+1. **Register** — repository Settings → Actions → Runners → **New runner**, adding the custom label `gha-project`. See the [GitHub docs on self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners).
+2. **Run** — start `./run.cmd`, or install it as a service (`svc.cmd install`) for unattended operation.
 
-The runner must be registered in your repository's Settings → Actions → Runners before `task runner` can connect. See the [GitHub docs on self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners) for registration steps.
+`task runner` dispatches the backlog queue to whichever runner the profile selects — it does **not** start the runner process itself.
 
 ---

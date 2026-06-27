@@ -74,10 +74,11 @@ in the repository.
 
 ## Orchestrator Credentials
 
-The orchestrator is a label-driven pipeline running on a self-hosted GitHub Actions runner on
-the developer's machine. When an issue receives the `agent:backlog` label, the runner executes
-a full PowerShell pipeline: **Refine → Develop → PR → Review loop → Squash-merge →
-CONTEXT.md update**. Two secrets drive the pipeline at runtime.
+The orchestrator is a label-driven pipeline. By default it runs on a GitHub-hosted
+`ubuntu-latest` runner; a self-hosted runner is an opt-in (`KANBAN_RUNNER_PROFILE=self-hosted`).
+When an issue receives the `agent:backlog` label, the runner executes a full PowerShell
+pipeline: **Refine → Develop → PR → Review loop → Squash-merge → CONTEXT.md update**. Two
+secrets drive the pipeline at runtime.
 
 ### Pipeline secrets
 
@@ -117,13 +118,17 @@ Mitigations:
 
 ### Self-hosted runner
 
-The `implement` job requires a self-hosted runner registered with the `gha-project` label
-(see `runs-on: [self-hosted, gha-project]` in `.github/workflows/orchestrator.yml`). The
-runner must have `uv`, `claude` (Claude Code CLI), `git`, and `gh` pre-installed.
+With `KANBAN_RUNNER_PROFILE=self-hosted`, the `implement` job requires a self-hosted runner
+registered with the `gha-project` label (see `runs-on: [self-hosted, gha-project]` in
+`.github/workflows/orchestrator.yml`). The runner must have `uv`, `claude` (Claude Code CLI),
+`git`, and `gh` pre-installed.
 
-- **Start:** `task runner` — starts the runner in the foreground; press Ctrl+C to interrupt.
-- **Graceful stop:** `task runner OFFLINE=1` — sends a drain signal; the runner finishes any
-  in-progress job before exiting.
+- **Start:** run `./run.cmd` from the registered runner directory, or install it as a service
+  (`svc.cmd install`) for unattended operation.
+- **Stop:** Ctrl+C in the foreground, or `svc.cmd stop` for the service.
+
+`task runner` dispatches the `agent:backlog` queue to the cloud — it does not start the
+runner process.
 
 ### AFK operation checklist
 
@@ -143,16 +148,14 @@ One-time setup steps for a freshly generated project:
    - `CLAUDE_CODE_OAUTH_TOKEN` — obtained from claude.ai → Settings → Claude Code
 5. **Run project setup** — `task setup` — queries the GitHub Project for field/option IDs
    and writes them to `.env` and as GitHub Actions repository variables.
-6. **Register the self-hosted runner** — follow the setup wizard at
-   `github.com/<org>/<repo>/settings/actions/runners/new`. During registration, add the
-   custom label `gha-project` so the `implement` job can target this runner.
-7. **Verify runner connectivity** — in GitHub → Settings → Actions → Runners, confirm the
-   runner status shows **Idle**.
-8. **Start the runner** — `task runner` — keep the terminal open while AFK operation is active.
-9. **Sync issues** — `task sync` — pushes the local `ISSUES.md` backlog to GitHub Issues and
+6. **(Self-hosted profile only)** — if you set `KANBAN_RUNNER_PROFILE=self-hosted`, register a
+   runner at `github.com/<org>/<repo>/settings/actions/runners/new` with the custom label
+   `gha-project`, then start it (`./run.cmd` or install as a service). On the default `hosted`
+   profile, skip this — runs execute on `ubuntu-latest`.
+7. **Sync issues** — `task sync` — pushes the local `ISSUES.md` backlog to GitHub Issues and
    applies the `agent:backlog` label to ready items.
-10. **Trigger the first run** — apply the `agent:backlog` label to any open issue; the
-    orchestrator picks it up and runs the full implement → review → merge pipeline.
+8. **Trigger** — apply `agent:backlog` to any open issue to auto-start it, or run `task runner`
+   to drain the entire `agent:backlog` queue in the cloud.
 
 ---
 
