@@ -48,7 +48,7 @@ jobs:
        github.event.label.name == 'agent:backlog' &&
        !contains(github.event.issue.labels.*.name, 'HITL')) ||
       (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.stage == 'implement')
+       inputs.stage == 'implement')
     # Runner profile controlled by KANBAN_RUNNER_PROFILE variable (set by `task setup`):
     #   hosted (default) — ubuntu-latest; uv + claude CLI installed at runtime via CLAUDE_CODE_OAUTH_TOKEN.
     #   self-hosted       — developer's machine; uv, claude, git, and auth are pre-installed.
@@ -76,7 +76,7 @@ jobs:
       KANBAN_PRIORITY_OPT_P2: ${{ vars.KANBAN_PRIORITY_OPT_P2 }}
       KANBAN_PRIORITY_OPT_P3: ${{ vars.KANBAN_PRIORITY_OPT_P3 }}
       KANBAN_PRIORITY_OPT_P4: ${{ vars.KANBAN_PRIORITY_OPT_P4 }}
-      TRIGGERED_ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
+      TRIGGERED_ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -160,7 +160,7 @@ jobs:
       (github.event_name == 'issues' &&
        github.event.label.name == 'agent:review') ||
       (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.stage == 'merge')
+       inputs.stage == 'merge')
     runs-on: ubuntu-latest
     # Same concurrency group as implement: if the pipeline job is still running
     # (it already holds this slot), this job queues. By the time it starts, the
@@ -170,7 +170,7 @@ jobs:
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
-      ISSUE_NUMBER: ${{ github.event.issue.number || github.event.inputs.issue_number }}
+      ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -233,7 +233,35 @@ jobs:
           PR_NUMBER=${{ steps.resolve-pr.outputs.pr_number }}
           DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
 
-          gh pr checks "$PR_NUMBER" --watch
+          # Poll CI via --json, NOT --watch: --watch emits non-deterministic mixed
+          # stdout/stderr that previously crashed the orchestrator (see merge.ps1).
+          #   empty       → checks not registered yet (keep polling within the register window)
+          #   fail/cancel → real failure
+          #   pending     → in progress
+          #   else        → all pass/skipping → green
+          REGISTER_DEADLINE=$(( $(date +%s) + 60 ))     # wait up to 60s for a check to register
+          COMPLETION_DEADLINE=$(( $(date +%s) + 900 ))  # 15-min ceiling for total CI duration
+          while :; do
+            BUCKETS=$(gh pr checks "$PR_NUMBER" --json bucket --jq '[.[].bucket] | join(" ")' 2>/dev/null)
+            NOW=$(date +%s)
+            if [ -z "$BUCKETS" ]; then
+              if [ "$NOW" -ge "$REGISTER_DEADLINE" ]; then
+                echo "::warning::No CI checks registered after 60s — proceeding on approval gate alone."
+                break
+              fi
+              sleep 10; continue
+            fi
+            case " $BUCKETS " in
+              *" fail "*|*" cancel "*)
+                echo "::error::CI checks failed for PR #${PR_NUMBER} (${BUCKETS})"; exit 1 ;;
+              *" pending "*)
+                if [ "$NOW" -ge "$COMPLETION_DEADLINE" ]; then
+                  echo "::error::CI did not complete within 15 min for PR #${PR_NUMBER}"; exit 1
+                fi
+                sleep 10; continue ;;
+              *) break ;;
+            esac
+          done
 
           gh pr merge "$PR_NUMBER" --squash --delete-branch
 
@@ -370,8 +398,13 @@ jobs:
           git commit -m "chore(context): update after merge of #${ISSUE_NUMBER}" \
             2>/dev/null || _fail "git commit failed"
 
+          # Direct push to the default branch BY EXCEPTION: the post-merge CONTEXT.md
+          # update is a bot commit, not a feature PR. Under branch protection (issue #92)
+          # the orchestrator identity (github-actions[bot] / GH_TOKEN) must be on the
+          # "allow specified actors to bypass" list, or this push is rejected. Failure is
+          # non-blocking — the squash-merge already landed — so we warn and exit 0.
           git push origin "$DEFAULT_BRANCH" 2>/dev/null \
-            || _fail "git push to ${DEFAULT_BRANCH} failed"
+            || _fail "git push to ${DEFAULT_BRANCH} failed (is the bot exempt from branch protection?)"
 
           COMMIT_SHA=$(git rev-parse HEAD)
           gh issue comment "$ISSUE_NUMBER" \
