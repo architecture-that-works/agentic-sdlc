@@ -215,8 +215,8 @@ function Invoke-Merge {
         }
     }
 
-    # Checkout the feature branch (may not be on it when called standalone from master).
-    # master is authoritative — always rebase rather than merge forward.
+    # Checkout the feature branch (may not be on it when called standalone from the default branch).
+    # The default branch is authoritative — always rebase rather than merge forward.
     $featureBranch = gh pr view $PRNumber --json headRefName --jq '.headRefName' 2>&1 | Out-String | ForEach-Object { $_.Trim() }
     $currentBranch = git rev-parse --abbrev-ref HEAD 2>&1 | Out-String | ForEach-Object { $_.Trim() }
     if ($currentBranch -ne $featureBranch) {

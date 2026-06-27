@@ -64,7 +64,7 @@ For each kind of work, read these files before opening anything else. If an unex
 | skill change | `.agents/skills/<name>/SKILL.md`, `.agents/skills/<name>/REFERENCE.md`, `.agents/skills/<name>/EXAMPLES.md`, `AGENTS.md` skill index |
 | new `src/<domain>/` | `CONTEXT.md` Module Map (extend first), `AGENTS.md` Rules, then proceed |
 | dependency / config | `pyproject.toml`, `uv.lock`, `.devcontainer/`, `Dockerfile` |
-| template / Copier change | `copier.yml`, `.template/`, `pyproject.toml.jinja2` |
+| template / Copier change | `copier.yml`, `pyproject.toml.jinja2`, `tests/test_copier_template.py` |
 
 ## Architectural Constraints
 

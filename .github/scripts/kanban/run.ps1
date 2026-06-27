@@ -112,14 +112,14 @@ function Invoke-Orchestration {
         Release-OrchestratorLock
         if ($stashed) { git stash pop 2>&1 | Out-Null }
 
-        # Always return to a clean, origin-synced master so the next issue starts fresh.
+        # Always return to a clean, origin-synced default branch so the next issue starts fresh.
         $default = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>$null
         $curr    = git rev-parse --abbrev-ref HEAD 2>$null
 
         if ($curr -and $curr -ne $default) {
             if (git status --porcelain 2>$null) {
                 git stash push --include-untracked --quiet `
-                    -m "auto: pre-master-switch from issue #$IssueNumber orchestrator" 2>$null
+                    -m "auto: pre-branch-switch from issue #$IssueNumber orchestrator" 2>$null
             }
             Write-Log "  ↩ Returning to $default (feature branch '$curr' preserved for human review)." -Color DarkGray
             git checkout --quiet $default 2>$null

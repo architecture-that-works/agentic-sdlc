@@ -10,7 +10,7 @@
     naming the missing modules.
 
 .PARAMETER BaseRef
-    Git ref to diff against. Defaults to 'origin/master'.
+    Git ref to diff against. Defaults to 'origin/main'.
 
 .EXAMPLE
     pwsh .github/scripts/check-module-map.ps1
@@ -18,7 +18,7 @@
 #>
 
 param(
-    [string]$BaseRef = 'origin/master'
+    [string]$BaseRef = 'origin/main'
 )
 
 $ErrorActionPreference = 'Stop'
