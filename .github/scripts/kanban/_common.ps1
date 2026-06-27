@@ -91,6 +91,208 @@ function Set-IssueLabel {
     }
 }
 
+# ── Issue-carried planning state (Cloud-Run-ready cross-runtime carrier) ────
+# State lives inside the issue body as a fenced JSON block between two HTML
+# comment markers. Human-readable Markdown sections coexist outside the block
+# and are never touched by Get/Set-PlanningState. This is the single source of
+# truth across runtimes — no local files, no regex over freeform comments.
+
+$KanbanStateBeginMarker = '<!-- AGENT-STATE:BEGIN -->'
+$KanbanStateEndMarker   = '<!-- AGENT-STATE:END -->'
+
+# 4-lane FSM. Failure recovery (agent:failed) returns the issue to the
+# 'backlog' lane — it is an in-Backlog label, not a separate lane.
+$KanbanAllowedTransitions = @{
+    'backlog'      = @('implementing')
+    'implementing' = @('review', 'backlog')
+    'review'       = @('merged', 'implementing', 'backlog')
+    'merged'       = @()
+}
+
+# Maps an agent:* label to its FSM lane. agent:failed is the recovery
+# variant of the backlog lane.
+function Get-LaneFromLabel {
+    param([string]$Label)
+    switch ($Label) {
+        'agent:backlog'      { 'backlog'      }
+        'agent:implementing' { 'implementing' }
+        'agent:review'       { 'review'       }
+        'agent:merged'       { 'merged'       }
+        'agent:failed'       { 'backlog'      }
+        default              { ''             }
+    }
+}
+
+function Get-PlanningState {
+    param([int]$IssueNumber)
+
+    $body = gh issue view $IssueNumber --repo $KanbanRepo --json body --jq '.body' 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0 -or -not $body) { return $null }
+
+    $pattern = [regex]::Escape($KanbanStateBeginMarker) +
+               '\s*```json\s*\r?\n(?<json>.+?)\r?\n```\s*' +
+               [regex]::Escape($KanbanStateEndMarker)
+    $match = [regex]::Match($body, $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+    if (-not $match.Success) {
+        return [pscustomobject]@{
+            issue_number       = $IssueNumber
+            lane               = 'backlog'
+            readiness          = [pscustomobject]@{
+                refined     = [pscustomobject]@{ done = $false; populated_by = $null; timestamp = $null }
+                architected = [pscustomobject]@{ done = $false; populated_by = $null; timestamp = $null }
+                planned     = [pscustomobject]@{ done = $false; populated_by = $null; timestamp = $null }
+            }
+            open_questions    = @()
+            decided_questions = @()
+            transitions       = @()
+        }
+    }
+
+    try {
+        return $match.Groups['json'].Value | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        Write-Log "  ⚠️ Could not parse AGENT-STATE block on #${IssueNumber}: $_" -Color Yellow
+        return $null
+    }
+}
+
+function Set-PlanningState {
+    param([int]$IssueNumber, [pscustomobject]$State)
+
+    $body = gh issue view $IssueNumber --repo $KanbanRepo --json body --jq '.body' 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not read issue body for #${IssueNumber} — skipping state write." -Color Yellow
+        return
+    }
+    $body = $body.TrimEnd("`r", "`n")
+
+    $json  = $State | ConvertTo-Json -Depth 10
+    $block = "$KanbanStateBeginMarker`n``````json`n$json`n```````n$KanbanStateEndMarker"
+
+    $pattern = [regex]::Escape($KanbanStateBeginMarker) +
+               '.*?' +
+               [regex]::Escape($KanbanStateEndMarker)
+    $opts    = [System.Text.RegularExpressions.RegexOptions]::Singleline
+    if ([regex]::IsMatch($body, $pattern, $opts)) {
+        # Callback-based Replace sidesteps $1/$& substitution in the replacement string.
+        $newBody = [regex]::Replace($body, $pattern, { param($m) $block }, $opts)
+    } else {
+        $newBody = "$body`n`n$block"
+    }
+
+    $tmp = New-TemporaryFile
+    try {
+        $newBody | Out-File $tmp.FullName -Encoding utf8
+        $out = gh issue edit $IssueNumber --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "  ⚠️ Failed to write planning state on #${IssueNumber}: $($out.Trim())" -Color Yellow
+        }
+    } finally {
+        Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-StateTransition {
+    param(
+        [Parameter(Mandatory)][string]$From,
+        [Parameter(Mandatory)][string]$To
+    )
+    if (-not $KanbanAllowedTransitions.ContainsKey($From)) {
+        throw "Unknown source lane '$From'. Must be one of: $($KanbanAllowedTransitions.Keys -join ', ')"
+    }
+    if ($KanbanAllowedTransitions[$From] -notcontains $To) {
+        throw "Illegal transition '$From' → '$To'. Allowed targets from '$From': $($KanbanAllowedTransitions[$From] -join ', ')"
+    }
+    return $true
+}
+
+function Test-Readiness {
+    param([pscustomobject]$State)
+    if ($null -eq $State) { return $false }
+    if ($null -eq $State.readiness) { return $false }
+    $refined     = [bool]$State.readiness.refined.done
+    $architected = [bool]$State.readiness.architected.done
+    $planned     = [bool]$State.readiness.planned.done
+    $openCount   = if ($null -ne $State.open_questions) { @($State.open_questions).Count } else { 0 }
+    return ($refined -and $architected -and $planned -and $openCount -eq 0)
+}
+
+# Detects the current runtime so the audit trail records *where* a transition
+# was applied — laptop, GHA runner, or future Cloud Run service. The fixed
+# label set keeps the schema stable across Phase 2/3 runtime additions.
+function Get-RuntimeName {
+    if ($env:GITHUB_ACTIONS -eq 'true') { return 'github-actions' }
+    if ($env:CLOUD_RUN_SERVICE)         { return 'cloud-run' }
+    return 'laptop'
+}
+
+# Marks a pre-backlog stage (refine|architect|plan) complete in the
+# issue-carried state. Used by Invoke-Refine and the architect/plan stubs.
+function Set-PlanningReadiness {
+    param(
+        [Parameter(Mandatory)][int]$IssueNumber,
+        [Parameter(Mandatory)][ValidateSet('refined','architected','planned')][string]$Stage,
+        [string]$StageLabel
+    )
+    if (-not $StageLabel) {
+        $StageLabel = switch ($Stage) {
+            'refined'     { 'refine' }
+            'architected' { 'architect' }
+            'planned'     { 'plan' }
+        }
+    }
+
+    $state = Get-PlanningState -IssueNumber $IssueNumber
+    if ($null -eq $state) {
+        Write-Log "  ⚠️ Could not load planning state for #${IssueNumber} — skipping readiness update." -Color Yellow
+        return
+    }
+
+    $ts = (Get-Date).ToUniversalTime().ToString('o')
+
+    if ($null -eq $state.readiness) {
+        $state | Add-Member -NotePropertyName readiness -NotePropertyValue ([pscustomobject]@{
+            refined     = [pscustomobject]@{ done = $false; populated_by = $null; timestamp = $null }
+            architected = [pscustomobject]@{ done = $false; populated_by = $null; timestamp = $null }
+            planned     = [pscustomobject]@{ done = $false; populated_by = $null; timestamp = $null }
+        }) -Force
+    }
+    $flag = [pscustomobject]@{
+        done         = $true
+        populated_by = "$StageLabel (phase-1 stub)"
+        timestamp    = $ts
+    }
+    $state.readiness | Add-Member -NotePropertyName $Stage -NotePropertyValue $flag -Force
+
+    if ($null -eq $state.issue_number) {
+        $state | Add-Member -NotePropertyName issue_number -NotePropertyValue $IssueNumber -Force
+    }
+    if ($null -eq $state.lane) {
+        $state | Add-Member -NotePropertyName lane -NotePropertyValue 'backlog' -Force
+    }
+    if ($null -eq $state.open_questions) {
+        $state | Add-Member -NotePropertyName open_questions -NotePropertyValue @() -Force
+    }
+    if ($null -eq $state.decided_questions) {
+        $state | Add-Member -NotePropertyName decided_questions -NotePropertyValue @() -Force
+    }
+    if ($null -eq $state.transitions) {
+        $state | Add-Member -NotePropertyName transitions -NotePropertyValue @() -Force
+    }
+    # Seed an initial transitions[] entry so the audit log is never empty after
+    # the first stage completes — Phase 3 schedulers parse this on resume.
+    if (@($state.transitions).Count -eq 0) {
+        $state.transitions = @([pscustomobject]@{
+            from      = $null
+            to        = [string]$state.lane
+            runtime   = (Get-RuntimeName)
+            timestamp = $ts
+        })
+    }
+
+    Set-PlanningState -IssueNumber $IssueNumber -State $state
+}
+
 # ── Atomic state transition (label + lane in one call) ───────────────────────
 
 function Set-AgentState {
@@ -111,6 +313,15 @@ function Set-AgentState {
         'agent:merged'       { 'Merged'       }
         'agent:failed'       { 'Backlog'      }
         default              { ''             }
+    }
+
+    # Readiness gate: backlog entry requires refined + architected + planned and zero open questions.
+    if ($Label -eq 'agent:backlog') {
+        $state = Get-PlanningState -IssueNumber $IssueNumber
+        if (-not (Test-Readiness -State $state)) {
+            Write-Log "  ⚠️ Readiness gate FAILED for #${IssueNumber} — refusing entry to Backlog. Run refine/architect/plan first." -Color Yellow
+            return
+        }
     }
 
     $current = gh issue view $IssueNumber --repo $KanbanRepo --json labels `
