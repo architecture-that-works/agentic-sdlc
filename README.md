@@ -50,9 +50,15 @@ The fastest path from zero to autonomous AI development:
 | `CLAUDE_CODE_OAUTH_TOKEN` | From [claude.ai/settings](https://claude.ai/settings) → API keys |
 | `GH_TOKEN` | Classic PAT with `project`, `read:org`, `repo`, `user`, `workflow` scopes |
 
-**3. Label an issue** `agent:backlog` — the orchestrator picks it up on the next poll.
+**3. Run setup** to configure the kanban board and register `KANBAN_RUNNER_PROFILE=hosted` (the GHA-hosted default):
 
-**4. Walk away** — the orchestrator runs branch → implement → review → merge autonomously.
+```bash
+task setup
+```
+
+**4. Label an issue** `agent:backlog` — the orchestrator picks it up on the next poll.
+
+**5. Walk away** — the orchestrator runs branch → implement → review → merge autonomously on `ubuntu-latest` using your `CLAUDE_CODE_OAUTH_TOKEN`.
 
 > **`GH_TOKEN` scope requirement:** Must be a **classic PAT** with all five scopes: `project`, `read:org`, `repo`, `user`, `workflow`. Fine-grained PATs do not support GitHub Projects v2. Missing scopes cause silent failures at runtime — `project` breaks kanban board mutations, `workflow` blocks any PR that touches `.github/workflows/*.yml`, `read:org` is required for org-owned projects, `user` for identity calls, and `repo` for issue/PR/commit operations.
 
@@ -275,6 +281,21 @@ Issues used with the Orchestrator Workflow should follow the structure defined i
 ## Advanced / Self-hosted opt-in
 
 For teams running their own GitHub Actions runner or needing full local control over the orchestration environment.
+
+### `KANBAN_RUNNER_PROFILE` variable
+
+Controls which runner executes the AFK orchestration lane. Set as a GitHub Actions repository variable (Settings → Variables → Actions).
+
+| Value | Runner | When to use |
+|-------|--------|-------------|
+| `hosted` (default) | `ubuntu-latest` | Anyone with a Claude Max subscription — no local setup needed |
+| `self-hosted` | `[self-hosted, gha-project]` | Cost-sensitive users who want to run on their own machine |
+
+`task setup` sets this to `hosted` automatically. To switch after setup:
+
+```bash
+gh variable set KANBAN_RUNNER_PROFILE --body 'self-hosted'
+```
 
 ### Wire up the Orchestrator Workflow
 

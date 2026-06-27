@@ -259,6 +259,7 @@ $ghVars = @{
     KANBAN_OPT_IMPLEMENTING = $laneImplementing.id
     KANBAN_OPT_REVIEW       = $laneReview.id
     KANBAN_OPT_MERGED       = $laneMerged.id
+    KANBAN_RUNNER_PROFILE   = 'hosted'
 }
 if ($ProjectNodeId)  { $ghVars['KANBAN_PROJECT_ID']      = $ProjectNodeId }
 if ($estimateField) { $ghVars['KANBAN_ESTIMATE_FIELD_ID'] = $estimateField.id }
@@ -315,3 +316,6 @@ if ($LASTEXITCODE -ne 0 -or -not $_LabelRepo) {
 
 Write-Host ""
 Write-Host "✅ Setup complete. Run 'task start' to pick up backlog issues." -ForegroundColor Green
+Write-Host ""
+Write-Host "ℹ️  Runner profile: KANBAN_RUNNER_PROFILE set to 'hosted' (GHA ubuntu-latest)." -ForegroundColor Cyan
+Write-Host "   To switch to a self-hosted runner: gh variable set KANBAN_RUNNER_PROFILE --body 'self-hosted'" -ForegroundColor DarkGray
