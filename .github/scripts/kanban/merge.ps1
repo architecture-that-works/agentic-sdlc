@@ -6,9 +6,10 @@
 .DESCRIPTION
     Internal function library — dot-sourced by run.ps1 and review.ps1. Not a direct Taskfile target.
 
-    Confirms an approval signal exists (agent:review label on the issue OR at
-    least one human-approved PR review), waits for CI to pass, then squash-
-    merges and deletes the remote branch. Updates CONTEXT.md post-merge.
+    Unless called with -Approved (the orchestrator's review stage already
+    approved) or -Force, confirms an approval signal exists (agent:review label
+    on the issue OR a human-approved PR review). Then waits for CI to pass,
+    squash-merges, and deletes the remote branch. Updates CONTEXT.md post-merge.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -190,7 +191,7 @@ function Invoke-RebaseOnMaster {
 }
 
 function Invoke-Merge {
-    param([int]$IssueNumber = 0, [int]$PRNumber = 0, [switch]$Force)
+    param([int]$IssueNumber = 0, [int]$PRNumber = 0, [switch]$Force, [switch]$Approved)
 
     if ($IssueNumber -eq 0) { $IssueNumber = Get-CurrentIssueNumber }
 
@@ -206,7 +207,10 @@ function Invoke-Merge {
 
     Write-Log "▶ Merge — issue #$IssueNumber / PR #$PRNumber" -Color Cyan
 
-    if (-not $Force) {
+    # The orchestrator passes -Approved after its own review stage approves
+    # (run.ps1 "merges on first approval"); only re-derive approval from GitHub
+    # state for standalone/manual merges that did not go through that review.
+    if (-not $Force -and -not $Approved) {
         $approved = Test-HasApproval -IssueNumber $IssueNumber -PRNumber $PRNumber
         if (-not $approved) {
             Write-Log "⛔ No approval found for PR #$PRNumber." -Color Red

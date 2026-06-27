@@ -100,7 +100,7 @@ function Invoke-Orchestration {
         }
 
         Clear-IssueReviewCount -IssueNumber $IssueNumber
-        Invoke-Merge -IssueNumber $IssueNumber -PRNumber $prNum
+        Invoke-Merge -IssueNumber $IssueNumber -PRNumber $prNum -Approved
         Write-Log "🎉 Issue #$IssueNumber complete." -Color Green
 
     } catch {
@@ -117,7 +117,8 @@ function Invoke-Orchestration {
         $curr    = git rev-parse --abbrev-ref HEAD 2>$null
 
         if ($curr -and $curr -ne $default) {
-            if (git status --porcelain 2>$null) {
+            $dirty = git status --porcelain 2>$null
+            if ($dirty) {
                 git stash push --include-untracked --quiet `
                     -m "auto: pre-branch-switch from issue #$IssueNumber orchestrator" 2>$null
             }

@@ -86,10 +86,9 @@ Follow with your detailed reasoning.
 
     $review   = Invoke-ClaudeStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $KanbanMaxTurns_Review
     $approved = $review -match '(?im)^APPROVED'
-    $verdict  = if ($approved) { 'APPROVED' } else { 'REJECTED' }
 
     $issueComment = if ($approved) {
-        "🤖✅ Review Approved`n`n$review`n`n*Awaiting human review.*"
+        "🤖✅ Review Approved`n`n$review`n`n*Proceeding to merge.*"
     } else {
         "🤖❌ Review Rejected`n`n$review`n`n*Returning to Implementing for fixes.*"
     }
@@ -100,7 +99,7 @@ Follow with your detailed reasoning.
     gh pr review $PRNumber --comment --body $prComment 2>&1 | Out-Null
 
     if ($approved) {
-        Write-Log "✅ Review APPROVED — PR #$PRNumber ready for human merge." -Color Green
+        Write-Log "✅ Review APPROVED — PR #$PRNumber — proceeding to merge." -Color Green
     } else {
         Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
         Write-Log "❌ Review REJECTED — issue #$IssueNumber returned to Implementing." -Color Red
