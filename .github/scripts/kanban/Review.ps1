@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Stage 3 — Agent self-review of open PR against acceptance criteria.
+    Review lane — agent self-review of the open PR against acceptance criteria.
 
 .DESCRIPTION
     Kanban library — loaded by Kanban.psm1; Invoke-Review is called by Orchestrator.ps1.

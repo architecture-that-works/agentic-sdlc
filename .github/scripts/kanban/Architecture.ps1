@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Phase A.5 — Architecting: blast-radius computation between refine and implement.
+    Implementing phase 1 — Architecting: blast-radius computation before develop.
 
 .DESCRIPTION
     Kanban library — loaded by Kanban.psm1; Invoke-Architecture is called by Invoke-Implement.
@@ -127,7 +127,7 @@ print(json.dumps({
 
 function Invoke-Architecture {
     param([int]$IssueNumber)
-    Write-Log "  Phase A.5 — Architecture for issue #$IssueNumber" -Color Yellow
+    Write-Log "  Phase 1 — Architecture for issue #$IssueNumber" -Color Yellow
 
     $planDir         = "$_Root\.planning\$IssueNumber"
     $blastRadiusPath = "$planDir\BLAST_RADIUS.md"

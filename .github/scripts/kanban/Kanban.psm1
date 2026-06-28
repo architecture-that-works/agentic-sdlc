@@ -17,12 +17,13 @@
         Util          logging, runtime, lock, review counter, ISSUES.md reader
         GitHub        labels, lanes, comments, board, branches, issue-body state
         ../Claude     generic Claude helpers (Invoke-ClaudeStreaming, commit msg)
-        Architecture  phase A.5 — blast radius
         _grill        refine self-grill subagent (Invoke-Grill)
-        Implement     phase A/B/C — refine → architecture → develop → PR
-        Review        phase — review loop
-        Merge         phase — merge → CONTEXT.md
-        Orchestrator  conducts the agent:* state machine across the phases
+        Refine        Backlog gate — Invoke-Refine (the agent:backlog toll-gate)
+        Architecture  Implementing phase 1 — blast radius
+        Implement     Implementing phases 1-3 — architecture → develop → PR
+        Review        Review lane — self-review loop
+        Merge         Merged lane — squash-merge → CONTEXT.md
+        Orchestrator  conducts the agent:* state machine across the lanes
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -31,8 +32,9 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\Util.ps1"
 . "$PSScriptRoot\GitHub.ps1"
 . "$PSScriptRoot\..\Claude.ps1"   # generic helper, shared across .github/scripts
-. "$PSScriptRoot\Architecture.ps1"
 . "$PSScriptRoot\..\..\..\.agents\skills\refine\scripts\_grill.ps1"
+. "$PSScriptRoot\Refine.ps1"
+. "$PSScriptRoot\Architecture.ps1"
 . "$PSScriptRoot\Implement.ps1"
 . "$PSScriptRoot\Review.ps1"
 . "$PSScriptRoot\Merge.ps1"

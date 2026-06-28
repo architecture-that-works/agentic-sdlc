@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Stage 4 — Merge PR after CI gate + approval check.
+    Merged lane — squash-merge the PR after the CI gate + approval check.
 
 .DESCRIPTION
     Kanban library — loaded by Kanban.psm1; Invoke-Merge is called by Orchestrator.ps1.
