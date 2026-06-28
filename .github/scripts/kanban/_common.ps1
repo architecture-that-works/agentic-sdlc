@@ -1089,3 +1089,27 @@ $Diff
     Write-Log "  Claude unavailable — using issue title fallback." -Color Yellow
     return $FallbackMessage
 }
+
+# ── LLM-optimized error formatter ────────────────────────────────────────────
+# Wraps raw error output (pytest failures, linter output, tracebacks) into a
+# structured Markdown block so the verification loop can self-correct. Falls
+# back to a raw fenced code block when the formatter is unavailable.
+# See src/utils/m_error_formatter.py and issue #119.
+
+function Format-ErrorBlock {
+    param([string]$Raw)
+    if (-not $Raw.Trim()) { return '' }
+    try {
+        Push-Location $_Root
+        try {
+            $formatted = $Raw | uv run python -m src.utils.m_error_formatter 2>$null
+        } finally {
+            Pop-Location
+        }
+        if ($LASTEXITCODE -eq 0 -and $formatted -and $formatted.Trim()) {
+            return $formatted.Trim()
+        }
+    } catch {}
+    # Fallback: preserve raw output in a fenced block (never drop it)
+    return "``````text`n$($Raw.Trim())`n``````"
+}
