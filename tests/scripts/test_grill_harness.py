@@ -2,10 +2,10 @@
 
 Three surfaces are exercised:
 
-1. ``.agents/skills/refine/scripts/grill.ps1`` — the standalone harness probe.
-   The script must be dot-source-safe (no side effects when sourced) AND
-   invocable as a standalone CLI that returns the assembled prompt in
-   ``-DryRun`` mode without contacting Claude.
+1. ``.agents/skills/refine/scripts/_grill.ps1`` — the dot-sourceable function
+   library (Invoke-Grill); must expose the function with no side effects and no
+   scope leak. ``grill.ps1`` is the thin standalone CLI wrapper around it,
+   invocable in ``-DryRun`` mode without contacting Claude (see ADR-013).
 2. ``.github/scripts/kanban/_common.ps1`` § ``Set-AgentBrief`` markers — the
    AGENT-BRIEF section is bounded by HTML-comment markers that must remain
    identifiable from outside PowerShell (Python parsers, future Cloud Run
@@ -35,7 +35,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-GRILL_SCRIPT = REPO_ROOT / ".agents/skills/refine/scripts/grill.ps1"
+GRILL_SCRIPT = REPO_ROOT / ".agents/skills/refine/scripts/grill.ps1"  # CLI wrapper
+GRILL_LIB = (
+    REPO_ROOT / ".agents/skills/refine/scripts/_grill.ps1"
+)  # dot-sourced library
 
 
 def _ps(script: str) -> subprocess.CompletedProcess[str]:
@@ -101,24 +104,28 @@ def test_grill_dry_run_returns_prompt_without_claude() -> None:
     assert "GrillResult" in result.stdout
 
 
-def test_grill_script_is_dot_source_safe() -> None:
-    """Dot-sourcing must expose ``Invoke-Grill`` without executing the
-    standalone-mode block (which would error on missing -Issue/-Body)."""
+def test_grill_lib_is_dot_source_safe() -> None:
+    """Dot-sourcing the LIBRARY (_grill.ps1) must expose ``Invoke-Grill`` without
+    side effects AND without leaking a top-level ``$Issue`` into the caller's
+    scope — the leak that once zeroed run.ps1's issue number (ADR-013)."""
     script = (
-        f". '{GRILL_SCRIPT.as_posix()}'; "
-        "if (Get-Command Invoke-Grill -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
+        "$Issue = 86; "
+        f". '{GRILL_LIB.as_posix()}'; "
+        "if ((Get-Command Invoke-Grill -ErrorAction SilentlyContinue) -and $Issue -eq 86) "
+        "{ exit 0 } else { exit 1 }"
     )
     result = _ps(script)
     assert result.returncode == 0, (
-        f"Dot-sourcing grill.ps1 must expose Invoke-Grill without side effects.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        f"Dot-sourcing _grill.ps1 must expose Invoke-Grill without clobbering "
+        f"the caller's $Issue.\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
 
 
-def test_grill_dot_source_then_dry_run_invokes_function() -> None:
-    """Once dot-sourced, the function must accept -DryRun and return a prompt."""
+def test_grill_lib_dot_source_then_dry_run_invokes_function() -> None:
+    """Once the library is dot-sourced, Invoke-Grill must accept -DryRun and
+    return a prompt."""
     script = (
-        f". '{GRILL_SCRIPT.as_posix()}'; "
+        f". '{GRILL_LIB.as_posix()}'; "
         "$r = Invoke-Grill -Title 'X' -Body 'Y' -DryRun; "
         "if ($r.mode -eq 'dry-run' -and $r.prompt) { exit 0 } else { exit 1 }"
     )
@@ -200,7 +207,7 @@ def test_grill_result_keys_match_powershell_schema_docstring() -> None:
     rejects."""
     from src.utils.m_planning import GrillResult
 
-    text = GRILL_SCRIPT.read_text(encoding="utf-8")
+    text = GRILL_LIB.read_text(encoding="utf-8")  # system prompt lives in the library
     expected_keys = set(GrillResult.model_fields.keys())
     assert expected_keys == {
         "agent_brief",

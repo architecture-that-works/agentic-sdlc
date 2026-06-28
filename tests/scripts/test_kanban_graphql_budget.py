@@ -91,11 +91,14 @@ def test_default_branch_cached_in_common() -> None:
 
 
 def test_stage_scripts_reference_cached_default_branch() -> None:
-    """The scripts that previously called `gh repo view` now read the cache."""
+    """The scripts that previously called `gh repo view` now read the cached
+    default branch — either the `$KanbanDefaultBranch` constant or via the run
+    context (`$ctx.DefaultBranch` from Get-KanbanContext, see ADR-013)."""
     for name in ("implement.ps1", "merge.ps1", "run.ps1"):
         code = _code(KANBAN / name)
-        assert "$KanbanDefaultBranch" in code, (
-            f"{name} should resolve the default branch via $KanbanDefaultBranch"
+        assert "DefaultBranch" in code, (
+            f"{name} should resolve the default branch from the cache "
+            f"($KanbanDefaultBranch or $ctx.DefaultBranch), not `gh repo view`"
         )
 
 
