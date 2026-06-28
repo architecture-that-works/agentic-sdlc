@@ -31,3 +31,8 @@ tasks:
     desc: "Recovery — reset a stuck or failed issue back to agent:backlog (ISSUE=N required)"
     cmds:
       - pwsh -NoProfile -File .github/scripts/kanban/retry.ps1 -Issue {{.ISSUE}}
+
+  protect:
+    desc: "Governance — apply branch-protection rules to main (requires GH_TOKEN with repo/admin scope)"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/setup-branch-protection.ps1
