@@ -61,6 +61,10 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      # Default branch from the event payload — lets _common.ps1 resolve it with
+      # zero API cost (no `gh repo view`, which is GraphQL-bound). See memory
+      # project_graphql_budget.
+      GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
       KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
       KANBAN_PROJECT_ID: ${{ vars.KANBAN_PROJECT_ID }}
@@ -192,6 +196,7 @@ jobs:
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -253,7 +258,8 @@ jobs:
         if: steps.already-merged.outputs.skip != 'true'
         run: |
           PR_NUMBER=${{ steps.resolve-pr.outputs.pr_number }}
-          DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name')
+          # From the event payload (job env) — avoids a GraphQL `gh repo view`.
+          DEFAULT_BRANCH="${GITHUB_DEFAULT_BRANCH}"
 
           # Poll CI via --json, NOT --watch: --watch emits non-deterministic mixed
           # stdout/stderr that previously crashed the orchestrator (see merge.ps1).

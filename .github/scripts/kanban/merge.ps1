@@ -131,7 +131,7 @@ $contextContent
     }
 
     # Push to default branch
-    $defaultBranch = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'
+    $defaultBranch = $KanbanDefaultBranch
     git push origin $defaultBranch 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Push failed for context update — reverting local commit to keep $defaultBranch in sync." -Color Yellow
@@ -160,7 +160,7 @@ $contextContent
 function Invoke-RebaseOnMaster {
     param([int]$IssueNumber, [string]$Branch)
 
-    $default = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>&1 | Out-String | ForEach-Object { $_.Trim() }
+    $default = $KanbanDefaultBranch
     git fetch --quiet origin $default 2>&1 | Out-Null
 
     $mergeBase  = git merge-base HEAD "origin/$default" 2>&1 | Out-String | ForEach-Object { $_.Trim() }
@@ -314,7 +314,7 @@ function Invoke-Merge {
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:merged'
     Add-Comment -Number $IssueNumber -Body "🤖✅ Merged`n`nPR #$PRNumber squash-merged. Issue closed."
 
-    $default = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'
+    $default = $KanbanDefaultBranch
     git checkout --quiet $default
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Could not switch to $default after merge — context update skipped." -Color Yellow
