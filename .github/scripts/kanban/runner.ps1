@@ -33,10 +33,33 @@ param([switch]$Force)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_common.ps1"
 
+# ── Pre-flight: GraphQL budget ───────────────────────────────────────────────
+# Reading the backlog (gh issue list) AND the whole cloud pipeline drive the
+# GraphQL API, which throttles separately from REST (5000 pts/hr each).
+# `rate_limit` is a free endpoint, so check it first and fail with a precise
+# reset time rather than a raw gh error if the budget is gone.
+$gql = gh api rate_limit --jq '.resources.graphql | "\(.remaining) \(.reset)"' 2>$null
+if ($gql -match '^(\d+)\s+(\d+)$') {
+    $gqlRemaining = [int]$Matches[1]
+    $gqlReset     = [DateTimeOffset]::FromUnixTimeSeconds([int]$Matches[2]).ToLocalTime().ToString('HH:mm')
+    if ($gqlRemaining -eq 0) {
+        throw "GraphQL rate limit exhausted (resets ~$gqlReset). Reading the backlog and the cloud pipeline both need GraphQL — retry after reset."
+    }
+    if ($gqlRemaining -lt 500) {
+        Write-Log "  ⚠️ GraphQL budget low ($gqlRemaining left, resets ~$gqlReset). The cloud pipeline may stall on board updates until then." -Color Yellow
+    }
+}
+
 # ── Pre-flight: is there anything to drain? ──────────────────────────────────
-$backlog = gh issue list --repo $KanbanRepo `
+# Capture gh's exit code: a failed read (rate limit, auth, bad repo) must throw,
+# never be mistaken for an empty queue and reported as "nothing to drain".
+$raw = gh issue list --repo $KanbanRepo `
     --label 'agent:backlog' --state open `
-    --json number,title --jq 'sort_by(.number)' | ConvertFrom-Json
+    --json number,title --jq 'sort_by(.number)' 2>&1
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to read the agent:backlog queue (gh exited $LASTEXITCODE):`n$raw"
+}
+$backlog = $raw | ConvertFrom-Json
 $count = @($backlog).Count
 if ($count -eq 0) {
     Write-Log "No open agent:backlog issues — nothing to drain." -Color Yellow

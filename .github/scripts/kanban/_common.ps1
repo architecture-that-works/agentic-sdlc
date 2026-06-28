@@ -38,7 +38,25 @@ $KanbanStopWords = @(
 )
 
 $KanbanLogFile = "$_Root\logs\kanban.log"
-$KanbanRepo    = gh repo view --json nameWithOwner --jq '.nameWithOwner'
+
+# Resolve the repo slug WITHOUT a GraphQL call. `gh repo view` hits the GraphQL
+# API, which throttles independently of REST (5000 pts/hr each). When GraphQL is
+# exhausted this returned an empty string, silently breaking every downstream
+# `gh ... --repo ''` call (a blank --repo swallows the next flag). Prefer the GHA
+# env var, then the git remote; fall back to gh repo view only if both are absent.
+$KanbanRepo = $env:GITHUB_REPOSITORY
+if (-not $KanbanRepo) {
+    $_originUrl = git remote get-url origin 2>$null
+    if ($_originUrl -match '([^/:]+/[^/]+?)(\.git)?$') {
+        $KanbanRepo = $Matches[1]
+    } else {
+        # Last resort — costs one GraphQL call.
+        $KanbanRepo = gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>$null
+    }
+}
+if (-not $KanbanRepo) {
+    throw "Cannot resolve the repository slug — set GITHUB_REPOSITORY, add a git 'origin' remote, or check 'gh auth status'."
+}
 
 # ── Orchestrator configuration (config.ps1 → .env overrides) ─────────────────
 . "$PSScriptRoot\config.ps1"
