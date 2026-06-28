@@ -106,6 +106,42 @@ def test_generated_project_passes_tests(project_type: str, tmp_path: Path) -> No
     )
 
 
+def test_pre_commit_config_inherited_via_copier(tmp_path: Path) -> None:
+    # vcs_ref="HEAD" ensures staged-but-uncommitted template changes are included
+    # in the generated project, matching how copier behaves between tagged releases.
+    copier.run_copy(
+        src_path=str(TEMPLATE_ROOT),
+        dst_path=str(tmp_path),
+        data={
+            "project_name": "smoke-precommit",
+            "description": "Pre-commit smoke test",
+            "project_type": "application",
+        },
+        defaults=True,
+        unsafe=True,
+        overwrite=True,
+        vcs_ref="HEAD",
+    )
+
+    pre_commit_config = tmp_path / ".pre-commit-config.yaml"
+    assert pre_commit_config.exists(), (
+        "Generated project missing .pre-commit-config.yaml — "
+        "pre-commit config must travel via copier (issue #120)"
+    )
+
+    content = pre_commit_config.read_text()
+    assert "uv run ruff check" in content, (
+        ".pre-commit-config.yaml must invoke 'uv run ruff check' to mirror CI lint job"
+    )
+    assert "uv run ruff format --check" in content, (
+        ".pre-commit-config.yaml must invoke 'uv run ruff format --check' to mirror CI lint job"
+    )
+    assert "language: system" in content, (
+        ".pre-commit-config.yaml must use language: system so uv run resolves "
+        "the project ruff without a separate pre-commit-managed environment"
+    )
+
+
 def test_skills_travel_via_copier(tmp_path: Path) -> None:
     copier.run_copy(
         src_path=str(TEMPLATE_ROOT),
