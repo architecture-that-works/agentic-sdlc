@@ -175,261 +175,76 @@ jobs:
             Write-Output "Backlog fully drained."
           }
 
-  # ── Merge ────────────────────────────────────────────────────────────────────
+  # ── Merge (approved PR) — reuses the Kanban library's Invoke-Merge ───────────
   merge:
-    name: Squash-merge and update CONTEXT.md
+    name: Merge approved PR and update CONTEXT.md
     if: >-
       (github.event_name == 'issues' &&
        github.event.label.name == 'agent:review') ||
       (github.event_name == 'workflow_dispatch' &&
        inputs.stage == 'merge')
     runs-on: ubuntu-latest
-    # Same concurrency group as implement: if the pipeline job is still running
-    # (it already holds this slot), this job queues. By the time it starts, the
-    # pipeline has already merged and the "already merged" guard below exits cleanly.
+    # Same concurrency group as implement: if the pipeline is still running it has
+    # already merged, and the already-merged guard below makes this job a no-op.
     concurrency:
       group: implement-pipeline
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+      # Invoke-Merge → Set-AgentState/Move-ToLane needs the board vars (as env).
+      KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
+      KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
+      KANBAN_PROJECT_ID: ${{ vars.KANBAN_PROJECT_ID }}
+      KANBAN_STATUS_FIELD_ID: ${{ vars.KANBAN_STATUS_FIELD_ID }}
+      KANBAN_OPT_BACKLOG: ${{ vars.KANBAN_OPT_BACKLOG }}
+      KANBAN_OPT_IMPLEMENTING: ${{ vars.KANBAN_OPT_IMPLEMENTING }}
+      KANBAN_OPT_REVIEW: ${{ vars.KANBAN_OPT_REVIEW }}
+      KANBAN_OPT_MERGED: ${{ vars.KANBAN_OPT_MERGED }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           token: ${{ secrets.GH_TOKEN }}
 
-      - name: Skip if already merged by pipeline
-        id: already-merged
+      - name: Tooling (git identity + Claude for the CONTEXT.md update)
+        shell: bash
         run: |
-          LABELS=$(gh issue view "$ISSUE_NUMBER" --json labels \
-            --jq '[.labels[].name]' 2>/dev/null)
-          if echo "$LABELS" | grep -q '"agent:merged"'; then
-            echo "Issue #$ISSUE_NUMBER already merged by pipeline — skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Claude is only needed for Invoke-ContextUpdate; install it only when a
+          # token is present (forks without it skip the CONTEXT.md update cleanly).
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            sudo npm install -g @anthropic-ai/claude-code
           else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLAUDE_CODE_OAUTH_TOKEN not set — Claude not installed; post-merge CONTEXT.md update will be skipped."
           fi
 
-      - name: Resolve PR for issue
-        id: resolve-pr
-        if: steps.already-merged.outputs.skip != 'true'
+      - name: Merge approved PR via the Kanban library
+        shell: pwsh
         run: |
-          # Derive expected branch name following kanban convention:
-          # feature/{number}-word1-word2-word3 (stop-words filtered, first 3 content words)
-          ISSUE_TITLE=$(gh issue view "$ISSUE_NUMBER" --json title --jq '.title')
-          STOP_WORDS="a an the and or for to of in on at with via by from fix feat add update remove"
-          WORDS=""
-          COUNT=0
-          for W in $ISSUE_TITLE; do
-            LC=$(printf '%s' "$W" | tr '[:upper:]' '[:lower:]' | tr -dc '[:alnum:]')
-            if [ -n "$LC" ] && ! printf '%s\n' $STOP_WORDS | grep -qx "$LC" && [ "$COUNT" -lt 3 ]; then
-              WORDS="${WORDS}-${LC}"
-              COUNT=$((COUNT + 1))
-            fi
-          done
-          BRANCH="feature/${ISSUE_NUMBER}${WORDS}"
+          # Label-triggered / manual merges reuse the SAME merge as the AFK pipeline
+          # (Invoke-Merge): CI gate → squash-merge → agent:merged → CONTEXT.md update.
+          # Single source of truth — no bash re-implementation (ADR-013).
+          Import-Module "$env:GITHUB_WORKSPACE/.github/scripts/kanban/Kanban.psd1" -Force
+          $issue = [int]$env:ISSUE_NUMBER
+          if ($issue -le 0) { throw "ISSUE_NUMBER did not resolve to a positive issue." }
 
-          PR_NUMBER=$(gh pr list --head "$BRANCH" --state open \
-            --json number --jq '.[0].number // empty' 2>/dev/null)
-
-          if [ -z "$PR_NUMBER" ]; then
-            PR_NUMBER=$(gh pr list --state open \
-              --json number,closingIssuesReferences \
-              --jq ".[] | select(.closingIssuesReferences[].number == $ISSUE_NUMBER) | .number" \
-              2>/dev/null | head -1)
-          fi
-
-          if [ -z "$PR_NUMBER" ]; then
-            echo "::error::No open PR found for issue #${ISSUE_NUMBER} (branch: ${BRANCH})"
-            exit 1
-          fi
-
-          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
-          echo "Resolved PR #${PR_NUMBER} for issue #${ISSUE_NUMBER}"
-
-      - name: Wait for CI checks and squash-merge
-        id: squash-merge
-        if: steps.already-merged.outputs.skip != 'true'
-        run: |
-          PR_NUMBER=${{ steps.resolve-pr.outputs.pr_number }}
-          # From the event payload (job env) — avoids a GraphQL `gh repo view`.
-          DEFAULT_BRANCH="${GITHUB_DEFAULT_BRANCH}"
-
-          # Poll CI via --json, NOT --watch: --watch emits non-deterministic mixed
-          # stdout/stderr that previously crashed the orchestrator (see Merge.ps1).
-          #   empty       → checks not registered yet (keep polling within the register window)
-          #   fail/cancel → real failure
-          #   pending     → in progress
-          #   else        → all pass/skipping → green
-          REGISTER_DEADLINE=$(( $(date +%s) + 60 ))     # wait up to 60s for a check to register
-          COMPLETION_DEADLINE=$(( $(date +%s) + 900 ))  # 15-min ceiling for total CI duration
-          while :; do
-            BUCKETS=$(gh pr checks "$PR_NUMBER" --json bucket --jq '[.[].bucket] | join(" ")' 2>/dev/null)
-            NOW=$(date +%s)
-            if [ -z "$BUCKETS" ]; then
-              if [ "$NOW" -ge "$REGISTER_DEADLINE" ]; then
-                echo "::warning::No CI checks registered after 60s — proceeding on approval gate alone."
-                break
-              fi
-              sleep 10; continue
-            fi
-            case " $BUCKETS " in
-              *" fail "*|*" cancel "*)
-                echo "::error::CI checks failed for PR #${PR_NUMBER} (${BUCKETS})"; exit 1 ;;
-              *" pending "*)
-                if [ "$NOW" -ge "$COMPLETION_DEADLINE" ]; then
-                  echo "::error::CI did not complete within 15 min for PR #${PR_NUMBER}"; exit 1
-                fi
-                sleep 10; continue ;;
-              *) break ;;
-            esac
-          done
-
-          gh pr merge "$PR_NUMBER" --squash --delete-branch
-
-          git fetch origin "$DEFAULT_BRANCH"
-          git checkout "$DEFAULT_BRANCH"
-          git reset --hard "origin/${DEFAULT_BRANCH}"
-
-          echo "default_branch=${DEFAULT_BRANCH}" >> "$GITHUB_OUTPUT"
-
-      - name: Apply agent:merged label and post merge comment
-        if: success() && steps.already-merged.outputs.skip != 'true'
-        run: |
-          PR_NUMBER=${{ steps.resolve-pr.outputs.pr_number }}
-
-          CURRENT=$(gh issue view "$ISSUE_NUMBER" --json labels \
-            --jq '[.labels[].name | select(startswith("agent:"))] | first // empty' 2>/dev/null)
-
-          if [ -n "$CURRENT" ] && [ "$CURRENT" != "null" ] && [ "$CURRENT" != "agent:merged" ]; then
-            gh issue edit "$ISSUE_NUMBER" \
-              --remove-label "$CURRENT" --add-label 'agent:merged'
-          else
-            gh issue edit "$ISSUE_NUMBER" --add-label 'agent:merged' 2>/dev/null || true
-          fi
-
-          gh issue comment "$ISSUE_NUMBER" \
-            --body "✅ PR #${PR_NUMBER} merged. Issue complete."
-
-      # ── Post-merge CONTEXT.md update (ported from Merge.ps1 Invoke-ContextUpdate)
-      - name: Update CONTEXT.md after merge
-        if: success() && steps.already-merged.outputs.skip != 'true'
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # Static prompt template — dynamic sections are appended at runtime
-          CONTEXT_UPDATE_PROMPT: |-
-            You are updating CONTEXT.md for a software project after a PR was merged.
-
-            Analyse the merged diff, the issue body, and the current CONTEXT.md.
-            Produce targeted patches to any of the three sections below if new content is warranted:
-              1. Glossary         — new domain terms introduced by this change
-              2. Bounded Contexts — ownership changes if new modules or contexts were added
-              3. Out of Scope     — decisions explicitly deferred or rejected during implementation
-
-            STRICT OUTPUT RULES:
-            - Return ONLY a valid unified diff for CONTEXT.md, starting with "--- a/CONTEXT.md" and "+++ b/CONTEXT.md".
-            - OR return the exact string NO_CHANGES (and nothing else) if no section needs updating.
-            - Do NOT include markdown code fences, explanations, or any other text.
-            - Do NOT reword or duplicate existing entries.
-            - The patch MUST be directly applicable via: git apply
-        run: |
-          set +e  # Failure here is non-blocking — the merge already succeeded
-          DEFAULT_BRANCH=${{ steps.squash-merge.outputs.default_branch }}
-          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-
-          # AFK path (cloud runner) is opt-in via CLAUDE_CODE_OAUTH_TOKEN.
-          # Without it the cloud runner has no Claude auth and no way to run
-          # the update. HITL merges via local `task` invocations run
-          # Merge.ps1's Invoke-ContextUpdate against the developer's local
-          # Claude installation — those keep working independently of this
-          # step. Skip silently here (no warning comment) so AFK pipelines
-          # stay quiet when the token is intentionally absent.
-          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-            echo "::notice::CLAUDE_CODE_OAUTH_TOKEN not set — skipping post-merge CONTEXT.md update (HITL merges handle this locally)."
-            exit 0
-          fi
-
-          _fail() {
-            echo "::warning::Post-merge CONTEXT.md update failed: ${1}"
-            gh issue comment "$ISSUE_NUMBER" \
-              --body "⚠️ Post-merge CONTEXT.md update failed — manual update may be needed. Run: ${RUN_URL}"
+          # The agent:review label that triggered this also queues the job behind a
+          # running implement pipeline (same concurrency group). If that pipeline
+          # already merged, skip — Invoke-Merge would otherwise find no open PR.
+          $merged = gh api "repos/$env:GITHUB_REPOSITORY/issues/$issue/labels" `
+            --jq 'any(.[]; .name == "agent:merged")' 2>$null
+          if ($merged -eq 'true') {
+            Write-Host "Issue #$issue already merged by the pipeline — skipping."
             exit 0
           }
 
-          if [ ! -f CONTEXT.md ]; then
-            _fail "CONTEXT.md not found"
-          fi
+          # This job checks out the default branch; make the feature branch
+          # available locally for Invoke-Merge's checkout + rebase.
+          git fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
 
-          DIFF=$(git show HEAD 2>/dev/null) || _fail "git show HEAD failed"
-          ISSUE_BODY=$(gh issue view "$ISSUE_NUMBER" --json body --jq '.body' 2>/dev/null) \
-            || _fail "gh issue view failed"
-
-          # Install Claude CLI if not present and token is available.
-          # sudo: ubuntu-latest npm global prefix is /usr/local/lib/node_modules,
-          # which requires elevated perms. Without sudo the install silently
-          # fails and `command -v claude` returns nothing.
-          # The stderr is no longer redirected to /dev/null so install errors
-          # surface in the workflow log if they occur.
-          if ! command -v claude &>/dev/null; then
-            if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-              sudo npm install -g @anthropic-ai/claude-code || true
-            fi
-          fi
-
-          if ! command -v claude &>/dev/null; then
-            _fail "claude CLI not available after install attempt"
-          fi
-
-          PROMPT_FILE=$(mktemp)
-          {
-            printf '%s\n' "$CONTEXT_UPDATE_PROMPT"
-            printf '\nMERGED DIFF:\n%s\n\nISSUE BODY:\n%s\n\nCURRENT CONTEXT.md:\n' \
-              "$DIFF" "$ISSUE_BODY"
-            cat CONTEXT.md
-          } > "$PROMPT_FILE"
-
-          RESPONSE=$(cat "$PROMPT_FILE" | claude --print 2>/dev/null)
-          CLAUDE_EXIT=$?
-          rm -f "$PROMPT_FILE"
-
-          if [ "$CLAUDE_EXIT" -ne 0 ] || [ -z "$RESPONSE" ]; then
-            _fail "claude --print exited ${CLAUDE_EXIT}"
-          fi
-
-          # Check for NO_CHANGES (strip all whitespace for robust comparison)
-          if [ "$(printf '%s' "$RESPONSE" | tr -d '[:space:]')" = "NO_CHANGES" ]; then
-            gh issue comment "$ISSUE_NUMBER" \
-              --body "✅ CONTEXT.md up-to-date — no update needed."
-            exit 0
-          fi
-
-          PATCH_FILE=$(mktemp)
-          printf '%s' "$RESPONSE" > "$PATCH_FILE"
-          git apply "$PATCH_FILE" 2>/dev/null
-          APPLY_EXIT=$?
-          rm -f "$PATCH_FILE"
-
-          if [ "$APPLY_EXIT" -ne 0 ]; then
-            _fail "git apply failed — malformed Claude response"
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add CONTEXT.md
-          git commit -m "chore(context): update after merge of #${ISSUE_NUMBER}" \
-            2>/dev/null || _fail "git commit failed"
-
-          # Direct push to the default branch BY EXCEPTION: the post-merge CONTEXT.md
-          # update is a bot commit, not a feature PR. Under branch protection (issue #92)
-          # the orchestrator identity (github-actions[bot] / GH_TOKEN) must be on the
-          # "allow specified actors to bypass" list, or this push is rejected. Failure is
-          # non-blocking — the squash-merge already landed — so we warn and exit 0.
-          git push origin "$DEFAULT_BRANCH" 2>/dev/null \
-            || _fail "git push to ${DEFAULT_BRANCH} failed (is the bot exempt from branch protection?)"
-
-          COMMIT_SHA=$(git rev-parse HEAD)
-          gh issue comment "$ISSUE_NUMBER" \
-            --body "📝 CONTEXT.md updated after merge (${COMMIT_SHA})"
+          $pr = Resolve-PR -IssueNumber $issue
+          Invoke-Merge -IssueNumber $issue -PRNumber $pr
