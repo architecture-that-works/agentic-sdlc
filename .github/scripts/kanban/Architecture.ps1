@@ -4,7 +4,7 @@
     Phase A.5 — Architecting: blast-radius computation between refine and implement.
 
 .DESCRIPTION
-    Internal function library — dot-sourced by implement.ps1. Not a direct Taskfile target.
+    Kanban library — loaded by Kanban.psm1; Invoke-Architecture is called by Invoke-Implement.
 
     Runs between Invoke-Refine and Invoke-Develop:
       1. Creates .planning/<issue>/ for per-issue artifacts.
@@ -16,7 +16,7 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-# Module-internal library — loaded by Kanban.psm1 (which loads _common.ps1 first).
+# Module-internal library — loaded by Kanban.psm1 (which loads Config.ps1 first).
 # Not dot-sourced individually; see ADR-013.
 
 # ── State.json helpers ────────────────────────────────────────────────────────

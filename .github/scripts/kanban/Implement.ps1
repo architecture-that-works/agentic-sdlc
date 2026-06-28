@@ -4,7 +4,7 @@
     Stage 2 — Implementing: Refine → Architecture → Develop → PR.
 
 .DESCRIPTION
-    Internal function library — dot-sourced by run.ps1. Not a direct Taskfile target.
+    Kanban library — loaded by Kanban.psm1; Invoke-Implement is called by Orchestrator.ps1.
 
     Phase A  Refine       — structures the issue body using the ISSUES.md template if
                             not already structured. Assigns estimate and priority if absent.
@@ -16,8 +16,8 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-# Module-internal library — loaded by Kanban.psm1, which loads _common.ps1,
-# architecture.ps1 and the refine _grill.ps1 (Invoke-Grill) before this file.
+# Module-internal library — loaded by Kanban.psm1, which loads Config.ps1,
+# Architecture.ps1 and the refine _grill.ps1 (Invoke-Grill) before this file.
 # Not dot-sourced individually; see ADR-013.
 
 # ── Phase A: Refine ───────────────────────────────────────────────────────────

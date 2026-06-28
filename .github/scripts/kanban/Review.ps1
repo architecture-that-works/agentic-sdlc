@@ -4,7 +4,7 @@
     Stage 3 — Agent self-review of open PR against acceptance criteria.
 
 .DESCRIPTION
-    Internal function library — dot-sourced by run.ps1. Not a direct Taskfile target.
+    Kanban library — loaded by Kanban.psm1; Invoke-Review is called by Orchestrator.ps1.
 
     Retrieves the PR diff and the linked issue's acceptance criteria, asks
     Claude Code to review the implementation, and posts the verdict as a
@@ -15,7 +15,7 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-# Module-internal library — loaded by Kanban.psm1 (which loads _common.ps1 first).
+# Module-internal library — loaded by Kanban.psm1 (which loads Config.ps1 first).
 # Not dot-sourced individually; see ADR-013.
 
 function Resolve-PR {
