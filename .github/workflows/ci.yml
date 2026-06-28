@@ -56,7 +56,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check module map
-        run: pwsh .github/scripts/check-module-map.ps1
+        run: pwsh .github/scripts/ci/check-module-map.ps1
 
   secret-scan:
     runs-on: ubuntu-latest

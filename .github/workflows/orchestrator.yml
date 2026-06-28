@@ -130,20 +130,21 @@ jobs:
         shell: pwsh
         env:
           # Run parameters travel as env — the only transport stable across the
-          # &-call into run.ps1, its dot-sources and nested pwsh (see ADR-013).
-          # run.ps1 reads them via Get-KanbanContext and fails loud on a missing
-          # or non-positive issue number, so the pipeline can never silently run
-          # against #0 (the earlier failure mode).
+          # module import and nested pwsh (see ADR-013). Get-KanbanContext reads
+          # them; the fail-loud guard below means the pipeline can never silently
+          # run against #0 (the earlier failure mode).
           KANBAN_ISSUE: ${{ steps.resolve.outputs.issue_number }}
           KANBAN_MAX_RETRIES: '3'
         run: |
-          # Phase A   — refine (implement.ps1 Invoke-Refine)
-          # Phase A.5 — architecture (architecture.ps1 Invoke-Architecture):
-          #             emits .planning/<issue>/BLAST_RADIUS.md,
-          #             posts blast-radius PR comment, records state transitions.
-          # Phase B   — develop (implement.ps1 Invoke-Develop via Claude Code)
-          # Phase C   — commit + PR (implement.ps1 Invoke-CommitAndPR)
-          & .github/scripts/kanban/run.ps1
+          # The Kanban library (Import-Module) runs the full pipeline:
+          #   refine → architecture → develop → PR → review loop → merge.
+          # Absolute path: Import-Module treats a bare relative path as a module NAME.
+          Import-Module "$env:GITHUB_WORKSPACE/.github/scripts/kanban/Kanban.psd1" -Force
+          $ctx = Get-KanbanContext
+          if ($ctx.IssueNumber -le 0) {
+            throw "KANBAN_ISSUE='$($ctx.IssueNumber)' did not resolve to a positive issue number — refusing to run against #0."
+          }
+          Invoke-Orchestration -IssueNumber $ctx.IssueNumber
 
       - name: Drain remaining backlog
         if: always() && steps.resolve.outputs.issue_number != ''

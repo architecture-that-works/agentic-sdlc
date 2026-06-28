@@ -13,7 +13,8 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-. "$PSScriptRoot\_common.ps1"
+# Module-internal library — loaded by Kanban.psm1 (which loads _common.ps1 first).
+# Not dot-sourced individually; see ADR-013.
 
 function Test-HasApproval {
     param([int]$IssueNumber, [int]$PRNumber)

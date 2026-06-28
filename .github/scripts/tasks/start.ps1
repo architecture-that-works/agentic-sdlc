@@ -27,9 +27,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. "$PSScriptRoot\_common.ps1"
+Import-Module "$PSScriptRoot\..\kanban\Kanban.psd1" -Force
+$ctx                 = Get-KanbanContext
+$KanbanRepo          = $ctx.Repo
+$KanbanProjectNumber = $ctx.ProjectNumber
 
-if ($MaxRetries -lt 0) { $MaxRetries = $KanbanMaxRetries }
+if ($MaxRetries -lt 0) { $MaxRetries = $ctx.MaxRetries }
 
 # ── Fetch Backlog items for this repo ─────────────────────────────────────────
 
@@ -101,11 +104,9 @@ gh issue edit $num --repo $KanbanRepo --add-label 'HITL' 2>&1 | Out-Null
 Write-Log "  HITL label added to #$num — GHA will not pick this up." -Color DarkGray
 
 try {
-    # Publish run parameters to the env transport — run.ps1 reads them via
-    # Get-KanbanContext (no -Issue parameter; see ADR-013).
-    $env:KANBAN_ISSUE       = $num
-    $env:KANBAN_MAX_RETRIES = $MaxRetries
-    & "$PSScriptRoot\run.ps1"
+    # Run the orchestrator locally (HITL). IssueNumber + MaxRetries are passed
+    # explicitly — the module is already imported above.
+    Invoke-Orchestration -IssueNumber $num -MaxRetries $MaxRetries
 } finally {
     gh issue edit $num --repo $KanbanRepo --remove-label 'HITL' 2>&1 | Out-Null
     Write-Log "  HITL label removed from #$num." -Color DarkGray

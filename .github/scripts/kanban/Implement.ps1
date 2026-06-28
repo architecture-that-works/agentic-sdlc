@@ -16,13 +16,9 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-. "$PSScriptRoot\_common.ps1"
-. "$PSScriptRoot\architecture.ps1"
-# Dot-source the self-grill subagent LIBRARY (not the grill.ps1 CLI) so
-# Invoke-Refine can call Invoke-Grill directly. _grill.ps1 has no top-level
-# param() block, so dot-sourcing it cannot clobber this scope's variables —
-# the CLI wrapper's param() once leaked $Issue=0 into run.ps1 (see ADR-013).
-. "$PSScriptRoot\..\..\..\.agents\skills\refine\scripts\_grill.ps1"
+# Module-internal library — loaded by Kanban.psm1, which loads _common.ps1,
+# architecture.ps1 and the refine _grill.ps1 (Invoke-Grill) before this file.
+# Not dot-sourced individually; see ADR-013.
 
 # ── Phase A: Refine ───────────────────────────────────────────────────────────
 
