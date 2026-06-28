@@ -21,9 +21,7 @@ WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "orchestrator.y
 # Per-issue stage scripts — these run inside a drain and must never resolve the
 # default branch via GraphQL. _common.ps1 is the one place a guarded last-resort
 # fallback is allowed (see test_common_gh_repo_view_only_guarded_fallback).
-STAGE_SCRIPTS = [
-    p for p in KANBAN.glob("*.ps1") if p.name != "_common.ps1"
-]
+STAGE_SCRIPTS = [p for p in KANBAN.glob("*.ps1") if p.name != "_common.ps1"]
 
 
 def _code_lines(path: Path) -> list[str]:
@@ -73,8 +71,7 @@ def test_no_gh_repo_view_in_orchestrator_workflow() -> None:
     (GITHUB_DEFAULT_BRANCH), never via GraphQL `gh repo view`."""
     hits = [ln for ln in _code_lines(WORKFLOW) if "gh repo view" in ln]
     assert not hits, (
-        "orchestrator.yml must use $GITHUB_DEFAULT_BRANCH, not `gh repo view`:\n"
-        f"{hits}"
+        f"orchestrator.yml must use $GITHUB_DEFAULT_BRANCH, not `gh repo view`:\n{hits}"
     )
 
 
