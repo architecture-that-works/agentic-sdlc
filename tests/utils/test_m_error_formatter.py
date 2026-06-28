@@ -1,8 +1,6 @@
 import subprocess
 import sys
 
-import pytest
-
 from src.utils.m_error_formatter import format_error
 
 _PYTEST_FAILURE = """\
@@ -27,6 +25,24 @@ Traceback (most recent call last):
     result = compute()
 E   ValueError: unexpected value
 src/baz.py:5:1: E501 Line too long (120 > 88)
+"""
+
+_DEEP_TRACEBACK_WITH_LINT = """\
+Traceback (most recent call last):
+  File "tests/test_deep.py", line 10, in test_deep
+    call_a()
+  File "src/a.py", line 20, in call_a
+    call_b()
+  File "src/b.py", line 30, in call_b
+    call_c()
+  File "src/c.py", line 40, in call_c
+    call_d()
+  File "src/d.py", line 50, in call_d
+    call_e()
+  File "src/e.py", line 60, in call_e
+    raise ValueError("deep error")
+ValueError: deep error
+src/foo.py:1:1: E302 Expected 2 blank lines, found 1
 """
 
 
@@ -96,8 +112,16 @@ def test_format_mixed_output_preserves_all():
     assert "ValueError" in result
     assert "<details>" in result
     assert "unexpected value" in result
-    # Full raw preserved — ruff line is in the output
-    assert "E501" in result
+    # Ruff violation must appear in the salient summary section, not only in <details>
+    summary_section = result.split("<details>")[0]
+    assert "E501" in summary_section
+
+
+def test_format_mixed_ruff_in_salient_when_many_traceback_frames():
+    """Ruff violations must appear in the salient section even with ≥5 traceback frames."""
+    result = format_error(_DEEP_TRACEBACK_WITH_LINT)
+    summary_section = result.split("<details>")[0]
+    assert "E302" in summary_section
 
 
 def test_format_mixed_output_has_likely_cause():

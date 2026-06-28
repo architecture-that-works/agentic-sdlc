@@ -28,6 +28,9 @@ _EXCEPTION_SUFFIX = re.compile(
     r"^(\w[\w.]*)(?:Error|Exception|Warning|Fault|Failure|Interrupt|Exit|Stop)"
     r"\s*(?::\s*(.*))?$",
 )
+_EXCEPTION_NAME_RE = re.compile(
+    r"^(\w[\w.]*)(?:Error|Exception)\s*(?::\s*(.*))?$",
+)
 _PYTEST_E_RE = re.compile(r"^E\s+(.+)$", re.MULTILINE)
 _RUFF_VIOLATION_RE = re.compile(
     r"^(.+?):(\d+):(\d+):\s+([A-Z]\d+)\s+(.+)$",
@@ -55,10 +58,7 @@ def _detect_error_class(lines: list[str]) -> tuple[str, str]:
         candidate = line.strip()
         if candidate.startswith("E ") or candidate.startswith("E\t"):
             candidate = candidate[1:].strip()
-        for pattern in (
-            _EXCEPTION_SUFFIX,
-            re.compile(r"^(\w[\w.]*)(?:Error|Exception)\s*(?::\s*(.*))?$"),
-        ):
+        for pattern in (_EXCEPTION_SUFFIX, _EXCEPTION_NAME_RE):
             m = pattern.match(candidate)
             if m:
                 cls = m.group(0).split(":")[0].strip().split()[-1]
@@ -124,11 +124,8 @@ def _parse_ruff(raw: str) -> _Parsed | None:
         f"  {v[0]}:{v[1]}:{v[2]}: {v[3]} {v[4]}"
         for v in violations[:_SALIENT_FRAME_COUNT]
     ]
-    if violations:
-        first = violations[0]
-        p.likely_cause = f"Linter: {first[3]} {first[4]} ({first[0]}:{first[1]})"
-    else:
-        p.likely_cause = _likely_cause("LintError", p.message, None)
+    first = violations[0]
+    p.likely_cause = f"Linter: {first[3]} {first[4]} ({first[0]}:{first[1]})"
     return p
 
 
@@ -166,7 +163,10 @@ def format_error(raw: str) -> str:
         parsed = _parse_traceback(raw)
         ruff = _parse_ruff(raw)
         if ruff and ruff.frames:
-            parsed.frames = ruff.frames + parsed.frames
+            # Allocate salient slots fairly: half to ruff violations, rest to traceback
+            ruff_count = min(len(ruff.frames), max(1, _SALIENT_FRAME_COUNT // 2))
+            trace_count = _SALIENT_FRAME_COUNT - ruff_count
+            parsed.frames = ruff.frames[:ruff_count] + parsed.frames[-trace_count:]
     else:
         ruff = _parse_ruff(raw)
         parsed = ruff if ruff is not None else _parse_traceback(raw)
