@@ -170,8 +170,11 @@ jobs:
           $remaining = if ($remaining) { [int]$remaining.Trim() } else { 0 }
           if ($remaining -gt 0) {
             Write-Output "$remaining remaining agent:backlog issue(s) — dispatching next drain run."
+            # Re-dispatch on the SAME ref so a branch-run drains entirely on that
+            # branch's code (defaults to the default branch for a normal main run).
             gh workflow run orchestrator.yml `
               --repo $env:GITHUB_REPOSITORY `
+              --ref "$env:GITHUB_REF_NAME" `
               --field stage=implement `
               --field issue_number=0
           } else {

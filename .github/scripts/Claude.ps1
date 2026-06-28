@@ -23,67 +23,83 @@ function Format-ToolLine {
 }
 
 # Invoke Claude with streaming JSON output, printing tool use and text to the
-# terminal. Returns the full text response as a string. Throws if Claude exits
-# non-zero. Callers must pass -Model (use Get-PhaseModel) and -MaxTurns explicitly.
+# terminal. Returns the full text response as a string. Callers must pass -Model
+# (use Get-PhaseModel) and -MaxTurns explicitly.
+#
+# Retries on a non-zero exit (transient Claude API errors — overloaded 529, rate
+# limit, network blips — exit the CLI non-zero after its own internal retries).
+# Without this, a single transient blip in a read-only phase (e.g. Review) failed
+# the whole issue to agent:failed even though a retry would have succeeded. Throws
+# only after $MaxAttempts exhausted.
 function Invoke-ClaudeStreaming {
     param(
         [string]$Prompt,
         [string]$AllowedTools = 'Read,Glob,Grep',
         [string]$Label = 'Claude',
         [string]$Model = 'claude-sonnet-4-6',
-        [int]$MaxTurns = 30
+        [int]$MaxTurns = 30,
+        [int]$MaxAttempts = 3
     )
 
     Write-Log "  ▶ $Label — model=$Model turns=$MaxTurns" -Color DarkGray
 
-    $allText    = [System.Text.StringBuilder]::new()
-    $toolCalls  = [System.Collections.Generic.List[string]]::new()
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        $allText   = [System.Text.StringBuilder]::new()
+        $toolCalls = [System.Collections.Generic.List[string]]::new()
 
-    $Prompt | claude --model $Model --allowedTools $AllowedTools --max-turns $MaxTurns --output-format stream-json --verbose 2>&1 |
-    ForEach-Object {
-        $raw = [string]$_
-        try {
-            $ev = $raw | ConvertFrom-Json -ErrorAction Stop
+        $Prompt | claude --model $Model --allowedTools $AllowedTools --max-turns $MaxTurns --output-format stream-json --verbose 2>&1 |
+        ForEach-Object {
+            $raw = [string]$_
+            try {
+                $ev = $raw | ConvertFrom-Json -ErrorAction Stop
 
-            $blocks = if ($ev.message.content) { $ev.message.content }
-                      elseif ($ev.content)      { $ev.content }
-                      else                      { @() }
+                $blocks = if ($ev.message.content) { $ev.message.content }
+                          elseif ($ev.content)      { $ev.content }
+                          else                      { @() }
 
-            foreach ($block in $blocks) {
-                switch ($block.type) {
-                    'text' {
-                        Write-Host $block.text -NoNewline
-                        # Append a trailing newline so consecutive text blocks
-                        # (separated by tool_use in the stream) are not joined
-                        # flush. Without this, downstream regex like
-                        # "(?im)^APPROVED" miss verdicts that started a block
-                        # because they end up mid-line in $allText.
-                        $null = $allText.Append($block.text)
-                        $null = $allText.Append("`n")
-                    }
-                    'tool_use' {
-                        $inputReady = ($block.input.PSObject.Properties | Measure-Object).Count -gt 0
-                        if ($inputReady) {
-                            $line = Format-ToolLine -Name $block.name -ToolInput $block.input
-                            Write-Host "`n  $line" -ForegroundColor DarkCyan
-                            $toolCalls.Add($line)
+                foreach ($block in $blocks) {
+                    switch ($block.type) {
+                        'text' {
+                            Write-Host $block.text -NoNewline
+                            # Append a trailing newline so consecutive text blocks
+                            # (separated by tool_use in the stream) are not joined
+                            # flush. Without this, downstream regex like
+                            # "(?im)^APPROVED" miss verdicts that started a block
+                            # because they end up mid-line in $allText.
+                            $null = $allText.Append($block.text)
+                            $null = $allText.Append("`n")
+                        }
+                        'tool_use' {
+                            $inputReady = ($block.input.PSObject.Properties | Measure-Object).Count -gt 0
+                            if ($inputReady) {
+                                $line = Format-ToolLine -Name $block.name -ToolInput $block.input
+                                Write-Host "`n  $line" -ForegroundColor DarkCyan
+                                $toolCalls.Add($line)
+                            }
                         }
                     }
                 }
-            }
 
-            if ($ev.type -eq 'result') { Write-Host '' }
-        } catch {
-            if ($raw.Trim()) { Write-Host $raw -ForegroundColor DarkGray }
+                if ($ev.type -eq 'result') { Write-Host '' }
+            } catch {
+                if ($raw.Trim()) { Write-Host $raw -ForegroundColor DarkGray }
+            }
+        }
+
+        if ($LASTEXITCODE -eq 0) {
+            $summary = if ($allText.Length -gt 0) { ($allText.ToString() -split "`n")[0].Trim() } else { '(no text output)' }
+            Write-Log "  ✓ $Label — $($toolCalls.Count) tool call(s). First line: $summary" -Color DarkGray
+            return $allText.ToString()
+        }
+
+        if ($attempt -lt $MaxAttempts) {
+            $backoff = 20 * $attempt
+            Write-Log "  ⚠️ $Label exited $LASTEXITCODE (attempt $attempt/$MaxAttempts) — retrying in ${backoff}s (transient API error?)." -Color Yellow
+            Start-Sleep -Seconds $backoff
         }
     }
 
-    if ($LASTEXITCODE -ne 0) { throw "$Label exited with code $LASTEXITCODE." }
-
-    $summary = if ($allText.Length -gt 0) { ($allText.ToString() -split "`n")[0].Trim() } else { '(no text output)' }
-    Write-Log "  ✓ $Label — $($toolCalls.Count) tool call(s). First line: $summary" -Color DarkGray
-
-    return $allText.ToString()
+    throw "$Label exited non-zero after $MaxAttempts attempt(s)."
 }
 
 # Commit message — Claude primary, fallback to the supplied message.
