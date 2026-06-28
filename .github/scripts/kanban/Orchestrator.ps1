@@ -10,20 +10,25 @@
         ─────────────────────────────────        ───────────────────────────────
         backlog → implementing                    Set-AgentState (GitHub.ps1)
           run implement phase                     Invoke-Implement (Implement.ps1)
-            ├─ refine → architecture → develop → PR
+            ├─ develop → PR  (alignment already done pre-backlog)
         implementing → review  (loop ≤ MaxRetries) Invoke-Review (Review.ps1)
           rejected → re-implement                 Invoke-Implement
           approved → merged                       Invoke-Merge (Merge.ps1)
         any error / exhausted retries → failed    Set-AgentState 'agent:failed'
+
+    Refine/Architect/Plan are NOT part of this conductor — they are the
+    pre-backlog alignment gate (Refine.ps1 / Invoke-Alignment) that grants
+    agent:backlog. This conductor processes issues that are already aligned.
 
     Cross-cutting helpers come from the rest of the library: the per-issue lock
     and review counter (Util.ps1), branch + comment + lane helpers (GitHub.ps1),
     and the run context (Config.ps1). Loaded LAST by Kanban.psm1 (after every
     phase it calls) and exported as Invoke-Orchestration.
 
-    The thin trigger scripts in tasks/ (run.ps1 = orchestrator.yml/cloud,
-    start.ps1 = HITL) import the module and call Invoke-Orchestration — they own
-    *how* a run is triggered; this file owns *what* a run does.
+    Processing is human-triggered: tasks/runner.ps1 dispatches orchestrator.yml
+    in the cloud (AFK drain), tasks/start.ps1 runs it locally (HITL). Both import
+    the module and call Invoke-Orchestration — they own *how* a run is triggered;
+    this file owns *what* a run does.
 #>
 
 function Invoke-Orchestration {

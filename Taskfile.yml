@@ -13,9 +13,14 @@ tasks:
       - uv run python src/tools/setup.py
 
   sync:
-    desc: "Sync ISSUES.md — push pending ISSUE blocks to GitHub Issues + Project board"
+    desc: "Sync ISSUES.md — push pending ISSUE blocks to GitHub Issues + Project board (lands un-aligned)"
     cmds:
       - pwsh -NoProfile -File .github/scripts/tasks/sync-issues.ps1 {{.CLI_ARGS}}
+
+  align:
+    desc: "Backlog gate — refine→architect→plan an issue and grant agent:backlog when ready (ISSUE=N for one; no arg = all un-aligned)"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/tasks/align.ps1 -Issue {{.ISSUE}}
 
   start:
     desc: "HITL — interactive Backlog picker; runs full orchestration in this terminal (ISSUE=N to skip picker)"

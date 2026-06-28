@@ -13,8 +13,9 @@ __PROJECT_DESCRIPTION__
 
 | Term | Definition | Disambiguation |
 |------|------------|----------------|
-| Orchestrator | Label-driven agentic workflow: `agent:backlog` triggers implement → review → merge. The `Kanban` PowerShell module in `.github/scripts/kanban/`; configured in `Config.ps1`. | Not the same as a human code review |
-| Orchestration | The full implement → review loop → merge sequence run by the orchestrator for a single issue | One orchestration run = one issue end-to-end |
+| Orchestrator | The `Kanban` PowerShell module in `.github/scripts/kanban/` (configured in `Config.ps1`). Two flows: the pre-backlog **alignment gate** (refine → architect → plan → grant `agent:backlog`) and **processing** (implement → review → merge), the latter human-triggered via `task runner`/`task start` (ADR-014). | Not the same as a human code review |
+| Alignment | The pre-backlog gate (`Invoke-Alignment`, `Refine.ps1`): refine → architect → plan, writing artefacts into the issue body, granting `agent:backlog` only when refined + architected + planned with zero open questions | The toll-gate INTO the backlog; distinct from processing |
+| Orchestration | The full implement → review loop → merge sequence run for one *aligned* issue | One orchestration run = one issue end-to-end |
 | ISSUES.md | Local backlog of Agile User Story blocks, synced to GitHub Issues via `task sync` | Separate from GitHub Issues themselves |
 | Kanban lane | GitHub Project board column mapped to an `agent:*` label | Moved by the orchestrator (`Set-AgentState` → `Move-ToLane`) as part of each state transition |
 | Signal comment | Issue comment starting with `🤖`; posted by the orchestrator for agent decisions/outcomes (review results, failures, CI). Always retrieved by agents via `startswith("🤖")` filter to reconstruct issue history | Not to be confused with orchestrator log noise |
@@ -28,7 +29,7 @@ __PROJECT_DESCRIPTION__
 | `src/utils/` | Generic transferable modules (`m_*.py`) | Project-specific logic |
 | `src/tools/` | Developer CLI utilities (`commit-msg`) | Application business logic |
 | `.agents/skills/` | AI workflow constraints and patterns | Runtime code |
-| `.github/scripts/kanban/` | Orchestrator library (the `Kanban` PowerShell module): implement → review → merge pipeline | Application features; the task commands that drive it (those live in `.github/scripts/tasks/`) |
+| `.github/scripts/kanban/` | Orchestrator library (the `Kanban` PowerShell module): alignment gate + implement → review → merge pipeline | Application features; the task commands that drive it (those live in `.github/scripts/tasks/`) |
 | `docs/adr/` | Architecture Decision Records (MADR) | Live documentation |
 
 ## Module Map
@@ -42,12 +43,12 @@ Navigation index for agents. Read CONTEXT.md, identify the target bounded contex
 | utils | `src/utils/` | `src/utils/` | `m_*.py` modules — generic only |
 | tools | `src/tools/` | `src/tools/` | per-tool `main()` (executed directly) |
 | tests | `tests/` | mirrors `src/` and `tools/` | `pytest` discovery |
-| orchestrator (library) | `.github/scripts/kanban/` | `.github/scripts/kanban/` | `Kanban.psd1`/`Kanban.psm1` (Import-Module); `Orchestrator.ps1` (`Invoke-Orchestration`); `Config.ps1`, `GitHub.ps1`, `Util.ps1`; phase files `Architecture`/`Implement`/`Review`/`Merge.ps1` |
-| orchestrator (commands) | `.github/scripts/tasks/` | `.github/scripts/tasks/` | `start.ps1` (HITL), `runner.ps1` (AFK drain), `retry.ps1` (recovery), `setup.ps1`, `sync-issues.ps1` — task entry points; each `Import-Module`s the Kanban library |
+| orchestrator (library) | `.github/scripts/kanban/` | `.github/scripts/kanban/` | `Kanban.psd1`/`Kanban.psm1` (Import-Module); `Orchestrator.ps1` (`Invoke-Orchestration`); `Config.ps1`, `GitHub.ps1`, `Util.ps1`; Backlog-gate `Refine.ps1` (`Invoke-Alignment`) + `Architecture.ps1`; lane files `Implement`/`Review`/`Merge.ps1` |
+| orchestrator (commands) | `.github/scripts/tasks/` | `.github/scripts/tasks/` | `align.ps1` (Backlog gate), `start.ps1` (HITL), `runner.ps1` (AFK drain), `retry.ps1` (recovery), `setup.ps1`, `sync-issues.ps1` — task entry points; each `Import-Module`s the Kanban library |
 | ci + shared | `.github/scripts/` | `.github/scripts/` | `ci/check-module-map.ps1` (Module Map gate); `Claude.ps1` (generic LLM helper, shared) |
 | skills | `.agents/skills/` | `.agents/skills/` | one directory per skill, each with `SKILL.md` |
 | ADRs | `docs/adr/` | `docs/adr/` | `ADR_STRUCTURE.md` (master index) |
-| CI | `.github/workflows/` | (cross-cutting) | `ci.yml`, `build.yml` |
+| CI | `.github/workflows/` | (cross-cutting) | `ci.yml`, `build.yml`, `align.yml` (alignment gate), `orchestrator.yml` (processing) |
 | `<domain>` | `src/<domain>/` | declared on first feature | declared on first feature |
 
 ## Issue-Type → Files Index
@@ -57,6 +58,7 @@ For each kind of work, read these files before opening anything else. If an unex
 | Working on... | Read first (nothing else unless surprised) |
 |---|---|
 | orchestrator change | `.github/scripts/kanban/Kanban.psm1` (load order), `Config.ps1`, the affected library file (`GitHub.ps1` / `Implement.ps1` / `Review.ps1` / `Merge.ps1` / `Orchestrator.ps1`) or task entry (`tasks/start.ps1`) |
+| alignment-gate change | `.github/scripts/kanban/Refine.ps1` (`Invoke-Alignment`), `Architecture.ps1`, `.github/workflows/align.yml`, `tasks/align.ps1`, `tests/scripts/test_architecture.py` |
 | sync-issues change | `.github/scripts/tasks/sync-issues.ps1`, `tests/scripts/test_sync_issues.py` |
 | `src/utils/` change | `src/utils/m_*.py`, matching `tests/utils/test_*.py` |
 | `src/tools/` change | `src/tools/*.py`, matching `tests/tools/test_*.py` |

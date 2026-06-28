@@ -109,7 +109,15 @@ foreach ($match in $Found) {
     $Body = $Body -replace '(?m)^PRIORITY:\s*P[0-4](\r?\n|$)', ''
     $Body = $Body.TrimStart()
 
-    $Labels   = $ExtraLabels
+    # Pipeline state (agent:*) is owned by the alignment gate, never by sync.
+    # Issues land un-aligned; align.yml (on issue creation) or `task align` runs
+    # refine → architect → plan and grants agent:backlog only when ready (ADR-014).
+    # Strip any agent:* labels declared in ISSUES.md so the gate cannot be bypassed.
+    $agentLabels = @($ExtraLabels | Where-Object { $_ -like 'agent:*' })
+    if ($agentLabels.Count -gt 0) {
+        Write-Host "  ⚠️  Ignoring agent:* label(s) [$($agentLabels -join ', ')] — the alignment gate owns pipeline state." -ForegroundColor Yellow
+    }
+    $Labels   = @($ExtraLabels | Where-Object { $_ -notlike 'agent:*' })
     $LabelCsv = $Labels -join ','
 
     Write-Host ""

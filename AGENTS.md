@@ -87,11 +87,11 @@ Domain-specific information for this project is captured in ADRs matching the pr
 | `.agents/skills/` | Skill system — invoke skills before implementing manually |
 | `docs/adr/` | Architecture Decision Records (MADR format) |
 | `CONTEXT.md` | Leading repo-structure doc — domain glossary, bounded contexts, Module Map (agent navigation index), architectural constraints |
-| `.github/workflows/` | CI (`ci.yml`: lint + typecheck + test) and the AFK orchestrator (`orchestrator.yml`) |
-| `.github/scripts/kanban/` | Orchestrator **library**: the `Kanban` PowerShell module (`Kanban.psd1`/`.psm1`, `Import-Module`) — pipeline phases + helpers + `Orchestrator.ps1`. No top-level `param()` in module files (ADR-013) |
-| `.github/scripts/tasks/` | Thin Taskfile/workflow commands that `Import-Module` the library: `start`, `runner`, `retry`, `setup`, `sync-issues` |
+| `.github/workflows/` | CI (`ci.yml`: lint + typecheck + test); the alignment gate (`align.yml`: refine→architect→plan on issue creation); the AFK orchestrator (`orchestrator.yml`: implement→review→merge) |
+| `.github/scripts/kanban/` | Orchestrator **library**: the `Kanban` PowerShell module (`Kanban.psd1`/`.psm1`, `Import-Module`). One script per lane — `Refine.ps1` (Backlog gate + `Invoke-Alignment`), `Architecture.ps1`/`Implement.ps1`/`Review.ps1`/`Merge.ps1`, conducted by `Orchestrator.ps1`. No top-level `param()` in module files (ADR-013) |
+| `.github/scripts/tasks/` | Thin Taskfile/workflow commands that `Import-Module` the library: `align`, `start`, `runner`, `retry`, `setup`, `sync-issues` |
 | `.github/scripts/ci/` | CI gate scripts (`check-module-map.ps1`); generic `Claude.ps1` helper sits at `.github/scripts/` |
-| `.planning/<issue>/` | Per-issue pipeline artifacts: `BLAST_RADIUS.md`, `state.json`, raw pydeps graph |
+| _(issue body)_ | Per-issue pipeline artifacts live IN the issue body (ADR-011/ADR-014): `AGENT-STATE` JSON, `Agent Brief`, `Architecture Impact`, `Implementation Plan` — there is no `.planning/` directory |
 
 ## Rules
 

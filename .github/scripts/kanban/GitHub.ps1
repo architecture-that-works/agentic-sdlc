@@ -54,6 +54,16 @@ $KanbanStateEndMarker   = '<!-- AGENT-STATE:END -->'
 $KanbanBriefBeginMarker = '<!-- AGENT-BRIEF:BEGIN -->'
 $KanbanBriefEndMarker   = '<!-- AGENT-BRIEF:END -->'
 
+# ARCH-IMPACT and PLAN are the Backlog-gate alignment artefacts (Architect and
+# Plan steps). Per ADR-014 the architectural blast-radius and the implementation
+# plan live IN the issue body — there is no .planning/ directory. Each is a
+# marker-bounded Markdown section so Set-IssueBodySection can upsert it without
+# touching the prose, the Agent Brief, or the AGENT-STATE block.
+$KanbanArchBeginMarker = '<!-- ARCH-IMPACT:BEGIN -->'
+$KanbanArchEndMarker   = '<!-- ARCH-IMPACT:END -->'
+$KanbanPlanBeginMarker = '<!-- PLAN:BEGIN -->'
+$KanbanPlanEndMarker   = '<!-- PLAN:END -->'
+
 # 4-lane FSM. agent:failed returns the issue to the 'backlog' lane — it is an
 # in-Backlog label, not a separate lane.
 $KanbanAllowedTransitions = @{
@@ -336,6 +346,49 @@ $KanbanBriefEndMarker
     } finally {
         Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
     }
+}
+
+# Upserts a marker-bounded Markdown section into the issue body (ADR-014). The
+# section is delimited by HTML-comment markers so it can be regex-replaced
+# without disturbing the prose, the Agent Brief, or the AGENT-STATE JSON block.
+# Used by the Backlog-gate Architect (ARCH-IMPACT) and Plan (PLAN) steps so their
+# artefacts live in the issue — the single cross-runtime carrier, no .planning/.
+function Set-IssueBodySection {
+    param(
+        [Parameter(Mandatory)][int]$IssueNumber,
+        [Parameter(Mandatory)][string]$BeginMarker,
+        [Parameter(Mandatory)][string]$EndMarker,
+        [Parameter(Mandatory)][string]$Markdown
+    )
+
+    $body = gh issue view $IssueNumber --repo $KanbanRepo --json body --jq '.body' 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not read issue body for #${IssueNumber} — skipping body-section write." -Color Yellow
+        return $false
+    }
+    $body    = $body.TrimEnd("`r", "`n")
+    $section = "$BeginMarker`n$Markdown`n$EndMarker"
+
+    $pattern = [regex]::Escape($BeginMarker) + '.*?' + [regex]::Escape($EndMarker)
+    $opts    = [System.Text.RegularExpressions.RegexOptions]::Singleline
+    if ([regex]::IsMatch($body, $pattern, $opts)) {
+        $newBody = [regex]::Replace($body, $pattern, { param($m) $section }, $opts)
+    } else {
+        $newBody = "$body`n`n$section"
+    }
+
+    $tmp = New-TemporaryFile
+    try {
+        $newBody | Out-File $tmp.FullName -Encoding utf8
+        $out = gh issue edit $IssueNumber --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log "  ⚠️ Failed to write body section on #${IssueNumber}: $($out.Trim())" -Color Yellow
+            return $false
+        }
+    } finally {
+        Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+    }
+    return $true
 }
 
 # Spawns one HITL child issue per unresolvable open_question. Each child links

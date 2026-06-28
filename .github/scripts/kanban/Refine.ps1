@@ -1,20 +1,29 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Backlog gate -- Refine: make an issue ready for processing.
+    Backlog gate -- the pre-backlog alignment that grants agent:backlog.
 
 .DESCRIPTION
-    Kanban library -- loaded by Kanban.psm1. Invoke-Refine is the toll-gate for
-    the Backlog lane: agent:backlog means "refined and ready for processing".
+    Kanban library -- loaded by Kanban.psm1. This file owns the Backlog lane: an
+    issue lands on the board un-aligned and only earns agent:backlog ("refined,
+    architected, planned, ready for processing") once it passes this gate.
 
-    Structures the issue body against the ISSUES.md template, assigns estimate +
-    priority, runs the self-grill alignment subagent (Agent Brief, open/decided
-    questions, HITL child issues), and records readiness flags in the
-    issue-carried state (ADR-011). The architect/plan readiness stubs live here.
+    Invoke-Alignment is the conductor (called by align.yml on issue creation and
+    by tasks/align.ps1). It runs the three alignment steps in order, then grants
+    agent:backlog only when the readiness gate clears:
 
-    NOTE: today Invoke-Implement also calls Invoke-Refine as a thin safety pass
-    at the start of the Implementing lane. The intent is for refinement to gate
-    Backlog entry -- see memory project_pipeline_lane_scripts; that is future work.
+        Refine       Invoke-Refine        structure body, estimate, priority,
+                                           self-grill Agent Brief + open questions
+        Architect    Invoke-Architecture  blast-radius impact into the body
+                                           (Architecture.ps1)
+        Plan         Invoke-Plan          implementation plan into the body
+        ── gate ──   Test-Readiness       refined + architected + planned and
+                                           zero open questions → Set-AgentState
+                                           agent:backlog
+
+    Every artefact lives IN the issue body (ADR-011/ADR-014) -- there is no
+    .planning/ directory. Processing (Implement → Review → Merge) is a separate,
+    human-triggered flow (task runner / task start); see Orchestrator.ps1.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -25,7 +34,6 @@ $ErrorActionPreference = 'Stop'
 function Invoke-Refine {
     param([int]$Number)
     Write-Log "  Refine -- issue #$Number" -Color Yellow
-    Set-PipelineState -IssueNumber $Number -Phase 'refining'
 
     $issue    = gh issue view $Number --repo $KanbanRepo --json title,body,comments | ConvertFrom-Json
     $template = Get-IssueTemplate
@@ -199,51 +207,103 @@ Return ONLY valid JSON — no markdown fences, no explanation:
     Write-Log "  Issue #$Number refined: $($changes -join ', ')" -Color Green
 }
 
-# ── Phase A.5 / A.6 stubs — write readiness flags into the issue-carried state ─
-# Architect and Plan stages are stubbed for phase 1: they record the readiness
-# flag with provenance ('<stage> (phase-1 stub)') so the readiness gate can
-# clear. Phase 2 will swap in real architect/plan logic without changing the
-# state contract.
-
-function Invoke-Architect {
-    param([int]$Number)
-    Write-Log "  Architect readiness stub for issue #$Number" -Color Yellow
-
-    # Append a Markdown section to the issue body if not already present.
-    $body = gh issue view $Number --repo $KanbanRepo --json body --jq '.body' 2>&1 | Out-String
-    if ($LASTEXITCODE -eq 0 -and $body -notmatch '(?m)^##\s*Architecture\s*$') {
-        $section = "`n`n## Architecture`n`n_phase-1 stub — populated by the orchestrator after the architecture pass runs._"
-        $newBody = ($body.TrimEnd("`r","`n")) + $section
-        $tmp = New-TemporaryFile
-        try {
-            $newBody | Out-File $tmp.FullName -Encoding utf8
-            gh issue edit $Number --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-Null
-        } finally {
-            Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
-        }
-    }
-
-    Set-PlanningReadiness -IssueNumber $Number -Stage 'architected' -StageLabel 'architect'
-    Write-Log "  Issue #$Number — readiness.architected ✓" -Color DarkGray
-}
-
+# ── Plan (Backlog gate, third step) ───────────────────────────────────────────
+# Writes an ordered implementation plan into the issue body and marks
+# readiness.planned. Claude-backed; degrades to a placeholder (still setting
+# readiness) so forks without a Claude token can still align — mirrors the
+# self-grill fallback in Invoke-Refine.
 function Invoke-Plan {
     param([int]$Number)
-    Write-Log "  Plan readiness stub for issue #$Number" -Color Yellow
+    Write-Log "  Plan — issue #$Number" -Color Yellow
 
-    $body = gh issue view $Number --repo $KanbanRepo --json body --jq '.body' 2>&1 | Out-String
-    if ($LASTEXITCODE -eq 0 -and $body -notmatch '(?m)^##\s*Plan\s*$') {
-        $section = "`n`n## Plan`n`n_phase-1 stub — populated by the orchestrator after the plan pass runs._"
-        $newBody = ($body.TrimEnd("`r","`n")) + $section
-        $tmp = New-TemporaryFile
-        try {
-            $newBody | Out-File $tmp.FullName -Encoding utf8
-            gh issue edit $Number --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-Null
-        } finally {
-            Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
-        }
+    $issue = gh issue view $Number --repo $KanbanRepo --json title,body | ConvertFrom-Json
+
+    $prompt = @"
+You are writing a concise implementation plan for a GitHub issue that has already
+been refined and had its architectural impact analysed.
+
+ISSUE TITLE: $($issue.title)
+ISSUE BODY:
+$($issue.body)
+
+Write an ordered implementation plan: the concrete steps an engineer (or coding
+agent) will take to satisfy every requirement and acceptance criterion, in order.
+Reference the files/modules likely to change (use the Architecture Impact section
+above if present). Keep it tight — 3 to 8 numbered steps, no preamble, Markdown only.
+"@
+
+    $populatedBy = 'plan (claude)'
+    $planMd      = $null
+    try {
+        $planMd = $prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0 -or -not $planMd.Trim()) { $planMd = $null }
+    } catch {
+        $planMd = $null
+    }
+    if (-not $planMd) {
+        Write-Log "  ⚠️ Plan: Claude unavailable — writing placeholder, readiness still set." -Color Yellow
+        $planMd      = '_Implementation plan to be detailed during the Develop phase (automatic generation unavailable)._'
+        $populatedBy = 'plan (fallback)'
     }
 
-    Set-PlanningReadiness -IssueNumber $Number -Stage 'planned' -StageLabel 'plan'
-    Write-Log "  Issue #$Number — readiness.planned ✓" -Color DarkGray
+    $section = "## Implementation Plan`n`n$($planMd.Trim())"
+    $ok = Set-IssueBodySection -IssueNumber $Number `
+        -BeginMarker $KanbanPlanBeginMarker -EndMarker $KanbanPlanEndMarker -Markdown $section
+    if ($ok) { Write-Log "  Implementation Plan written to issue #$Number body." -Color DarkGray }
+
+    Set-PlanningReadiness -IssueNumber $Number -Stage 'planned' -StageLabel 'plan' -PopulatedBy $populatedBy
+    Add-Comment -Number $Number -Body '· planned — implementation plan written to issue body'
+    Write-Log "  Issue #$Number — readiness.planned ✓" -Color Green
+}
+
+# ── Alignment conductor (the agent:backlog toll-gate) ─────────────────────────
+# Runs Refine → Architect → Plan, then grants agent:backlog only when the
+# readiness gate clears (refined + architected + planned + zero open questions).
+# Idempotent and safe to re-run: already-aligned and HITL issues are skipped.
+function Invoke-Alignment {
+    param([int]$IssueNumber)
+
+    if ($IssueNumber -le 0) { throw "Invoke-Alignment requires a positive IssueNumber." }
+    $ctx  = Get-KanbanContext
+    $meta = gh issue view $IssueNumber --repo $ctx.Repo --json title,labels,state | ConvertFrom-Json
+    Write-Log "━━━ Alignment (Backlog gate): issue #$IssueNumber — $($meta.title)" -Color Cyan
+
+    $labels = @($meta.labels.name)
+    if ($meta.state -ne 'OPEN') {
+        Write-Log "  Issue #$IssueNumber is $($meta.state) — skipping alignment." -Color DarkGray
+        return $false
+    }
+    if ($labels -contains 'agent:backlog') {
+        Write-Log "  Issue #$IssueNumber already agent:backlog — alignment already granted." -Color DarkGray
+        return $true
+    }
+    # HITL decision children are prompts for a human, not work items — never align them.
+    if ($labels -contains 'HITL') {
+        Write-Log "  Issue #$IssueNumber is a HITL decision — skipping alignment." -Color DarkGray
+        return $false
+    }
+
+    try {
+        Invoke-Refine       -Number      $IssueNumber
+        Invoke-Architecture -IssueNumber $IssueNumber
+        Invoke-Plan         -Number      $IssueNumber
+    } catch {
+        Add-Comment -Number $IssueNumber -Body "🤖❌ Alignment Failed`n``````text`n$_`n``````"
+        Write-Log "❌ Alignment error for issue #$IssueNumber : $_" -Color Red
+        return $false
+    }
+
+    $state = Get-PlanningState -IssueNumber $IssueNumber
+    if (Test-Readiness -State $state) {
+        # Set-AgentState re-checks the readiness gate before applying the label.
+        Set-AgentState -IssueNumber $IssueNumber -Label 'agent:backlog'
+        Add-Comment -Number $IssueNumber -Body "🤖✅ Aligned — refined, architected, planned, zero open questions. Queued in Backlog (agent:backlog); run ``task runner`` or ``task start`` to process."
+        Write-Log "✅ Issue #$IssueNumber aligned — agent:backlog granted." -Color Green
+        return $true
+    }
+
+    $open = if ($state -and $state.open_questions) { @($state.open_questions).Count } else { 0 }
+    Add-Comment -Number $IssueNumber -Body "🤖⏸ Alignment incomplete — $open open question(s) need a human decision before this issue can enter the backlog. Resolve the linked HITL issue(s), record the answer in ``decided_questions[]``, then re-run ``task align ISSUE=$IssueNumber``."
+    Write-Log "⏸ Issue #$IssueNumber NOT aligned — readiness gate unmet (open questions=$open). agent:backlog withheld." -Color Yellow
+    return $false
 }

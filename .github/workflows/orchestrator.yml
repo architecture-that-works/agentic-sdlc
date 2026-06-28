@@ -1,18 +1,22 @@
 name: Orchestrator
 
-# AFK pipeline: label-driven implement → review → merge flow.
+# AFK pipeline: process aligned (agent:backlog) issues → implement → review → merge.
 # Requires secrets: GH_TOKEN (classic PAT, project scope), CLAUDE_CODE_OAUTH_TOKEN.
 #
+# Processing is HUMAN-TRIGGERED, never automatic on labelling: alignment (align.yml)
+# grants agent:backlog, then YOU start the drain via `task runner` (workflow_dispatch)
+# or `task start` (local HITL). Granting agent:backlog does NOT start implementation.
+#
 # Trigger summary:
-#   agent:backlog  → implement job (skip if HITL label is present)
-#   agent:review   → merge job (squash-merge + CONTEXT.md update)
-#   workflow_dispatch → manual single-stage run
+#   workflow_dispatch (stage=implement) → drain the agent:backlog queue (task runner)
+#   workflow_dispatch (stage=merge)     → merge one approved PR
+#   agent:review label                  → merge job (resilient handoff for the
+#                                         review→merge step within a run)
 #
 # Queue behaviour:
 #   The implement job uses a concurrency group so only one run executes at a time.
-#   Subsequent agent:backlog label events queue (up to one pending run). A drain step
-#   at the end of each run re-dispatches if further backlog items remain, ensuring no
-#   issues are silently dropped when the queue depth exceeds one.
+#   A drain step at the end of each run re-dispatches if further backlog items
+#   remain, so a single `task runner` drains the whole queue, oldest first.
 
 on:
   issues:
@@ -43,12 +47,11 @@ jobs:
   # ── Implement (full pipeline: implement → review loop → merge) ───────────────
   implement:
     name: Implement
+    # Human-triggered only (task runner / manual dispatch). Alignment grants
+    # agent:backlog; it does not auto-start processing — see the header.
     if: >-
-      (github.event_name == 'issues' &&
-       github.event.label.name == 'agent:backlog' &&
-       !contains(github.event.issue.labels.*.name, 'HITL')) ||
-      (github.event_name == 'workflow_dispatch' &&
-       inputs.stage == 'implement')
+      github.event_name == 'workflow_dispatch' &&
+      inputs.stage == 'implement'
     # Runner profile controlled by KANBAN_RUNNER_PROFILE variable (set by `task setup`):
     #   hosted (default) — ubuntu-latest; uv + claude CLI installed at runtime via CLAUDE_CODE_OAUTH_TOKEN.
     #   self-hosted       — developer's machine; uv, claude, git, and auth are pre-installed.

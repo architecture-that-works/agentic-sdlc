@@ -1,66 +1,28 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Implementing phase 1 — Architecting: blast-radius computation before develop.
+    Backlog gate, Architect step -- blast-radius impact written into the issue.
 
 .DESCRIPTION
-    Kanban library — loaded by Kanban.psm1; Invoke-Architecture is called by Invoke-Implement.
+    Kanban library -- loaded by Kanban.psm1; Invoke-Architecture is called by
+    Invoke-Alignment (Refine.ps1) between Refine and Plan, as part of the
+    pre-backlog alignment that grants agent:backlog.
 
-    Runs between Invoke-Refine and Invoke-Develop:
-      1. Creates .planning/<issue>/ for per-issue artifacts.
-      2. File-count gate: if src/ has > 5 .py files, runs AST analysis (and attempts pydeps
-         for a raw graph). For trivial codebases (<=5 files) writes a one-liner BLAST_RADIUS.md
-         so small forks do not get fake graphs — per architecture/SKILL.md §Common Mistakes.
-      3. Posts a blast-radius comment to the issue (and to any open PR if one exists).
-      4. Records the 'architecting' phase transition in .planning/<issue>/state.json.
+    Computes the architectural blast radius for the change and records it as the
+    `## Architecture Impact` section IN the issue body (ADR-014 -- the issue is the
+    single cross-runtime carrier; there is no .planning/ directory). Then marks
+    readiness.architected in the issue-carried state so Test-Readiness can clear.
+
+      1. File-count gate: if src/ has > 5 .py files, run AST analysis for fan-in /
+         fan-out metrics. For trivial codebases (<= 5 files) emit a one-liner so
+         small forks do not get fake graphs -- per architecture/SKILL.md.
+      2. Upsert the `## Architecture Impact` body section (Set-IssueBodySection).
+      3. Set readiness.architected (Set-PlanningReadiness).
 #>
 
 $ErrorActionPreference = 'Stop'
-# Module-internal library — loaded by Kanban.psm1 (which loads Config.ps1 first).
+# Module-internal library -- loaded by Kanban.psm1 (which loads Config.ps1 first).
 # Not dot-sourced individually; see ADR-013.
-
-# ── State.json helpers ────────────────────────────────────────────────────────
-
-function Set-PipelineState {
-    param([int]$IssueNumber, [string]$Phase)
-
-    $planDir   = "$_Root\.planning\$IssueNumber"
-    $statePath = "$planDir\state.json"
-    $null      = New-Item -ItemType Directory -Force -Path $planDir
-
-    # Load existing transitions (always kept as an array). A corrupt state.json
-    # is a clean-fallback-to-empty, but log it rather than silently discarding
-    # prior history.
-    $transitions = @()
-    if (Test-Path $statePath) {
-        try {
-            $existing = Get-Content $statePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-            if ($null -ne $existing.transitions) {
-                $transitions = @($existing.transitions)
-            }
-        } catch {
-            Write-Log "  ⚠️ Could not read existing $statePath — starting transitions fresh. $_" -Color Yellow
-        }
-    }
-
-    $transitions += [pscustomobject]@{
-        phase     = $Phase
-        timestamp = (Get-Date -Format 'o')
-    }
-
-    # Build JSON manually to guarantee the transitions key is always a JSON array,
-    # even when it contains a single entry (ConvertTo-Json collapses single-item
-    # arrays to objects in some PS versions).
-    $entriesJson = ($transitions | ForEach-Object {
-        $ts = $_.timestamp -replace '"', '\"'
-        $ph = $_.phase     -replace '"', '\"'
-        "  {`"phase`":`"$ph`",`"timestamp`":`"$ts`"}"
-    }) -join ",`n"
-
-    $json = "{`n  `"issue`": $IssueNumber,`n  `"transitions`": [`n$entriesJson`n  ]`n}"
-    $json | Set-Content $statePath -Encoding utf8 -NoNewline
-    Write-Log "  State: '$Phase' recorded → $statePath" -Color DarkGray
-}
 
 # ── AST-based codebase analysis ───────────────────────────────────────────────
 
@@ -123,62 +85,31 @@ print(json.dumps({
     }
 }
 
-# ── Architecture phase entry point ────────────────────────────────────────────
+# ── Architect step entry point ────────────────────────────────────────────────
 
 function Invoke-Architecture {
     param([int]$IssueNumber)
-    Write-Log "  Phase 1 — Architecture for issue #$IssueNumber" -Color Yellow
-
-    $planDir         = "$_Root\.planning\$IssueNumber"
-    $blastRadiusPath = "$planDir\BLAST_RADIUS.md"
-    $null            = New-Item -ItemType Directory -Force -Path $planDir
-
-    # Record the 'architecting' state transition
-    Set-PipelineState -IssueNumber $IssueNumber -Phase 'architecting'
+    Write-Log "  Architect — blast-radius for issue #$IssueNumber" -Color Yellow
 
     # ── File-count gate ───────────────────────────────────────────────────────
     $pyCount = @(Get-ChildItem "$_Root\src" -Recurse -Filter '*.py' -ErrorAction SilentlyContinue).Count
 
     if ($pyCount -le 5) {
-        # Trivial codebase — one-liner only; no fake graphs
-        'trivial codebase, no architectural risk computed' | Set-Content $blastRadiusPath -Encoding utf8
-
-        $blastComment = @(
-            '## Blast-Radius Report'
-            ''
-            "**Changed:** (architecture phase — pre-implementation, trivial codebase)"
-            "**At-risk:** none ($pyCount .py file(s) in src/ — below threshold)"
+        # Trivial codebase — no fake graphs.
+        $impact = @(
+            "**At-risk:** none ($pyCount .py file(s) in src/ — below the analysis threshold)"
             '**Safe:** all modules'
             ''
             '**Recommendation:** proceed'
         ) -join "`n"
-
-        Write-Log "  Trivial codebase ($pyCount .py files) — one-liner written." -Color DarkGray
+        Write-Log "  Trivial codebase ($pyCount .py files) — one-liner impact." -Color DarkGray
 
     } else {
-        # Non-trivial codebase — run static analysis
+        # Non-trivial codebase — run static analysis.
         Write-Log "  Non-trivial codebase ($pyCount .py files) — running static analysis..." -Color DarkGray
 
-        # Try pydeps for supplemental raw graph (output to filesystem only)
-        $pydepsPath = "$planDir\deps_raw.json"
-        try {
-            $rawOut = uv run --with pydeps pydeps src --show-deps 2>$null | Out-String
-            if ($LASTEXITCODE -eq 0 -and $rawOut.Trim()) {
-                $rawOut.Trim() | Set-Content $pydepsPath -Encoding utf8
-                Write-Log "  pydeps raw graph → $pydepsPath" -Color DarkGray
-            } elseif (Test-Path 'src.json') {
-                # pydeps may write src.json to CWD
-                Move-Item 'src.json' $pydepsPath -Force -ErrorAction SilentlyContinue
-                Write-Log "  pydeps src.json → $pydepsPath" -Color DarkGray
-            }
-        } catch {
-            Write-Log "  pydeps not available — AST fallback only" -Color Yellow
-        }
-
-        # Static analysis → module fan-in/fan-out data for the blast-radius report
         $mapData = Invoke-CodebaseAnalysis -SrcPath 'src'
 
-        # Compute blast-radius summary
         $atRisk = [System.Collections.Generic.List[string]]::new()
         $safe   = [System.Collections.Generic.List[string]]::new()
 
@@ -200,47 +131,28 @@ function Invoke-Architecture {
         } else {
             $safeStr = 'none'
         }
-        $rec       = if ($atRisk.Count -gt 0) { 'refactor first — high fan-in modules detected' } else { 'proceed' }
+        $rec = if ($atRisk.Count -gt 0) { 'refactor first — high fan-in modules detected' } else { 'proceed' }
 
-        $blastComment = @(
-            '## Blast-Radius Report'
-            ''
-            '**Changed:** (architecture phase — pre-implementation analysis)'
+        $impact = @(
             "**At-risk:** $atRiskStr"
             "**Safe:** $safeStr"
             ''
             "**Recommendation:** $rec"
         ) -join "`n"
-
-        $blastComment | Set-Content $blastRadiusPath -Encoding utf8
     }
 
-    Write-Log "  BLAST_RADIUS.md → $blastRadiusPath" -Color DarkGray
-
-    # ── Post blast-radius as issue comment ────────────────────────────────────
-    Add-Comment -Number $IssueNumber -Body $blastComment
-
-    # Also post as PR comment if an open PR exists (retry cycles)
-    $branch = git rev-parse --abbrev-ref HEAD 2>$null
-    if ($branch -and $branch -ne 'HEAD') {
-        try {
-            $prList = gh pr list --head $branch --json number --limit 1 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
-            if ($prList -and @($prList).Count -gt 0) {
-                $prNum = $prList[0].number
-                $tmp   = New-TemporaryFile
-                try {
-                    $blastComment | Out-File $tmp.FullName -Encoding utf8
-                    gh pr comment $prNum --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-Null
-                    Write-Log "  Blast-radius posted to PR #$prNum" -Color DarkGray
-                } finally {
-                    Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
-                }
-            }
-        } catch {
-            Write-Log "  Could not post PR comment — $($_)" -Color Yellow
-        }
+    # ── Write the impact INTO the issue body (no .planning/) ───────────────────
+    $section = "## Architecture Impact`n`n$impact"
+    $ok = Set-IssueBodySection -IssueNumber $IssueNumber `
+        -BeginMarker $KanbanArchBeginMarker -EndMarker $KanbanArchEndMarker -Markdown $section
+    if ($ok) {
+        Write-Log "  Architecture Impact written to issue #$IssueNumber body." -Color DarkGray
     }
 
-    Add-Comment -Number $IssueNumber -Body '· architecture complete — BLAST_RADIUS.md emitted'
-    Write-Log "  Architecture phase complete for issue #$IssueNumber." -Color Green
+    # ── Mark readiness.architected in the issue-carried state ──────────────────
+    Set-PlanningReadiness -IssueNumber $IssueNumber -Stage 'architected' -StageLabel 'architect' `
+        -PopulatedBy "architecture (blast-radius, $pyCount files)"
+
+    Add-Comment -Number $IssueNumber -Body '· architected — blast-radius impact written to issue body'
+    Write-Log "  Issue #$IssueNumber — readiness.architected ✓" -Color Green
 }

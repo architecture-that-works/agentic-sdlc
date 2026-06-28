@@ -1,31 +1,34 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Implementing lane -- Architecture -> Develop -> PR.
+    Implementing lane -- Develop -> PR.
 
 .DESCRIPTION
     Kanban library -- loaded by Kanban.psm1; Invoke-Implement is called by
     Orchestrator.ps1 for an issue in the Implementing lane.
 
-    Phase 1 Architecture -- blast-radius computation (Architecture.ps1); emits
-                            .planning/<issue>/BLAST_RADIUS.md, records state.
-    Phase 2 Develop      -- Claude Code implements every requirement; verifies
-                            with uv run pytest.
-    Phase 3 PR           -- commits (Claude-generated message), pushes, opens PR.
+    Refine, Architect and Plan are NOT run here -- they are the pre-backlog
+    alignment gate (Refine.ps1) that already granted agent:backlog. By the time an
+    issue reaches Implementing it is refined, architected and planned, so this lane
+    only builds and ships:
 
-    Refinement is the Backlog toll-gate (Refine.ps1). Invoke-Implement calls
-    Invoke-Refine first as a thin safety re-check before Architecture.
+    Phase 1 Develop -- Claude Code implements every requirement; verifies with
+                       uv run pytest.
+    Phase 2 PR      -- commits (Claude-generated message), pushes, opens PR.
+
+    Invoke-Implement opens with a thin readiness re-check (belt-and-suspenders):
+    it warns if an issue somehow reached Implementing without full alignment, but
+    does not re-run alignment -- that belongs before the backlog.
 #>
 
 $ErrorActionPreference = 'Stop'
-# Module-internal library -- loaded by Kanban.psm1, which loads Config.ps1,
-# Refine.ps1 and Architecture.ps1 before this file. See ADR-013.
-# ── Phase 2: Develop ──────────────────────────────────────────────────────────
+# Module-internal library -- loaded by Kanban.psm1, which loads Config.ps1 and
+# GitHub.ps1 before this file. See ADR-013.
+# ── Phase 1: Develop ──────────────────────────────────────────────────────────
 
 function Invoke-Develop {
     param([int]$Number, [string]$Branch)
-    Write-Log "  Phase 2 — Develop issue #$Number on $Branch" -Color Yellow
-    Set-PipelineState -IssueNumber $Number -Phase 'implementing'
+    Write-Log "  Phase 1 — Develop issue #$Number on $Branch" -Color Yellow
     Move-ToLane -IssueNumber $Number -OptionId $KanbanOpt_Implementing -LaneName 'Implementing'
     Add-Comment -Number $Number -Body "· branch checked out — starting"
 
@@ -147,11 +150,11 @@ INSTRUCTIONS:
     Write-Log "  Tests passing ✅" -Color Green
 }
 
-# ── Phase 3: Commit + PR ──────────────────────────────────────────────────────
+# ── Phase 2: Commit + PR ──────────────────────────────────────────────────────
 
 function Invoke-CommitAndPR {
     param([int]$Number, [string]$Title, [string]$Branch)
-    Write-Log "  Phase 3 — Commit + PR for issue #$Number" -Color Yellow
+    Write-Log "  Phase 2 — Commit + PR for issue #$Number" -Color Yellow
 
     # Auto-format before staging so ruff format --check in CI always passes.
     $fmtOut = uv run ruff format . 2>&1 | Out-String
@@ -197,8 +200,8 @@ function Invoke-CommitAndPR {
         # the typical state for tracker/coordinator issues whose acceptance criteria
         # are satisfied by previously-merged child PRs: the implement phase correctly
         # produces no diff, and forcing a PR here would fail with "no commits between
-        # branches". Return $null so the caller (run.ps1) closes the issue as merged
-        # without invoking the review/merge stages.
+        # branches". Return $null so the caller (Invoke-Orchestration) closes the
+        # issue as merged without invoking the review/merge stages.
         $defaultBranch = $KanbanDefaultBranch
         git fetch --quiet origin $defaultBranch 2>$null
         $aheadCount = [int]((git rev-list --count "origin/${defaultBranch}..HEAD" 2>$null) | Out-String).Trim()
@@ -267,6 +270,15 @@ function Invoke-Implement {
         throw "No issue found — Invoke-Implement must be called with an explicit IssueNumber."
     }
 
+    # Thin readiness re-check — alignment (refine/architect/plan) is a pre-backlog
+    # gate; the orchestrator only picks agent:backlog issues, so a fully-aligned
+    # state is expected here. Warn (don't re-align) if it is missing, e.g. an issue
+    # was dispatched manually or its state block was hand-edited.
+    $state = Get-PlanningState -IssueNumber $IssueNumber
+    if (-not (Test-Readiness -State $state)) {
+        Write-Log "  ⚠️ Issue #$IssueNumber reached Implementing without full alignment (refined+architected+planned). Proceeding; run 'task align' next time to align before backlog." -Color Yellow
+    }
+
     $meta           = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
     $expectedBranch = Get-BranchName -Number $IssueNumber -Title $meta.title
     $branch         = git rev-parse --abbrev-ref HEAD
@@ -288,8 +300,6 @@ function Invoke-Implement {
     Write-Log "▶ Implement — issue #$IssueNumber on $branch" -Color Cyan
 
     try {
-        Invoke-Refine        -Number $IssueNumber
-        Invoke-Architecture  -IssueNumber $IssueNumber
         Invoke-Develop       -Number $IssueNumber -Branch $branch
         $prUrl = Invoke-CommitAndPR -Number $IssueNumber -Title $meta.title -Branch $branch
 

@@ -104,7 +104,88 @@ def test_task_scripts_are_not_dot_sourced() -> None:
         "retry.ps1",
         "setup.ps1",
         "sync-issues.ps1",
+        "align.ps1",
     ):
         assert entry not in sourced, (
             f"{entry} is a task entry point and must not be dot-sourced"
         )
+
+
+# ── Pipeline-flow contract (ADR-014) ─────────────────────────────────────────
+# Alignment (refine → architect → plan) is the pre-backlog gate that grants
+# agent:backlog. Processing (Implement → Review → Merge) is a separate, already-
+# aligned flow. Artefacts live IN the issue body — there is no .planning/.
+
+KANBAN = SCRIPTS / "kanban"
+
+
+def _kanban(name: str) -> str:
+    return (KANBAN / name).read_text(encoding="utf-8")
+
+
+def test_alignment_conductor_exists() -> None:
+    """Refine.ps1 owns the Backlog gate: Invoke-Alignment conducts
+    refine → architect → plan and grants agent:backlog."""
+    refine = _kanban("Refine.ps1")
+    assert "function Invoke-Alignment" in refine, (
+        "Refine.ps1 must define Invoke-Alignment (the agent:backlog toll-gate)"
+    )
+    for step in ("Invoke-Refine", "Invoke-Architecture", "Invoke-Plan"):
+        assert step in refine, f"Invoke-Alignment must run {step}"
+    assert "agent:backlog" in refine, (
+        "Invoke-Alignment must grant agent:backlog when the readiness gate clears"
+    )
+
+
+def test_orphaned_architect_stub_removed() -> None:
+    """The phase-1 Invoke-Architect stub is retired — the real Architect step is
+    Invoke-Architecture (Architecture.ps1)."""
+    assert "function Invoke-Architect " not in _kanban("Refine.ps1"), (
+        "the orphaned Invoke-Architect stub must be removed; use Invoke-Architecture"
+    )
+
+
+def test_implement_does_not_run_alignment_phases() -> None:
+    """The Implementing lane is Develop → PR only — alignment happened pre-backlog."""
+    impl = _kanban("Implement.ps1")
+    assert "Invoke-Architecture" not in impl, (
+        "Implement.ps1 must not run architecture — it is a pre-backlog gate step"
+    )
+    assert "Invoke-Refine" not in impl, (
+        "Implement.ps1 must not run refine — it is a pre-backlog gate step"
+    )
+
+
+def test_no_planning_directory_artifacts() -> None:
+    """No kanban library script may write to a .planning/ directory — artefacts
+    live in the issue body (ADR-011/ADR-014). Docstrings that *mention* the
+    retirement of .planning/ are stripped first so only real code is checked."""
+    offenders = {
+        p.name for p in KANBAN.glob("*.ps1") if ".planning" in _code_no_comments(p)
+    }
+    assert not offenders, (
+        f".planning/ references must be gone — write into the issue body instead: {offenders}"
+    )
+
+
+def test_architecture_writes_into_issue_body() -> None:
+    """The Architect step writes the impact into the body via Set-IssueBodySection
+    and marks readiness.architected."""
+    arch = _kanban("Architecture.ps1")
+    assert "Set-IssueBodySection" in arch, (
+        "Architecture.ps1 must write the impact into the issue body"
+    )
+    assert "BLAST_RADIUS.md" not in arch, (
+        "Architecture.ps1 must not emit a .planning/ BLAST_RADIUS.md file"
+    )
+    assert "architected" in arch, "Architecture.ps1 must set readiness.architected"
+
+
+_BLOCK_COMMENT_RE = re.compile(r"<#.*?#>", re.DOTALL)
+
+
+def _code_no_comments(path: Path) -> str:
+    """Source with PowerShell block comments (<# #>) and full-line # comments
+    removed — leaves only executable code for substring contracts."""
+    text = _BLOCK_COMMENT_RE.sub("", path.read_text(encoding="utf-8"))
+    return "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
