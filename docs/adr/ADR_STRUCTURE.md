@@ -43,6 +43,7 @@ at the same time — never merge an ADR without a corresponding index update.
 | [ADR-010](ADR-010-runner-profile-variable.md) | Runner Profile Variable | Proposed | all | `KANBAN_RUNNER_PROFILE` variable switches orchestrator between GHA-hosted ubuntu-latest (default) and self-hosted runner |
 | [ADR-011](ADR-011-orchestrator-state-carrier.md) | Orchestrator State Carrier | Accepted | all | Issue body is the single cross-runtime state carrier (fenced JSON + Markdown); 4-lane FSM with allowed-transitions table; pre-backlog readiness gate; rejects local/gitignored file state |
 | [ADR-012](ADR-012-orchestrator-graphql-budget.md) | Orchestrator GraphQL Budget | Accepted | all | Cut the orchestrator's GraphQL footprint (default-branch + label ops off GraphQL, rate-limit pre-flight); defer a dedicated CI identity — a GitHub App can't mutate the user-owned Projects v2 board, and the cuts are expected to keep AFK within the 5000/hr budget |
+| [ADR-013](ADR-013-workflow-parameter-passing.md) | Workflow Parameter Passing | Accepted | all | Pass run parameters via env transport hydrated into a single `Get-KanbanContext` object; enforce a library/entry-point split (no top-level `param()` in dot-sourced files) to kill the scope-leak that ran the pipeline against #0; PowerShell module migration is the phased follow-up |
 
 ---
 
