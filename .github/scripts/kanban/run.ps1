@@ -6,36 +6,36 @@
 .DESCRIPTION
     Called by start.ps1 (HITL) and orchestrator.yml (GHA). Not a direct Taskfile target.
 
+    Takes NO parameters: the issue number and retry budget are read from the run
+    context (Get-KanbanContext), hydrated from the KANBAN_ISSUE / KANBAN_MAX_RETRIES
+    environment variables the caller sets. Env is the only transport stable across
+    &-calls, dot-sourcing and nested pwsh — a script-scope -Issue parameter was
+    silently zeroed when a dot-sourced param() block clobbered it (see ADR-013).
+
     Acquires a per-issue process lock, runs the implement stage (refine + develop + PR),
     then drives the review → implement loop up to MaxRetries times. Merges on first
     approval. Marks agent:failed and posts a comment if retries are exhausted.
 
     Always returns to a clean, origin-synced default branch on exit.
-
-.PARAMETER Issue
-    Issue number to orchestrate. Required.
-
-.PARAMETER MaxRetries
-    Maximum implement→review cycles before marking agent:failed. Default: from config.ps1.
 #>
-param(
-    [int]$Issue      = 0,
-    [int]$MaxRetries = -1
-)
-
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_common.ps1"
-
-if ($Issue -le 0) { throw "Issue number is required. This script is invoked with -Issue N by start.ps1 or orchestrator.yml." }
-if ($MaxRetries -lt 0) { $MaxRetries = $KanbanMaxRetries }
 . "$PSScriptRoot\implement.ps1"
 . "$PSScriptRoot\review.ps1"
 . "$PSScriptRoot\merge.ps1"
+
+$KanbanRun = Get-KanbanContext
+if ($KanbanRun.IssueNumber -le 0) {
+    throw "KANBAN_ISSUE is not set or not a positive integer. Set it before invoking run.ps1 — orchestrator.yml and start.ps1 do this."
+}
 
 # ── Full orchestration for one issue ─────────────────────────────────────────
 
 function Invoke-Orchestration {
     param([int]$IssueNumber, [switch]$Force)
+
+    $ctx        = Get-KanbanContext   # run context: issue, retries, default branch
+    $MaxRetries = $ctx.MaxRetries
 
     # Prevent two concurrent terminal instances from processing the same issue.
     if (-not (Acquire-OrchestratorLock -IssueNumber $IssueNumber)) {
@@ -113,7 +113,7 @@ function Invoke-Orchestration {
         if ($stashed) { git stash pop 2>&1 | Out-Null }
 
         # Always return to a clean, origin-synced default branch so the next issue starts fresh.
-        $default = $KanbanDefaultBranch
+        $default = $ctx.DefaultBranch
         $curr    = git rev-parse --abbrev-ref HEAD 2>$null
 
         if ($curr -and $curr -ne $default) {
@@ -132,4 +132,4 @@ function Invoke-Orchestration {
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-Invoke-Orchestration -IssueNumber $Issue
+Invoke-Orchestration -IssueNumber $KanbanRun.IssueNumber

@@ -118,6 +118,39 @@ function Write-Log {
     Add-Content -Path $KanbanLogFile -Value $entry -ErrorAction SilentlyContinue
 }
 
+# ── Run context — single source of truth for this run's key parameters ───────
+# Hydrated from environment variables: the ONLY transport stable across &-calls,
+# dot-sourcing, nested pwsh and subprocesses. Entry points (orchestrator.yml,
+# start.ps1) set KANBAN_ISSUE / KANBAN_MAX_RETRIES; everything downstream reads
+# them via Get-KanbanContext rather than fragile script-scope variables, which a
+# dot-sourced param() block can silently clobber (see ADR-013). Add a new per-run
+# key in one place here → every script gets it. Exposed as a function so the
+# Phase-2 Kanban module can export it unchanged.
+
+# Read an integer from the environment, falling back cleanly (with a logged
+# warning) when the variable is missing or not a valid integer.
+function Get-EnvInt {
+    param([Parameter(Mandatory)][string]$Name, [int]$Default = 0)
+    $raw = [Environment]::GetEnvironmentVariable($Name)
+    if ([string]::IsNullOrWhiteSpace($raw)) { return $Default }
+    $parsed = 0
+    if ([int]::TryParse($raw.Trim(), [ref]$parsed)) { return $parsed }
+    Write-Log "  ⚠️ Env $Name='$raw' is not an integer — falling back to $Default." -Color Yellow
+    return $Default
+}
+
+function Get-KanbanContext {
+    if ($script:_KanbanContext) { return $script:_KanbanContext }
+    $script:_KanbanContext = [pscustomobject]@{
+        IssueNumber   = Get-EnvInt 'KANBAN_ISSUE'       -Default 0
+        MaxRetries    = Get-EnvInt 'KANBAN_MAX_RETRIES' -Default $KanbanMaxRetries
+        Repo          = $KanbanRepo
+        DefaultBranch = $KanbanDefaultBranch
+        Runtime       = Get-RuntimeName
+    }
+    return $script:_KanbanContext
+}
+
 # ── Label helpers ─────────────────────────────────────────────────────────────
 # Base labels (agent:*, HITL, etc.) are provisioned once by setup.ps1 § "Provision
 # base labels". The pipeline assumes a configured project and never re-creates them

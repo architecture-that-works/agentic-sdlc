@@ -129,7 +129,13 @@ jobs:
         if: steps.resolve.outputs.issue_number != ''
         shell: pwsh
         env:
-          PIPELINE_ISSUE: ${{ steps.resolve.outputs.issue_number }}
+          # Run parameters travel as env — the only transport stable across the
+          # &-call into run.ps1, its dot-sources and nested pwsh (see ADR-013).
+          # run.ps1 reads them via Get-KanbanContext and fails loud on a missing
+          # or non-positive issue number, so the pipeline can never silently run
+          # against #0 (the earlier failure mode).
+          KANBAN_ISSUE: ${{ steps.resolve.outputs.issue_number }}
+          KANBAN_MAX_RETRIES: '3'
         run: |
           # Phase A   — refine (implement.ps1 Invoke-Refine)
           # Phase A.5 — architecture (architecture.ps1 Invoke-Architecture):
@@ -137,18 +143,7 @@ jobs:
           #             posts blast-radius PR comment, records state transitions.
           # Phase B   — develop (implement.ps1 Invoke-Develop via Claude Code)
           # Phase C   — commit + PR (implement.ps1 Invoke-CommitAndPR)
-          #
-          # Bind the issue number to a plain [int] FIRST. Passing
-          # `-Issue ([int]$env:PIPELINE_ISSUE)` through a nested `pwsh -File` landed
-          # as 0 on the Linux runner (the pipeline ran against #0 and the drain
-          # re-dispatched forever). Call run.ps1 directly with `&` so PowerShell
-          # parameter binding — not native-exe arg passing — sets -Issue, and fail
-          # loud if it is not a positive number.
-          $num = [int]$env:PIPELINE_ISSUE
-          if ($num -le 0) {
-            throw "PIPELINE_ISSUE='$($env:PIPELINE_ISSUE)' did not resolve to a positive issue number — refusing to run against #0."
-          }
-          & .github/scripts/kanban/run.ps1 -Issue $num -MaxRetries 3
+          & .github/scripts/kanban/run.ps1
 
       - name: Drain remaining backlog
         if: always() && steps.resolve.outputs.issue_number != ''

@@ -18,10 +18,11 @@
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_common.ps1"
 . "$PSScriptRoot\architecture.ps1"
-# Dot-source the self-grill subagent so Invoke-Refine can call Invoke-Grill
-# directly. The script is dot-source-safe — it skips its standalone-mode
-# section when $MyInvocation.InvocationName -eq '.'.
-. "$PSScriptRoot\..\..\..\.agents\skills\refine\scripts\grill.ps1"
+# Dot-source the self-grill subagent LIBRARY (not the grill.ps1 CLI) so
+# Invoke-Refine can call Invoke-Grill directly. _grill.ps1 has no top-level
+# param() block, so dot-sourcing it cannot clobber this scope's variables —
+# the CLI wrapper's param() once leaked $Issue=0 into run.ps1 (see ADR-013).
+. "$PSScriptRoot\..\..\..\.agents\skills\refine\scripts\_grill.ps1"
 
 # ── Phase A: Refine ───────────────────────────────────────────────────────────
 

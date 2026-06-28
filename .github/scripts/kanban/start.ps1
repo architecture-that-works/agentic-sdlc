@@ -101,7 +101,11 @@ gh issue edit $num --repo $KanbanRepo --add-label 'HITL' 2>&1 | Out-Null
 Write-Log "  HITL label added to #$num — GHA will not pick this up." -Color DarkGray
 
 try {
-    & "$PSScriptRoot\run.ps1" -Issue $num -MaxRetries $MaxRetries
+    # Publish run parameters to the env transport — run.ps1 reads them via
+    # Get-KanbanContext (no -Issue parameter; see ADR-013).
+    $env:KANBAN_ISSUE       = $num
+    $env:KANBAN_MAX_RETRIES = $MaxRetries
+    & "$PSScriptRoot\run.ps1"
 } finally {
     gh issue edit $num --repo $KanbanRepo --remove-label 'HITL' 2>&1 | Out-Null
     Write-Log "  HITL label removed from #$num." -Color DarkGray
