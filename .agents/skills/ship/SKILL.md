@@ -49,7 +49,7 @@ Run in order. All BLOCK items must pass before merge is attempted.
 **[BLOCK] Module Map check**
 Verify every new `src/<domain>/` directory in this PR has a matching Module Map row in `CONTEXT.md` (ADR-009):
 ```powershell
-pwsh .github/scripts/check-module-map.ps1
+pwsh .github/scripts/ci/check-module-map.ps1
 ```
 Non-zero exit → add the missing row(s) to the Module Map in `CONTEXT.md` before merge.
 

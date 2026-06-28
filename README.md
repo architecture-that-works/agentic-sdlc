@@ -149,7 +149,13 @@ my_template_repo/
 │   └── utils/                    Generic transferable modules (m_*.py)
 ├── tests/                        Pytest suite, mirrors src/ hierarchy
 ├── .agents/skills/               Skill system — AI workflow for every generated project
-├── .github/workflows/            CI: lint + typecheck + test
+├── .github/
+│   ├── workflows/                CI (ci.yml) + AFK orchestrator (orchestrator.yml)
+│   └── scripts/
+│       ├── kanban/               Orchestrator library — the Kanban PowerShell module (Import-Module)
+│       ├── tasks/                Thin Taskfile commands: start, runner, retry, setup, sync-issues
+│       ├── ci/                   CI gate scripts (check-module-map.ps1)
+│       └── Claude.ps1            Generic LLM helper (shared)
 ├── docs/adr/                     Architecture Decision Records (MADR format)
 ├── CONTEXT.md                    Domain glossary template (filled at generation time)
 └── AGENTS.md                     Agent standing instructions (filled at generation time)
@@ -220,6 +226,8 @@ ADRs for tool selection decisions are in `docs/adr/`. See `ADR-000` for the temp
 ### Orchestrator Workflow
 
 The Orchestrator Workflow is the autonomous execution layer. Once an issue is queued, the orchestrator runs end-to-end: branch → implement → review → merge.
+
+> **How it's built:** the orchestrator is a PowerShell module — `.github/scripts/kanban/` (`Import-Module Kanban`). The `task` commands below are thin scripts in `.github/scripts/tasks/` that import that library; `orchestrator.yml` imports it on the runner. Run parameters flow via environment variables into `Get-KanbanContext` (ADR-013), so nothing relies on fragile script-scope state.
 
 #### State machine
 

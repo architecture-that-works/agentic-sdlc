@@ -87,7 +87,10 @@ Domain-specific information for this project is captured in ADRs matching the pr
 | `.agents/skills/` | Skill system — invoke skills before implementing manually |
 | `docs/adr/` | Architecture Decision Records (MADR format) |
 | `CONTEXT.md` | Leading repo-structure doc — domain glossary, bounded contexts, Module Map (agent navigation index), architectural constraints |
-| `.github/workflows/` | CI: lint + typecheck + test |
+| `.github/workflows/` | CI (`ci.yml`: lint + typecheck + test) and the AFK orchestrator (`orchestrator.yml`) |
+| `.github/scripts/kanban/` | Orchestrator **library**: the `Kanban` PowerShell module (`Kanban.psd1`/`.psm1`, `Import-Module`) — pipeline phases + helpers + `Orchestrator.ps1`. No top-level `param()` in module files (ADR-013) |
+| `.github/scripts/tasks/` | Thin Taskfile/workflow commands that `Import-Module` the library: `start`, `runner`, `retry`, `setup`, `sync-issues` |
+| `.github/scripts/ci/` | CI gate scripts (`check-module-map.ps1`); generic `Claude.ps1` helper sits at `.github/scripts/` |
 | `.planning/<issue>/` | Per-issue pipeline artifacts: `BLAST_RADIUS.md`, `state.json`, raw pydeps graph |
 
 ## Rules
