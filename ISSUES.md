@@ -125,36 +125,3 @@ assessment (2026-06-27). Detailed pointer: memory `project_harness_roadmap.md`.
 
 <!-- ISSUES -->
 
-ISSUE: Provision a dedicated CI token to isolate the orchestrator's GraphQL budget
-LABELS: HITL
-ESTIMATE: 3
-PRIORITY: P3
-**Goal**: The autonomous orchestrator stops competing with interactive `gh` usage for API capacity, so draining the backlog can no longer exhaust a developer's GitHub rate limit.
-**Description**: `GH_TOKEN` is currently a personal classic PAT. The cloud orchestrator and a developer's local `gh` session authenticate as the *same* user, so they share one GraphQL budget (5000 pts/hr) and compete — observed on 2026-06-27 when a 5-issue drain plus interactive use drove GraphQL to 0/5000 and blocked `task runner`. A dedicated identity (GitHub App installation token, or a separate bot-account PAT) gives CI its own budget, segregating autonomous consumption from interactive work. Background: memory `project_graphql_budget`.
-**Requirements**:
-1. Decide between a GitHub App installation token (installation-scoped budget; preferred) and a dedicated bot-account classic PAT; record the choice and rationale in a new ADR.
-2. Create the chosen identity with the scopes the orchestrator needs (Projects v2, repo, workflow, org read, user) and set it as the `GH_TOKEN` Actions secret.
-3. Confirm the orchestrator identity is on the branch-protection bypass allow-list (post-merge CONTEXT.md push — see the #92 interaction).
-4. Update `SECURITY.md` Orchestrator Credentials and the README AFK setup to document the dedicated CI token and why it is separate from interactive `gh`.
-**Acceptance Criteria**:
-- An orchestrator run authenticates as the dedicated identity, and its GraphQL consumption no longer draws down the developer user's `gh api rate_limit` budget.
-- A full backlog drain completes without exhausting the interactive user's GraphQL limit.
-- ADR + `SECURITY.md` + README updated; no personal PAT remains in the AFK path.
-END_ISSUE
-
-ISSUE: Cut GraphQL consumption in the kanban orchestrator scripts
-LABELS: AFK
-ESTIMATE: 5
-PRIORITY: P3
-**Goal**: A full backlog drain uses far less of the GitHub GraphQL budget, so the orchestrator rarely throttles mid-run.
-**Description**: Nearly every `gh issue/pr/project` call uses GitHub's GraphQL API (5000 pts/hr), which throttles separately from REST (also 5000/hr, currently near-idle). Projects v2 board moves are GraphQL-only and irreducible, but issue/label/default-branch operations are not. Repo-slug resolution and a fail-loud queue read were already moved off GraphQL (in `_common.ps1` / `runner.ps1`); this issue covers the remaining levers. Background: memory `project_graphql_budget`.
-**Requirements**:
-1. Resolve the default branch without GraphQL: replace the ~6 `gh repo view --json defaultBranchRef` call sites (`implement.ps1`, `merge.ps1`, `run.ps1`, `_common.ps1`) with `git rev-parse --abbrev-ref origin/HEAD` (or `$env:GITHUB_DEFAULT_BRANCH`), cached once in `_common.ps1` as `$KanbanDefaultBranch`.
-2. Route hot issue-label reads/writes (`Set-AgentState`, `Set-IssueLabel`, agent:* label reads) to REST via `gh api repos/{owner}/{repo}/issues/{n}/labels` instead of `gh issue view/edit`, moving the most frequent calls onto the idle REST budget.
-3. Keep Projects v2 board operations on GraphQL (no REST API exists); preserve the existing per-process board cache and the "skip if already in lane" guard.
-4. Add a `tests/scripts/` regression check asserting no `gh repo view` remains on the kanban hot path.
-**Acceptance Criteria**:
-- A backlog drain of N issues consumes materially fewer GraphQL points (compare `gh api rate_limit` before/after).
-- No `gh repo view` calls remain on per-issue hot paths; the default branch resolves via git/env.
-- All agent:* label transitions still work; `uv run pytest` passes.
-END_ISSUE
