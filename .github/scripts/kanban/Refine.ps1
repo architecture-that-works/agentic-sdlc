@@ -129,7 +129,7 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 {"body":"<full issue body>","estimate":<number or null>,"priority":"<one of the allowed values or null>"}
 "@
 
-        $raw = $prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String
+        $raw = Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
         if ($LASTEXITCODE -ne 0) { throw "Claude refinement failed: $raw" }
 
         $json = $raw.Trim()
@@ -235,7 +235,7 @@ above if present). Keep it tight — 3 to 8 numbered steps, no preamble, Markdow
     $populatedBy = 'plan (claude)'
     $planMd      = $null
     try {
-        $planMd = $prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String
+        $planMd = Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
         if ($LASTEXITCODE -ne 0 -or -not $planMd.Trim()) { $planMd = $null }
     } catch {
         $planMd = $null

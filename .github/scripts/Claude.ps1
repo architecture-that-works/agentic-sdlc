@@ -102,6 +102,19 @@ function Invoke-ClaudeStreaming {
     throw "$Label exited non-zero after $MaxAttempts attempt(s)."
 }
 
+# The claude CLI prints a workspace-trust warning to stderr when
+# .claude/settings.json carries permissions.allow entries on an untrusted runner.
+# Captured via 2>&1 it leaks into parsed output — and as the first line of a
+# commit message it became the squash-merge title on main. Strip these known
+# non-content lines while preserving real errors.
+function Remove-ClaudeNoise {
+    param([string]$Text)
+    return (($Text -split '\r?\n') | Where-Object {
+        $_ -notmatch 'permissions\.allow entries' -and
+        $_ -notmatch 'hasTrustDialogAccepted'
+    }) -join "`n"
+}
+
 # Commit message — Claude primary, fallback to the supplied message.
 # Future: add Gemini as secondary between Claude and fallback.
 function Get-CommitMessage {
@@ -122,7 +135,7 @@ DIFF:
 $Diff
 "@
 
-    $msg = $prompt | claude --model $Model 2>&1 | Out-String
+    $msg = Remove-ClaudeNoise -Text ($prompt | claude --model $Model 2>&1 | Out-String)
     if ($LASTEXITCODE -eq 0 -and $msg.Trim()) {
         Write-Log "  Commit message via Claude." -Color DarkGray
         return $msg.Trim()
