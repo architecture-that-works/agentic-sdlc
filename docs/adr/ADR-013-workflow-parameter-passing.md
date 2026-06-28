@@ -1,6 +1,6 @@
 ---
 name: ADR-013-workflow-parameter-passing
-description: Decision to pass run parameters between kanban scripts via an environment transport hydrated into a single Get-KanbanContext object, enforce a library/entry-point split (no top-level param in dot-sourced files), and migrate to a PowerShell module in a follow-up
+description: Decision to pass run parameters between orchestrator scripts via an environment transport hydrated into a single Get-KanbanContext object, and package the orchestrator as a PowerShell module (Import-Module) so module-private $Kanban* state can never leak into a caller's scope — the dot-source leak that ran the pipeline against #0
 applies_to: all
 ---
 
@@ -28,39 +28,36 @@ Run parameters passed through **script-scope variables** are thus non-determinis
 
 ## Decision Outcome
 
-Chosen: **Option B now, Option C as the immediate follow-up (phased).**
+Chosen: **Both B and C, shipped together in this PR.**
 
-Option A is rejected as a patch. Option C is the correct end-state, but converting all entry scripts and tests while the AFK pipeline was broken was too much risk in one step — so we ship B to fix the bug deterministically and establish the contract, **designing B's interface (`Get-KanbanContext`) to be exactly what the module will export**, so Phase 2 reuses it unchanged.
+Option A is rejected as a patch. B (env transport + `Get-KanbanContext`) fixes the parameter-passing determinism; C (the module) makes the leak class *impossible by construction* rather than merely policed. They reinforce each other, so they land together: `Get-KanbanContext` is the module's exported interface.
 
-### The contract (Phase 1 — this ADR)
+### The contract
 
-1. **Transport = environment.** Entry points set `KANBAN_ISSUE` / `KANBAN_MAX_RETRIES` (alongside the existing `KANBAN_*` config). Env survives every boundary; a script-scope variable does not.
-2. **Interface = `Get-KanbanContext`.** `_common.ps1` hydrates the run's key parameters once into a single immutable object (`IssueNumber`, `MaxRetries`, `Repo`, `DefaultBranch`, `Runtime`) via a `Get-EnvInt` helper that retrieves directly and falls back cleanly (with a logged warning) on a missing/invalid value. Every script reads `(Get-KanbanContext).X` — never a bare `$Issue`, never ad-hoc `$env:` reads. New per-run keys are added in this one place.
-3. **Library / entry-point split.** Dot-sourced **libraries** (`_*.ps1` and the stage files) carry functions only — **no top-level `param()`**. **Entry points** (`run.ps1`, `start.ps1`, `retry.ps1`, `runner.ps1`) own a `param()`/read the context and are invoked with `&`, never dot-sourced. `grill.ps1` was split into `_grill.ps1` (dot-sourced library, no `param()`) + `grill.ps1` (thin CLI wrapper) to conform.
-4. **`run.ps1` takes no parameters** — it reads `Get-KanbanContext` and fails loud if `IssueNumber <= 0`, so the pipeline can never silently run against #0.
+1. **Transport = environment.** Callers set `KANBAN_ISSUE` / `KANBAN_MAX_RETRIES` (alongside the existing `KANBAN_*` config). Env survives every boundary — `Import-Module`, dot-sourcing, nested `pwsh`, subprocesses; a script-scope variable does not.
+2. **Interface = `Get-KanbanContext`.** `kanban/Config.ps1` hydrates the run's key parameters once into a single immutable object (`IssueNumber`, `MaxRetries`, `Repo`, `DefaultBranch`, `ProjectNumber`, `Runtime`) via a `Get-EnvInt` helper that retrieves directly and falls back cleanly (with a logged warning) on a missing/invalid value. Every consumer reads `(Get-KanbanContext).X` — never a bare `$Issue`, never ad-hoc `$env:` reads. New per-run keys are added in this one place.
+3. **Module = encapsulation.** The orchestrator is a PowerShell module: `kanban/Kanban.psd1` + `Kanban.psm1` load the library files (`Config`, `Util`, `GitHub`, `../Claude`, the phase files `Architecture`/`Implement`/`Review`/`Merge`, and `Orchestrator`) and `Export-ModuleMember -Function *` — **functions only, never variables**. Because consumers `Import-Module`, the private `$Kanban*` state and any internal `param()` defaults stay in module scope and can never reach the caller. The dot-source `grill.ps1` `param()` leak is structurally impossible.
+4. **Thin task scripts.** `tasks/` holds the Taskfile/workflow commands (`start`, `runner`, `retry`, `setup`, `sync-issues`); each `Import-Module`s the library and calls exported functions. There is **no `run.ps1`** — `orchestrator.yml` and `start.ps1` call `Invoke-Orchestration` directly (it fails loud if `IssueNumber <= 0`, so the pipeline can never run against #0). `grill.ps1` is split into `_grill.ps1` (dot-sourced library, no `param()`) + `grill.ps1` (CLI wrapper).
+
+Directory layout: `kanban/` = the library/module; `tasks/` = thin commands; `ci/` = CI checks; `Claude.ps1` (provider-generic) sits at `.github/scripts/`.
 
 This complements ADR-011's three deterministic layers:
 
 | Scope | Carrier |
 |-------|---------|
-| Static config | `KANBAN_*` env → `$Kanban*` consts in `_common.ps1` |
+| Static config | `KANBAN_*` env → `$Kanban*` consts in `kanban/Config.ps1` (module-private) |
 | **Per-run parameters** | **`KANBAN_ISSUE`/`KANBAN_MAX_RETRIES` env → `Get-KanbanContext`** (this ADR) |
 | Cross-runtime state | issue-body JSON (ADR-011) |
 
 ### Enforcement
 
-`tests/scripts/test_kanban_script_contract.py` statically asserts no dot-sourced file declares a top-level `param()`, that `grill.ps1` is never dot-sourced, and that entry points are never dot-sourced. The scope-leak class cannot silently return.
-
-### Phase 2 — module migration (follow-up PR + ADR update)
-
-Convert the dot-sourced files into a `Kanban` module (`.psm1` + `.psd1`): `Import-Module` in entry scripts, `Get-KanbanContext` and the stage functions exported, stage files loaded internally so their scope never reaches the importer. `PowerShellVersion = '7.0'` in the manifest replaces scattered `#Requires`. Tests migrate to `Import-Module`/Pester. The `Get-KanbanContext` interface from Phase 1 is the module's export — no rework.
+`tests/scripts/test_kanban_script_contract.py` statically asserts no dot-sourced file (including those loaded by `Kanban.psm1`) declares a top-level `param()`, that the `grill.ps1` CLI is never dot-sourced, and that task entry points are never dot-sourced — a cheap guard belt-and-suspenders with the module's structural encapsulation.
 
 ### Confirmation
 
-* Reproduced: with `KANBAN_ISSUE=86`, dot-sourcing the full `run.ps1` chain leaves `(Get-KanbanContext).IssueNumber == 86` and a bare `$Issue` empty (no leak).
+* Reproduced: with `KANBAN_ISSUE=42`, `Import-Module Kanban` then dot-sourcing the full library chain leaves `(Get-KanbanContext).IssueNumber == 42` and a bare `$Issue` empty (no leak); all expected functions are exported and `$KanbanRepo` is **not** visible in the caller's scope.
 * `tests/scripts/test_kanban_script_contract.py` + `test_grill_harness.py` pass; full `uv run pytest` green.
 * A `task runner` drain resolves a real issue number (never #0) and moves it out of `agent:backlog`.
-* Revisit at Phase 2: once the module ships, the no-top-level-`param()` test becomes redundant with module encapsulation but is kept as a cheap guard.
 
 ## Pros and Cons of the Options
 

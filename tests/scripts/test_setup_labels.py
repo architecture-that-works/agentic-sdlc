@@ -20,7 +20,9 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).parent.parent.parent / ".github" / "scripts" / "setup.ps1"
+SCRIPT = (
+    Path(__file__).parent.parent.parent / ".github" / "scripts" / "tasks" / "setup.ps1"
+)
 PWSH = shutil.which("pwsh") or "pwsh"
 
 pytestmark = pytest.mark.skipif(

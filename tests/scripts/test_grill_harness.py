@@ -139,14 +139,14 @@ def test_grill_lib_dot_source_then_dry_run_invokes_function() -> None:
 # ── AGENT-BRIEF markers (round-trip parsable by any runtime) ─────────────────
 
 
-def test_agent_brief_markers_present_in_common_ps1() -> None:
+def test_agent_brief_markers_present_in_github_ps1() -> None:
     """Set-AgentBrief depends on stable HTML-comment markers that any runtime
     (PowerShell, Python on Cloud Run) can parse with a single regex."""
-    common = (REPO_ROOT / ".github/scripts/kanban/_common.ps1").read_text(
+    github = (REPO_ROOT / ".github/scripts/kanban/GitHub.ps1").read_text(
         encoding="utf-8"
     )
-    assert "<!-- AGENT-BRIEF:BEGIN -->" in common
-    assert "<!-- AGENT-BRIEF:END -->" in common
+    assert "<!-- AGENT-BRIEF:BEGIN -->" in github
+    assert "<!-- AGENT-BRIEF:END -->" in github
 
 
 # ── HITL child-issue title format ─────────────────────────────────────────────
