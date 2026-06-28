@@ -20,6 +20,14 @@ cover Projects v2, a classic PAT with `project`, `read:org`, `repo`, `user`, `wo
 - Never share the token across projects; generate one per repository.
 - Rotate on the schedule below.
 
+**Shared rate-limit budget (accepted, see ADR-012):** Because the cloud orchestrator and the
+developer's local `gh` authenticate as the *same* user, they share one GraphQL budget
+(5000 pts/hr). A dedicated CI identity (bot-account PAT, since GitHub Apps cannot mutate a
+*user-owned* Projects v2 board) would isolate it, but is **deferred** — the orchestrator's
+GraphQL footprint was instead cut (default-branch + label ops moved off GraphQL; rate-limit
+pre-flight). Revisit if a backlog drain plus interactive use exhausts the budget. See
+`docs/adr/ADR-012-orchestrator-graphql-budget.md`.
+
 **Rotation guidance:**
 1. Open GitHub → Settings → Developer Settings → Personal access tokens → Tokens (classic).
 2. Generate a new token scoped to `project`, `read:org`, `repo`, `user`, `workflow`.

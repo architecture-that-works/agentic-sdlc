@@ -430,7 +430,7 @@ function Invoke-CommitAndPR {
         # produces no diff, and forcing a PR here would fail with "no commits between
         # branches". Return $null so the caller (run.ps1) closes the issue as merged
         # without invoking the review/merge stages.
-        $defaultBranch = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>$null
+        $defaultBranch = $KanbanDefaultBranch
         git fetch --quiet origin $defaultBranch 2>$null
         $aheadCount = [int]((git rev-list --count "origin/${defaultBranch}..HEAD" 2>$null) | Out-String).Trim()
 

@@ -58,6 +58,40 @@ if (-not $KanbanRepo) {
     throw "Cannot resolve the repository slug — set GITHUB_REPOSITORY, add a git 'origin' remote, or check 'gh auth status'."
 }
 
+# Resolve the default branch WITHOUT a GraphQL call. Like the repo slug, `gh repo
+# view --json defaultBranchRef` hits the GraphQL API (5000 pts/hr, shared with
+# the cloud pipeline). The ~6 stage-script call sites that need it all `git
+# fetch/reset/checkout` against it afterwards, so resolving it once per process
+# and caching it here as $KanbanDefaultBranch removes those calls from the hot
+# path. Order, cheapest first:
+#   1. GITHUB_DEFAULT_BRANCH — set by orchestrator.yml from the GHA event (free).
+#   2. Local origin/HEAD symref — written by `git clone` (no network at all).
+#   3. `git ls-remote --symref` — a git-protocol query, NOT the GraphQL API, so
+#      it does not draw down the API budget (covers CI checkouts lacking 1 & 2).
+#   4. `gh repo view` — last resort, costs one GraphQL call.
+$KanbanDefaultBranch = $env:GITHUB_DEFAULT_BRANCH
+if (-not $KanbanDefaultBranch) {
+    $_symref = git symbolic-ref --short refs/remotes/origin/HEAD 2>$null
+    if ($LASTEXITCODE -eq 0 -and $_symref) {
+        $KanbanDefaultBranch = ($_symref -replace '^origin/', '').Trim()
+    }
+}
+if (-not $KanbanDefaultBranch) {
+    $_lsRemote = git ls-remote --symref origin HEAD 2>$null |
+        Select-String 'ref:\s+refs/heads/(\S+)\s+HEAD'
+    if ($_lsRemote) {
+        $KanbanDefaultBranch = $_lsRemote.Matches[0].Groups[1].Value
+    }
+}
+if (-not $KanbanDefaultBranch) {
+    # Last resort — costs one GraphQL call.
+    $KanbanDefaultBranch = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>$null
+    if ($KanbanDefaultBranch) { $KanbanDefaultBranch = $KanbanDefaultBranch.Trim() }
+}
+if (-not $KanbanDefaultBranch) {
+    throw "Cannot resolve the default branch — set GITHUB_DEFAULT_BRANCH, configure an 'origin' remote, or check 'gh auth status'."
+}
+
 # ── Orchestrator configuration (config.ps1 → .env overrides) ─────────────────
 . "$PSScriptRoot\config.ps1"
 
@@ -91,18 +125,26 @@ function Write-Log {
 
 function Set-IssueLabel {
     param([int]$Number, [string]$Add = '', [string]$Remove = '')
-    if ($Remove -and $Add) {
-        $out = gh issue edit $Number --repo $KanbanRepo --remove-label $Remove --add-label $Add 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) {
-            Write-Log "  ⚠️ Failed to swap label '$Remove' → '$Add' on #${Number}: $($out.Trim())" -Color Yellow
-        }
-    } elseif ($Remove) {
-        $out = gh issue edit $Number --repo $KanbanRepo --remove-label $Remove 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) {
+    # Route label add/remove through REST (issues/{n}/labels), NOT `gh issue edit`
+    # which is GraphQL. This runs on every state transition — the single most
+    # frequent gh call in a drain — so moving it onto the near-idle REST budget is
+    # the biggest GraphQL lever. A swap is two REST calls (DELETE then POST) rather
+    # than one GraphQL edit; REST capacity is plentiful, so that trade is worth it.
+    # All labels passed here are agent:* (colon, no spaces), which the REST path
+    # accepts unencoded.
+    if ($Remove) {
+        # URL-encode the label name — it is a path segment. agent:* labels work
+        # unencoded, but a future label with a space or slash would not; gh api
+        # passes the path through without re-encoding (%3A stays %3A).
+        $removeEnc = [uri]::EscapeDataString($Remove)
+        $out = gh api --method DELETE "repos/$KanbanRepo/issues/$Number/labels/$removeEnc" 2>&1 | Out-String
+        # 404 just means the label was already absent — not worth surfacing.
+        if ($LASTEXITCODE -ne 0 -and $out -notmatch 'HTTP 404|Not Found') {
             Write-Log "  ⚠️ Failed to remove label '$Remove' on #${Number}: $($out.Trim())" -Color Yellow
         }
-    } elseif ($Add) {
-        $out = gh issue edit $Number --repo $KanbanRepo --add-label $Add 2>&1 | Out-String
+    }
+    if ($Add) {
+        $out = gh api --method POST "repos/$KanbanRepo/issues/$Number/labels" -f "labels[]=$Add" 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
             Write-Log "  ⚠️ Failed to add label '$Add' on #${Number}: $($out.Trim())" -Color Yellow
         }
@@ -507,9 +549,11 @@ function Set-AgentState {
         }
     }
 
-    $current = gh issue view $IssueNumber --repo $KanbanRepo --json labels `
-        --jq '[.labels[].name | select(startswith("agent:"))] | first' 2>&1 |
-        Out-String | ForEach-Object { $_.Trim().Trim('"') }
+    # Read the current agent:* label via REST (issues/{n}/labels), not the GraphQL
+    # `gh issue view`. Hot path — runs on every Set-AgentState call.
+    $current = gh api "repos/$KanbanRepo/issues/$IssueNumber/labels" `
+        --jq 'map(.name) | map(select(startswith("agent:"))) | first // empty' 2>&1 |
+        Out-String | ForEach-Object { $_.Trim() }
 
     if ($current -and $current -ne 'null' -and $current -ne $Label) {
         Set-IssueLabel -Number $IssueNumber -Remove $current -Add $Label
@@ -558,7 +602,7 @@ function Get-CurrentIssueNumber {
 function New-FeatureBranch {
     param([int]$Number, [string]$Title)
     $branch  = Get-BranchName -Number $Number -Title $Title
-    $default = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'
+    $default = $KanbanDefaultBranch
     $current = git rev-parse --abbrev-ref HEAD
 
     if (git branch --list $branch) {

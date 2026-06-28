@@ -113,7 +113,7 @@ function Invoke-Orchestration {
         if ($stashed) { git stash pop 2>&1 | Out-Null }
 
         # Always return to a clean, origin-synced default branch so the next issue starts fresh.
-        $default = gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>$null
+        $default = $KanbanDefaultBranch
         $curr    = git rev-parse --abbrev-ref HEAD 2>$null
 
         if ($curr -and $curr -ne $default) {
