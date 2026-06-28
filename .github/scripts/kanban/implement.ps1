@@ -18,6 +18,7 @@
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_common.ps1"
 . "$PSScriptRoot\architecture.ps1"
+. "$PSScriptRoot\plan.ps1"
 # Dot-source the self-grill subagent so Invoke-Refine can call Invoke-Grill
 # directly. The script is dot-source-safe — it skips its standalone-mode
 # section when $MyInvocation.InvocationName -eq '.'.
@@ -232,23 +233,22 @@ function Invoke-Architect {
 
 function Invoke-Plan {
     param([int]$Number)
-    Write-Log "  Phase A.6 — Plan stub for issue #$Number" -Color Yellow
+    Write-Log "  Phase A.6 — Plan decomposition for issue #$Number" -Color Yellow
 
-    $body = gh issue view $Number --repo $KanbanRepo --json body --jq '.body' 2>&1 | Out-String
-    if ($LASTEXITCODE -eq 0 -and $body -notmatch '(?m)^##\s*Plan\s*$') {
-        $section = "`n`n## Plan`n`n_phase-1 stub — populated by the orchestrator after the plan pass runs._"
-        $newBody = ($body.TrimEnd("`r","`n")) + $section
-        $tmp = New-TemporaryFile
-        try {
-            $newBody | Out-File $tmp.FullName -Encoding utf8
-            gh issue edit $Number --repo $KanbanRepo --body-file $tmp.FullName 2>&1 | Out-Null
-        } finally {
-            Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+    # Delegate to plan.ps1's Invoke-PlanDecomposition. The function publishes
+    # the Lean PRD as a body section, emits child issues via `gh issue create`
+    # (NOT ISSUES.md editing), applies the AFK/HITL labelling heuristic, and
+    # marks readiness.planned on success. A duplicate detected during dedupe
+    # returns $null without marking readiness — that branch is the correct
+    # outcome for an aborted plan run.
+    try {
+        $emitted = Invoke-PlanDecomposition -IssueNumber $Number
+        if ($null -ne $emitted) {
+            Write-Log "  Issue #$Number — readiness.planned ✓ ($emitted child(ren))" -Color DarkGray
         }
+    } catch {
+        Write-Log "  ⚠️ Plan decomposition failed for #${Number}: $_" -Color Yellow
     }
-
-    Set-PlanningReadiness -IssueNumber $Number -Stage 'planned' -StageLabel 'plan'
-    Write-Log "  Issue #$Number — readiness.planned ✓" -Color DarkGray
 }
 
 # ── Phase B: Develop ──────────────────────────────────────────────────────────

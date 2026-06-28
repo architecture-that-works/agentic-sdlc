@@ -100,11 +100,40 @@ gh issue create \
 | Step | Action | Tool |
 |---|---|---|
 | Deduplicate | Search open issues + `.out-of-scope.md` | `gh issue list` |
-| PRD | Create as GitHub Issue | `gh issue create` |
+| PRD | Publish into the parent issue body (between `<!-- AGENT-PRD:BEGIN -->` markers) | `gh issue edit` |
 | Decompose | One issue per vertical slice | `gh issue create` |
 | Label | HITL or AFK on every issue | `--label` flag |
 
 **Context sensitivity:** Medium. PRD synthesis requires coherent reasoning — run in Smart Zone when possible. Deduplication queries are stateless and safe at any fill level.
+
+## AFK Invocation
+
+The orchestrator runs the plan phase non-interactively via `.github/scripts/kanban/plan.ps1`. Plan is the **third readiness stage** (refine → architect → plan) — it is NOT a kanban lane and there is no `agent:planning` label. Per ADR-011 the GitHub issue is the cross-runtime state carrier:
+
+- Architecture / blast-radius is read from the issue (the `## Blast-Radius Report` comment published by `architecture.ps1`), NOT from `.planning/<issue>/BLAST_RADIUS.md`.
+- The Lean PRD is written into the parent issue body between `<!-- AGENT-PRD:BEGIN -->` / `<!-- AGENT-PRD:END -->` markers.
+
+Standalone invocation:
+
+```pwsh
+# Runs dedupe → PRD synthesis → child emission for one parent epic issue.
+# Returns the number of children created, or $null if the dedupe gate aborted.
+pwsh .github/scripts/kanban/plan.ps1 -Issue 42
+```
+
+Pipeline invocation (`implement.ps1 → Invoke-Plan`) dot-sources the same script and calls `Invoke-PlanDecomposition -IssueNumber <n>`. On success the function marks `readiness.planned` in the issue-carried AGENT-STATE block; on a dedupe hit it posts a `🤖❌ Plan Aborted — duplicate` signal comment and returns `$null` without flipping readiness.
+
+## Labelling Heuristic — AFK vs HITL
+
+The orchestrator's default child label is decided by two signals, both read from the issue carrier:
+
+| Blast radius (from `## Blast-Radius Report` comment) | open_questions[] (from AGENT-STATE) | Default child label |
+|------|------|------|
+| Narrow — `At-risk: none` or `Recommendation: proceed` | empty | **AFK** |
+| Narrow | non-empty | **HITL** |
+| Wide — at-risk modules listed | any | **HITL** |
+
+Children synthesised by Claude may opt **up** to HITL (e.g. UX, credentials, business decision); the heuristic may opt the orchestrator's default up to HITL based on blast or open questions. Neither side ever downgrades a HITL child to AFK — correctness for recursive issue creation outweighs throughput, since a wrong heuristic generates noise that pollutes the backlog.
 
 ## Common Mistakes
 
