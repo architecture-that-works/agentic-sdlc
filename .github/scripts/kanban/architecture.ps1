@@ -20,20 +20,6 @@ $ErrorActionPreference = 'Stop'
 
 # ── State.json helpers ────────────────────────────────────────────────────────
 
-function Get-PipelineState {
-    param([int]$IssueNumber)
-    $statePath = "$_Root\.planning\$IssueNumber\state.json"
-    if (-not (Test-Path $statePath)) {
-        return [pscustomobject]@{ issue = $IssueNumber; transitions = @() }
-    }
-    try {
-        $parsed = Get-Content $statePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-        return $parsed
-    } catch {
-        return [pscustomobject]@{ issue = $IssueNumber; transitions = @() }
-    }
-}
-
 function Set-PipelineState {
     param([int]$IssueNumber, [string]$Phase)
 
@@ -41,7 +27,9 @@ function Set-PipelineState {
     $statePath = "$planDir\state.json"
     $null      = New-Item -ItemType Directory -Force -Path $planDir
 
-    # Load existing transitions (always kept as an array)
+    # Load existing transitions (always kept as an array). A corrupt state.json
+    # is a clean-fallback-to-empty, but log it rather than silently discarding
+    # prior history.
     $transitions = @()
     if (Test-Path $statePath) {
         try {
@@ -49,7 +37,9 @@ function Set-PipelineState {
             if ($null -ne $existing.transitions) {
                 $transitions = @($existing.transitions)
             }
-        } catch {}
+        } catch {
+            Write-Log "  ⚠️ Could not read existing $statePath — starting transitions fresh. $_" -Color Yellow
+        }
     }
 
     $transitions += [pscustomobject]@{
@@ -119,9 +109,13 @@ print(json.dumps({
     try {
         $pyScript | Out-File $pyTmp.FullName -Encoding utf8
         $jsonOut = uv run python $pyTmp.FullName 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0 -or -not $jsonOut.Trim()) { return $null }
+        if ($LASTEXITCODE -ne 0 -or -not $jsonOut.Trim()) {
+            Write-Log "  ⚠️ Codebase analysis produced no output — blast-radius will list no at-risk modules." -Color Yellow
+            return $null
+        }
         return $jsonOut.Trim() | ConvertFrom-Json -ErrorAction Stop
     } catch {
+        Write-Log "  ⚠️ Codebase analysis failed to parse — blast-radius will list no at-risk modules. $_" -Color Yellow
         return $null
     } finally {
         Remove-Item $pyTmp.FullName -ErrorAction SilentlyContinue
