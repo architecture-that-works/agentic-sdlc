@@ -11,6 +11,10 @@ Prevents implementation drift and untested code by enforcing a strict Red-Green-
 
 **Primary artifact:** Passing pytest suite with minimal, refactored implementation code.
 
+See [REFERENCE.md](REFERENCE.md) for the full decision tree, fixture conventions, coverage
+threshold, and parametrize patterns. See [EXAMPLES.md](EXAMPLES.md) for worked
+Red-Green-Refactor sessions (new feature, regression, parametrize).
+
 ## Scope
 
 **Owns:** Red-Green-Refactor loop enforcement, acceptance criteria traceability to the PRD, mocking rules, deep-module REFACTOR target, test suite ergonomics with pytest.

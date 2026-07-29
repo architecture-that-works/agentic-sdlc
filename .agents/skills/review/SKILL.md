@@ -11,6 +11,10 @@ Prevents defects and architectural drift from reaching `main` by running a struc
 
 **Primary artifact:** Review report with all findings resolved or escalated, and a verified clean PR ready for `ship`.
 
+See [REFERENCE.md](REFERENCE.md) for the full finding taxonomy, auto-fix loop protocol,
+escalation steps, and drift-risk heuristics. See [EXAMPLES.md](EXAMPLES.md) for worked
+review sessions (BLOCK finding resolved, clean approval, escalation after 3 iterations).
+
 ## Scope
 
 **Owns:** PR review execution (Claude), auto-fix and refine loop, finding verification and compaction, Senior Architect standard enforcement against `CONTEXT.md` principles, HITL escalation when the loop reaches its iteration limit.
