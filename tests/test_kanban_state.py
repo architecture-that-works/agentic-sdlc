@@ -22,6 +22,7 @@ import subprocess
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import ValidationError
 
 from src.utils.m_planning import (
     AgentBrief,
@@ -73,6 +74,7 @@ def _ps(script: str) -> subprocess.CompletedProcess[str]:
         [PWSH, "-NoProfile", "-Command", script],
         capture_output=True,
         text=True,
+        check=False,
     )
 
 
@@ -292,7 +294,7 @@ def test_grill_result_round_trips_full_payload() -> None:
 
 def test_grill_result_rejects_missing_agent_brief() -> None:
     """agent_brief is required — refine must abort if the subagent omits it."""
-    with pytest.raises(Exception):  # pydantic.ValidationError
+    with pytest.raises(ValidationError):
         GrillResult.model_validate({"open_questions": [], "decided_questions": []})
 
 
@@ -315,7 +317,7 @@ def test_glossary_diff_defaults_to_add_action() -> None:
 
 def test_glossary_diff_action_constrained() -> None:
     """The action enum is Literal['add','revise','remove']."""
-    with pytest.raises(Exception):  # pydantic.ValidationError
+    with pytest.raises(ValidationError):
         GlossaryDiff.model_validate(
             {"term": "X", "definition": "Y", "action": "invent"}
         )

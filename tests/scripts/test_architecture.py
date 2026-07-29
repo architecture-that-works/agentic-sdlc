@@ -41,6 +41,7 @@ def _ps(script: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str
         capture_output=True,
         text=True,
         cwd=str(cwd) if cwd else None,
+        check=False,
     )
 
 

@@ -95,8 +95,7 @@ import polars as pl
 # ✅ Polars pipeline transformation
 df = pl.read_database("SELECT * FROM silver_sick_leave", connection)
 df_gold = (
-    df
-    .filter(pl.col("value").is_not_null())
+    df.filter(pl.col("value").is_not_null())
     .with_columns(pl.col("period").str.to_date())
     .group_by("quarter", "branch")
     .agg(pl.col("value").mean().alias("avg_value"))
@@ -116,10 +115,12 @@ Validate at the boundary — before data touches a SQLAlchemy session or Polars 
 ```python
 from sqlmodel import SQLModel, Field, Session
 
+
 class SickLeaveRecord(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    period: str = Field(pattern=r'^\d{4}Q[1-4]$')
+    period: str = Field(pattern=r"^\d{4}Q[1-4]$")
     value: float
+
 
 record = SickLeaveRecord.model_validate(raw_data)  # Raises ValidationError if invalid
 with Session(engine) as session:
@@ -244,12 +245,14 @@ Emit OpenLineage events from each Medallion tier for machine-readable lineage:
 from openlineage.client import OpenLineageClient, RunEvent, RunState
 
 client = OpenLineageClient.from_environment()
-client.emit(RunEvent(
-    eventType=RunState.COMPLETE,
-    job=Job(namespace="pipeline", name="silver_transformation"),
-    inputs=[Dataset(namespace="sqlite", name="bronze_sick_leave")],
-    outputs=[Dataset(namespace="sqlite", name="silver_sick_leave")],
-))
+client.emit(
+    RunEvent(
+        eventType=RunState.COMPLETE,
+        job=Job(namespace="pipeline", name="silver_transformation"),
+        inputs=[Dataset(namespace="sqlite", name="bronze_sick_leave")],
+        outputs=[Dataset(namespace="sqlite", name="silver_sick_leave")],
+    )
+)
 ```
 
 Compatible with OpenMetadata, Apache Atlas, and Marquez.
@@ -263,9 +266,12 @@ def test_silver_row_count(session: Session) -> None:
     count = session.execute(select(func.count()).select_from(SilverSickLeave)).scalar()
     assert count > 0
 
+
 def test_gold_no_nulls(session: Session) -> None:
     nulls = session.execute(
-        select(func.count()).select_from(GoldSickLeave).where(GoldSickLeave.avg_value.is_(None))
+        select(func.count())
+        .select_from(GoldSickLeave)
+        .where(GoldSickLeave.avg_value.is_(None))
     ).scalar()
     assert nulls == 0, "Gold Zero-Null policy violated"
 ```

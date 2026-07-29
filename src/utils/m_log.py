@@ -224,7 +224,7 @@ def f_log(
         _logger.log(log_level, sep_after * settings.log_separator_width)
 
     if level in (LogLevel.ERROR, LogLevel.CRITICAL) and raise_exc:
-        raise Exception(message)
+        raise RuntimeError(message)
 
 
 ###############################################################################

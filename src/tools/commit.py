@@ -1,7 +1,6 @@
 import subprocess
 import sys
 
-
 _PROMPT_TEMPLATE = """Generate a conventional commit message for the following diff.
 
 Rules:
@@ -33,7 +32,11 @@ def _staged_diff() -> str:
 def _claude_cli(prompt: str) -> str | None:
     try:
         result = subprocess.run(
-            ["claude", "-p", "-"], input=prompt, capture_output=True, text=True
+            ["claude", "-p", "-"],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
@@ -56,7 +59,7 @@ def _claude_sdk(prompt: str) -> str | None:
         for block in response.content:
             if isinstance(block, TextBlock):
                 return block.text.strip()
-    except Exception:
+    except Exception:  # noqa: BLE001, S110 — best-effort SDK provider; any failure falls back
         pass
     return None
 

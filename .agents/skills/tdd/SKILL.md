@@ -57,6 +57,7 @@ def test_order_total_includes_tax():
     order = Order(items=[Item("widget", 10.00)], tax_rate=0.1)
     assert order.total() == 11.00
 
+
 # ❌ Mocks an internal collaborator
 def test_order_total():
     with patch("orders.TaxCalculator") as mock:

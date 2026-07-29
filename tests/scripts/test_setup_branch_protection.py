@@ -32,6 +32,7 @@ def _ps(script: str) -> subprocess.CompletedProcess[str]:
         [PWSH, "-NoProfile", "-Command", script],
         capture_output=True,
         text=True,
+        check=False,
     )
 
 

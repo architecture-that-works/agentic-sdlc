@@ -22,32 +22,38 @@ def test_generate_commit_message_uses_cli_when_available() -> None:
 
 
 def test_generate_commit_message_falls_back_to_sdk() -> None:
-    with patch("src.tools.commit._claude_cli", return_value=None):
-        with patch(
+    with (
+        patch("src.tools.commit._claude_cli", return_value=None),
+        patch(
             "src.tools.commit._claude_sdk",
             return_value="fix(config): correct env loading",
-        ):
-            result = generate_commit_message("diff")
+        ),
+    ):
+        result = generate_commit_message("diff")
 
     assert result == "fix(config): correct env loading"
 
 
 def test_generate_commit_message_cli_takes_priority_over_sdk() -> None:
-    with patch("src.tools.commit._claude_cli", return_value="feat: from cli"):
-        with patch(
+    with (
+        patch("src.tools.commit._claude_cli", return_value="feat: from cli"),
+        patch(
             "src.tools.commit._claude_sdk", return_value="feat: from sdk"
-        ) as mock_sdk:
-            result = generate_commit_message("diff")
+        ) as mock_sdk,
+    ):
+        result = generate_commit_message("diff")
 
     mock_sdk.assert_not_called()
     assert result == "feat: from cli"
 
 
 def test_generate_commit_message_exits_when_both_providers_fail() -> None:
-    with patch("src.tools.commit._claude_cli", return_value=None):
-        with patch("src.tools.commit._claude_sdk", return_value=None):
-            with pytest.raises(SystemExit):
-                generate_commit_message("diff")
+    with (
+        patch("src.tools.commit._claude_cli", return_value=None),
+        patch("src.tools.commit._claude_sdk", return_value=None),
+        pytest.raises(SystemExit),
+    ):
+        generate_commit_message("diff")
 
 
 # --- _staged_diff ---
@@ -62,15 +68,19 @@ def test_staged_diff_returns_stdout() -> None:
 
 def test_staged_diff_exits_on_git_error() -> None:
     err = subprocess.CalledProcessError(1, "git", stderr="fatal error")
-    with patch("src.tools.commit.subprocess.run", side_effect=err):
-        with pytest.raises(SystemExit):
-            _staged_diff()
+    with (
+        patch("src.tools.commit.subprocess.run", side_effect=err),
+        pytest.raises(SystemExit),
+    ):
+        _staged_diff()
 
 
 def test_staged_diff_exits_when_git_not_found() -> None:
-    with patch("src.tools.commit.subprocess.run", side_effect=FileNotFoundError):
-        with pytest.raises(SystemExit):
-            _staged_diff()
+    with (
+        patch("src.tools.commit.subprocess.run", side_effect=FileNotFoundError),
+        pytest.raises(SystemExit),
+    ):
+        _staged_diff()
 
 
 # --- _claude_cli ---
@@ -131,37 +141,41 @@ def test_commit_runs_git_commit() -> None:
 
 def test_commit_exits_on_git_error() -> None:
     err = subprocess.CalledProcessError(1, "git", stderr="conflict")
-    with patch("src.tools.commit.subprocess.run", side_effect=err):
-        with pytest.raises(SystemExit):
-            _commit("feat: test")
+    with (
+        patch("src.tools.commit.subprocess.run", side_effect=err),
+        pytest.raises(SystemExit),
+    ):
+        _commit("feat: test")
 
 
 # --- main ---
 
 
 def test_main_exits_when_no_staged_changes() -> None:
-    with patch("src.tools.commit._staged_diff", return_value=""):
-        with pytest.raises(SystemExit):
-            main()
+    with (
+        patch("src.tools.commit._staged_diff", return_value=""),
+        pytest.raises(SystemExit),
+    ):
+        main()
 
 
 def test_main_dry_run_skips_commit() -> None:
-    with patch("src.tools.commit._staged_diff", return_value="some diff"):
-        with patch(
-            "src.tools.commit.generate_commit_message", return_value="feat: thing"
-        ):
-            with patch("src.tools.commit._commit") as mock_commit:
-                with patch.object(sys, "argv", ["commit", "--dry-run"]):
-                    main()
+    with (
+        patch("src.tools.commit._staged_diff", return_value="some diff"),
+        patch("src.tools.commit.generate_commit_message", return_value="feat: thing"),
+        patch("src.tools.commit._commit") as mock_commit,
+        patch.object(sys, "argv", ["commit", "--dry-run"]),
+    ):
+        main()
     mock_commit.assert_not_called()
 
 
 def test_main_commits_when_not_dry_run() -> None:
-    with patch("src.tools.commit._staged_diff", return_value="some diff"):
-        with patch(
-            "src.tools.commit.generate_commit_message", return_value="feat: thing"
-        ):
-            with patch("src.tools.commit._commit") as mock_commit:
-                with patch.object(sys, "argv", ["commit"]):
-                    main()
+    with (
+        patch("src.tools.commit._staged_diff", return_value="some diff"),
+        patch("src.tools.commit.generate_commit_message", return_value="feat: thing"),
+        patch("src.tools.commit._commit") as mock_commit,
+        patch.object(sys, "argv", ["commit"]),
+    ):
+        main()
     mock_commit.assert_called_once_with("feat: thing")

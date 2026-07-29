@@ -56,7 +56,7 @@ def _detect_error_class(lines: list[str]) -> tuple[str, str]:
 
     for line in reversed(lines):
         candidate = line.strip()
-        if candidate.startswith("E ") or candidate.startswith("E\t"):
+        if candidate.startswith(("E ", "E\t")):
             candidate = candidate[1:].strip()
         for pattern in (_EXCEPTION_SUFFIX, _EXCEPTION_NAME_RE):
             m = pattern.match(candidate)

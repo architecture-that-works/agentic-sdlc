@@ -70,14 +70,17 @@ from pydantic import BaseModel
 
 app = FastAPI(title="AI Application API", version="1.0.0")
 
+
 class AnalyseRequest(BaseModel):
     text: str
     language: str = "en"
+
 
 class AnalyseResponse(BaseModel):
     summary: str
     sentiment: str
     key_points: list[str]
+
 
 @app.post("/v1/analyse", response_model=AnalyseResponse)
 async def analyse(
@@ -103,8 +106,11 @@ adapters/       # Concrete implementations injected via Depends()
 ```python
 # ✅ Thin router, Claude behind a port
 @router.post("/analyse", response_model=AnalyseResponse)
-async def analyse(request: AnalyseRequest, service: AnalysisService = Depends(get_service)):
+async def analyse(
+    request: AnalyseRequest, service: AnalysisService = Depends(get_service)
+):
     return await service.analyse(request)
+
 
 # ❌ Claude call directly in router — no abstraction, untestable
 @router.post("/analyse")
@@ -121,16 +127,21 @@ async def analyse(request: AnalyseRequest):
 from abc import ABC, abstractmethod
 from pydantic import BaseModel
 
+
 class AICompletionPort(ABC):
     @abstractmethod
     async def complete(self, prompt: str, system: str = "") -> str: ...
 
     @abstractmethod
-    async def complete_structured(self, prompt: str, schema: type[BaseModel]) -> BaseModel: ...
+    async def complete_structured(
+        self, prompt: str, schema: type[BaseModel]
+    ) -> BaseModel: ...
+
 
 # adapters/claude_adapter.py
 from anthropic import AsyncAnthropic
 from ports.ai_port import AICompletionPort
+
 
 class ClaudeAdapter(AICompletionPort):
     def __init__(self, model: str = "claude-opus-4-5"):
@@ -146,15 +157,19 @@ class ClaudeAdapter(AICompletionPort):
         )
         return response.content[0].text
 
-    async def complete_structured(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
+    async def complete_structured(
+        self, prompt: str, schema: type[BaseModel]
+    ) -> BaseModel:
         response = await self._client.messages.create(
             model=self._model,
             max_tokens=1024,
-            tools=[{
-                "name": "return_result",
-                "description": f"Return the structured result as {schema.__name__}",
-                "input_schema": schema.model_json_schema(),
-            }],
+            tools=[
+                {
+                    "name": "return_result",
+                    "description": f"Return the structured result as {schema.__name__}",
+                    "input_schema": schema.model_json_schema(),
+                }
+            ],
             tool_choice={"type": "tool", "name": "return_result"},
             messages=[{"role": "user", "content": prompt}],
         )
@@ -170,11 +185,15 @@ from fastapi import Depends
 from ports.ai_port import AICompletionPort
 from adapters.claude_adapter import ClaudeAdapter
 
+
 @lru_cache
 def get_ai_port() -> AICompletionPort:
     return ClaudeAdapter()
 
-def get_analysis_service(ai: AICompletionPort = Depends(get_ai_port)) -> AnalysisService:
+
+def get_analysis_service(
+    ai: AICompletionPort = Depends(get_ai_port),
+) -> AnalysisService:
     return AnalysisService(ai_port=ai)
 ```
 
@@ -186,9 +205,12 @@ Instrument at the service layer, not the router. Emit one span per Claude call. 
 
 ```python
 from opentelemetry import trace
-from opentelemetry.semconv.ai import SpanAttributes   # opentelemetry-semantic-conventions-ai
+from opentelemetry.semconv.ai import (
+    SpanAttributes,
+)  # opentelemetry-semantic-conventions-ai
 
 tracer = trace.get_tracer(__name__)
+
 
 class AnalysisService:
     def __init__(self, ai_port: AICompletionPort) -> None:
@@ -217,6 +239,7 @@ from anthropic import AsyncAnthropic
 
 client = AsyncAnthropic()
 
+
 @router.post("/v1/generate")
 async def generate(request: GenerateRequest) -> StreamingResponse:
     async def token_stream():
@@ -240,6 +263,7 @@ from anthropic import RateLimitError, APITimeoutError, APIStatusError
 
 MAX_RETRIES = 3
 
+
 async def complete_with_retry(ai_port: AICompletionPort, prompt: str) -> str:
     for attempt in range(MAX_RETRIES):
         try:
@@ -247,7 +271,7 @@ async def complete_with_retry(ai_port: AICompletionPort, prompt: str) -> str:
         except RateLimitError:
             if attempt == MAX_RETRIES - 1:
                 raise
-            await asyncio.sleep(2 ** attempt)          # exponential backoff: 1s, 2s, 4s
+            await asyncio.sleep(2**attempt)  # exponential backoff: 1s, 2s, 4s
         except APITimeoutError:
             if attempt == MAX_RETRIES - 1:
                 raise
@@ -316,12 +340,14 @@ from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 from ports.ai_port import AICompletionPort
 
+
 class FakeAIPort(AICompletionPort):
     async def complete(self, prompt: str, system: str = "") -> str:
         return "Mocked response"
 
     async def complete_structured(self, prompt: str, schema):
         return schema(summary="stub", sentiment="neutral", key_points=[])
+
 
 def test_analyse_response_contract(client: TestClient) -> None:
     response = client.post("/v1/analyse", json={"text": "Hello world"})

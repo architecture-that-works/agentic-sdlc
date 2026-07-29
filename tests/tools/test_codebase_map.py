@@ -19,10 +19,10 @@ from pathlib import Path
 import pytest
 
 from src.tools.codebase_map import (
+    _CHARS_PER_TOKEN,
+    _DEFAULT_BUDGET_TOKENS,
     ModuleEntry,
     Symbol,
-    _DEFAULT_BUDGET_TOKENS,
-    _CHARS_PER_TOKEN,
     build_import_graph,
     discover_files,
     extract_imports,

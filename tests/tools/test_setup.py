@@ -11,7 +11,6 @@ from src.tools.setup import (
     set_github_variable,
 )
 
-
 # --- load_answers ---
 
 
