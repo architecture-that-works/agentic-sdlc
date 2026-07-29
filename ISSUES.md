@@ -125,3 +125,22 @@ assessment (2026-06-27). Detailed pointer: memory `project_harness_roadmap.md`.
 
 <!-- ISSUES -->
 
+ISSUE: Cut test-suite time — one copier end-to-end test + trim pwsh overhead (no new deps)
+LABELS: AFK
+ESTIMATE: 3
+PRIORITY: P2
+**Goal**: Make `uv run pytest` fast enough for the dev inner loop, without adding any new test dependencies at this stage.
+**Description**: The suite runs ~344s locally and is dominated by two things. (1) ~273s (≈79%) is `tests/test_copier_template.py::test_generated_project_passes_tests`, parametrized over all three `project_type` choices (`application`, `agent`, `ml`), each rendering the template and running a full nested `uv run pytest` (dependency sync + the generated project's own suite). Only `application` — the copier default and the one real setup today — is realized; `agent` and `ml` are unrealized specifications (no `project_type` conditionals exist in the template yet, so the three renders are effectively identical). (2) ~22s is `tests/scripts/test_plan.py`: 22 tests that each spawn a fresh `pwsh -Command` and re-`Import-Module` the Kanban module (~1s of cold-start + import overhead per test, most of it not doing real work). Fix both cheaply and add nothing to the dependency tree.
+**Requirements**:
+1. Have exactly ONE copier end-to-end test — render + nested `uv run pytest` — and run it only on the base `application` setup. Reduce `test_generated_project_passes_tests` to `application`; drop `agent` and `ml` from it.
+2. Take `agent` and `ml` out of scope for now. Prefer keeping them as placeholder `choices` in `copier.yml` (lowest-risk: generation still succeeds, nothing asserts a working nested suite for them); removing them from the `choices` list entirely is also acceptable if cleaner. Either way keep `copier.yml`, any `project_type` conditionals, and docs consistent — no dangling references to a removed choice.
+3. Keep the non-parametrized copier assertions (pre-commit inheritance, skills-travel, no-Jinja-leak) running on the base `application` project.
+4. Cut the ~22s PowerShell overhead in `tests/scripts/test_plan.py` by reducing the number of `pwsh` process spawns / module imports — e.g. import the Kanban module ONCE and exercise several pure functions per invocation (group the key-term / out-of-scope / narrow-blast / plan-label / format assertions), or share a single imported session. Keep the assertions exercising the real exported functions (no logic duplicated into snippets).
+5. Do NOT add new dependencies (no `pytest-xdist` or similar) — `uv.lock` must be unchanged by this work.
+**Acceptance Criteria**:
+- Exactly one copier render+nested-pytest end-to-end test exists, running on `application` only; `agent`/`ml` are either valid placeholder choices or fully removed, with no test or template referencing a non-existent `project_type`.
+- `tests/scripts/test_plan.py` spawns materially fewer `pwsh`/`Import-Module` calls (target: a small handful, not one per assertion) while still testing the real functions.
+- `uv run pytest` completes in well under 2 minutes locally and stays green (exit 0); `ruff check` and `ruff format --check` pass.
+- No new entries in `uv.lock` / `pyproject.toml` dependencies.
+END_ISSUE
+
