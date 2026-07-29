@@ -1,6 +1,6 @@
 import pytest
 
-import src.utils.m_log as m_log
+from src.utils import m_log
 
 
 @pytest.fixture(autouse=True)

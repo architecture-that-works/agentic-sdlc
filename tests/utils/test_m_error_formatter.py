@@ -136,6 +136,7 @@ def test_main_entry_point_reads_stdin():
         input=_RUFF_OUTPUT,
         capture_output=True,
         text=True,
+        check=False,
     )
     assert proc.returncode == 0
     assert "LintError" in proc.stdout
@@ -148,6 +149,7 @@ def test_main_entry_point_empty_input():
         input="",
         capture_output=True,
         text=True,
+        check=False,
     )
     assert proc.returncode == 0
     assert proc.stdout.strip() == ""

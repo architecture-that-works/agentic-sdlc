@@ -98,6 +98,7 @@ def test_generated_project_passes_tests(project_type: str, tmp_path: Path) -> No
         cwd=tmp_path,
         capture_output=True,
         text=True,
+        check=False,
     )
     assert result.returncode == 0, (
         f"pytest failed for project_type={project_type!r}:\n"

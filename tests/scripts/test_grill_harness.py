@@ -47,6 +47,7 @@ def _ps(script: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         cwd=str(REPO_ROOT),
+        check=False,
     )
 
 
@@ -56,6 +57,7 @@ def _ps_file(args: list[str]) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         cwd=str(REPO_ROOT),
+        check=False,
     )
 
 

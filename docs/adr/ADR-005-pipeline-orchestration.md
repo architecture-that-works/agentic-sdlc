@@ -31,13 +31,16 @@ Chosen: **Dagster when adoption criteria are met** — adopt when multiple Medal
 from dagster import asset, AssetIn
 import polars as pl
 
+
 @asset
 def bronze_sick_leave(context) -> pl.DataFrame:
     return load_raw_files(RAW_PATH)
 
+
 @asset(ins={"bronze": AssetIn("bronze_sick_leave")})
 def silver_sick_leave(bronze: pl.DataFrame) -> pl.DataFrame:
     return transform_to_silver(bronze)
+
 
 @asset(ins={"silver": AssetIn("silver_sick_leave")})
 def gold_sick_leave(silver: pl.DataFrame) -> pl.DataFrame:

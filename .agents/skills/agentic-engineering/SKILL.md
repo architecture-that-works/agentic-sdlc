@@ -95,7 +95,9 @@ for iteration in range(MAX_ITERATIONS):
     response = llm.generate(messages, tools=tools)
     # ... process response
 else:
-    raise AgentMaxIterationsError(f"Agent did not complete within {MAX_ITERATIONS} iterations")
+    raise AgentMaxIterationsError(
+        f"Agent did not complete within {MAX_ITERATIONS} iterations"
+    )
 ```
 
 ### Structured Output Enforcement
@@ -105,14 +107,19 @@ Every final agent response must parse into a Pydantic model. On failure, inject 
 ```python
 from pydantic import BaseModel, ValidationError
 
-def parse_or_correct(raw: str, model: type[BaseModel], messages: list[dict]) -> BaseModel | None:
+
+def parse_or_correct(
+    raw: str, model: type[BaseModel], messages: list[dict]
+) -> BaseModel | None:
     try:
         return model.model_validate_json(raw)
     except ValidationError as e:
-        messages.append({
-            "role": "user",
-            "content": f"Your response failed validation:\n{e}\n\nCorrect your output and retry.",
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": f"Your response failed validation:\n{e}\n\nCorrect your output and retry.",
+            }
+        )
         return None  # loop continues
 ```
 
@@ -127,6 +134,7 @@ TOOL_REGISTRY: dict[str, Callable] = {
     "search_documents": search_documents,
     "transfer_to_agent": transfer_to_agent,
 }
+
 
 def execute_tool(tool_name: str, tool_input: dict) -> str:
     fn = TOOL_REGISTRY.get(tool_name)
@@ -149,14 +157,18 @@ def execute_tool(tool_name: str, tool_input: dict) -> str:
 ```python
 from pydantic import BaseModel, Field
 
+
 class SearchDocuments(BaseModel):
     """
     Searches the document store for relevant content.
     Use when the user asks for information that requires document retrieval.
     Returns: list of matching document excerpts as a JSON string.
     """
+
     query: str = Field(..., description="The search query")
-    max_results: int = Field(5, ge=1, le=20, description="Maximum number of results to return")
+    max_results: int = Field(
+        5, ge=1, le=20, description="Maximum number of results to return"
+    )
 ```
 
 **Convert to provider format:**
@@ -194,7 +206,9 @@ def trim_messages(messages: list[dict], max_tokens: int = 8_000) -> list[dict]:
 **Prompt caching (Claude) — cache long-lived static content only:**
 
 ```python
-system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
+system = [
+    {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
+]
 ```
 
 Do NOT cache per-turn messages or tool results.
@@ -210,9 +224,12 @@ class TransferToAgent(BaseModel):
     Use when the current task requires expertise outside your own scope.
     Returns: the sub-agent's final response as a string.
     """
+
     agent_name: str = Field(..., description="Target agent identifier")
     task: str = Field(..., description="Clear, self-contained task description")
-    context: dict = Field(default_factory=dict, description="Relevant state to pass forward")
+    context: dict = Field(
+        default_factory=dict, description="Relevant state to pass forward"
+    )
 ```
 
 **Rule:** The `context` dict must be self-contained. The sub-agent has no access to the orchestrator's message history.
@@ -249,7 +266,10 @@ from pydantic import BaseModel
 client = anthropic.Anthropic()
 MAX_ITERATIONS = 10
 
-def run_agent(goal: str, tools: list[dict], response_model: type[BaseModel], system: str = "") -> BaseModel:
+
+def run_agent(
+    goal: str, tools: list[dict], response_model: type[BaseModel], system: str = ""
+) -> BaseModel:
     messages = [{"role": "user", "content": goal}]
 
     for iteration in range(MAX_ITERATIONS):
@@ -274,24 +294,41 @@ def run_agent(goal: str, tools: list[dict], response_model: type[BaseModel], sys
             for block in response.content:
                 if block.type == "tool_use":
                     result = execute_tool(block.name, block.input)
-                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result,
+                        }
+                    )
             messages.append({"role": "user", "content": tool_results})
 
-    raise AgentMaxIterationsError(f"Agent did not complete within {MAX_ITERATIONS} iterations")
+    raise AgentMaxIterationsError(
+        f"Agent did not complete within {MAX_ITERATIONS} iterations"
+    )
 ```
 
 ### Streaming with SSE (Internal — Accumulate Before Executing)
 
 ```python
 # Accumulate partial tool call JSON before executing — never execute on a fragment
-with client.messages.stream(model="claude-opus-4-5", tools=tools, messages=messages) as stream:
+with client.messages.stream(
+    model="claude-opus-4-5", tools=tools, messages=messages
+) as stream:
     accumulated: dict[str, str] = {}
 
     for event in stream:
-        if event.type == "content_block_start" and event.content_block.type == "tool_use":
+        if (
+            event.type == "content_block_start"
+            and event.content_block.type == "tool_use"
+        ):
             accumulated[event.content_block.id] = ""
-        elif event.type == "content_block_delta" and hasattr(event.delta, "partial_json"):
-            accumulated[str(event.index)] = accumulated.get(str(event.index), "") + event.delta.partial_json
+        elif event.type == "content_block_delta" and hasattr(
+            event.delta, "partial_json"
+        ):
+            accumulated[str(event.index)] = (
+                accumulated.get(str(event.index), "") + event.delta.partial_json
+            )
 
     final = stream.get_final_message()
 ```
@@ -311,7 +348,10 @@ for iteration in range(MAX_ITERATIONS):
     with tracer.start_as_current_span("agent.iteration") as span:
         span.set_attribute("agent.iteration", iteration)
         span.set_attribute("agent.stop_reason", response.stop_reason)
-        span.set_attribute("agent.tool_calls", len([b for b in response.content if b.type == "tool_use"]))
+        span.set_attribute(
+            "agent.tool_calls",
+            len([b for b in response.content if b.type == "tool_use"]),
+        )
 ```
 
 ---
