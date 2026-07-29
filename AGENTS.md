@@ -39,6 +39,13 @@ Mandatory before opening any source file. See ADR-009.
 
 Violation of this protocol degrades every future agent session. Keep the Map accurate.
 
+## Conditional Context
+
+Load these docs only when the task requires them — do not load preemptively.
+
+- For testing conventions, fixture patterns, and pytest usage: read `docs/TESTING.md`.
+- For the skill system reference, invocation protocol, and lifecycle: read `docs/SKILLS.md`.
+
 ## Skills
 
 Invoke the relevant skill before implementing manually. Skills are located in `.agents/skills/`.
@@ -86,6 +93,8 @@ Domain-specific information for this project is captured in ADRs matching the pr
 | `tests/` | Pytest suite, mirrors `src/` and `tools/` hierarchy |
 | `.agents/skills/` | Skill system — invoke skills before implementing manually |
 | `docs/adr/` | Architecture Decision Records (MADR format) |
+| `docs/TESTING.md` | Pytest conventions, fixture patterns, file-mirroring rule, coverage floor |
+| `docs/SKILLS.md` | Skill invocation protocol, workflow lifecycle, domain vs. meta skill selection |
 | `CONTEXT.md` | Leading repo-structure doc — domain glossary, bounded contexts, Module Map (agent navigation index), architectural constraints |
 | `.github/workflows/` | CI (`ci.yml`: lint + typecheck + test); the alignment gate (`align.yml`: refine→architect→plan on issue creation); the AFK orchestrator (`orchestrator.yml`: implement→review→merge) |
 | `.github/scripts/kanban/` | Orchestrator **library**: the `Kanban` PowerShell module (`Kanban.psd1`/`.psm1`, `Import-Module`). One script per lane — `Refine.ps1` (Backlog gate + `Invoke-Alignment`), `Architecture.ps1`/`Implement.ps1`/`Review.ps1`/`Merge.ps1`, conducted by `Orchestrator.ps1`. No top-level `param()` in module files (ADR-013) |
