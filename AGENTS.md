@@ -57,6 +57,7 @@ Invoke the relevant skill before implementing manually. Skills are located in `.
 | `refine` | Starting a new feature — alignment on glossary, boundaries, and ADRs before any code | [REFERENCE.md](.agents/skills/refine/REFERENCE.md) · [EXAMPLES.md](.agents/skills/refine/EXAMPLES.md) |
 | `architecture` | Analysing dependencies, blast-radius, or module structure | [REFERENCE.md](.agents/skills/architecture/REFERENCE.md) · [EXAMPLES.md](.agents/skills/architecture/EXAMPLES.md) |
 | `plan` | Translating an Agent Brief into a Lean PRD and decomposed GitHub Issues | [REFERENCE.md](.agents/skills/plan/REFERENCE.md) · [EXAMPLES.md](.agents/skills/plan/EXAMPLES.md) |
+| `diagnosis` | Implementation or CI fails and the root cause is unclear — before attempting a fix | — |
 | `tdd` | Implementing features via Red-Green-Refactor | [REFERENCE.md](.agents/skills/tdd/REFERENCE.md) · [EXAMPLES.md](.agents/skills/tdd/EXAMPLES.md) |
 | `harness` | Provisioning environments, managing context health, Planner/Generator/Evaluator split | [REFERENCE.md](.agents/skills/harness/REFERENCE.md) · [EXAMPLES.md](.agents/skills/harness/EXAMPLES.md) |
 | `review` | Code review, auto-fix loop, PR validation | [REFERENCE.md](.agents/skills/review/REFERENCE.md) · [EXAMPLES.md](.agents/skills/review/EXAMPLES.md) |
