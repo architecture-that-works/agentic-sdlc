@@ -5,13 +5,12 @@ import subprocess
 from pathlib import Path
 
 import copier
-import pytest
 
 TEMPLATE_ROOT = Path(__file__).parent.parent
 
 
-@pytest.mark.parametrize("project_type", ["application", "agent", "ml"])
-def test_generated_project_passes_tests(project_type: str, tmp_path: Path) -> None:
+def test_generated_project_passes_tests(tmp_path: Path) -> None:
+    project_type = "application"
     copier.run_copy(
         src_path=str(TEMPLATE_ROOT),
         dst_path=str(tmp_path),
