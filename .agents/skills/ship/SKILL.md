@@ -11,6 +11,10 @@ Prevents insecure or incomplete merges by running mandatory security gates, enfo
 
 **Primary artifact:** Squash-merged PR with clean history, closed GitHub Issue, and updated knowledge base.
 
+See [REFERENCE.md](REFERENCE.md) for the expanded pre-merge checklist, squash strategy
+rules, post-merge persistence rules, and rollback procedure. See [EXAMPLES.md](EXAMPLES.md)
+for a standard patch release walkthrough and a rollback scenario.
+
 ## Scope
 
 **Owns:** Pre-merge security gates (sandboxing verification, supply chain review), `gh pr merge --squash` execution, auto-close enforcement (`Closes #N`), `.out-of-scope.md` updates, `CONTEXT.md` post-merge update.

@@ -11,6 +11,10 @@ Prevents context degradation and unverified agent output by managing the executi
 
 **Primary artifact:** Configured managed agent session with Planner/Generator/Evaluator split, durable event log, and a provisioned Dev Container environment.
 
+See [REFERENCE.md](REFERENCE.md) for the full Dev Container spec, PGE configuration,
+context management zone table, and tool-call offloading rules. See [EXAMPLES.md](EXAMPLES.md)
+for worked session walkthroughs (provisioning, context reset, Evaluator blocking a regression).
+
 ## Scope
 
 **Owns:** Dev Container and GitHub Codespaces provisioning, Planner/Generator/Evaluator agent split, event log (`emitEvent`), tool-call offloading, `compact()` and context reset protocol, `CONTEXT.md` and `AGENTS.md` loading at session start.
