@@ -9,18 +9,23 @@ on:
 jobs:
   lint:
     runs-on: ubuntu-latest
-    # Budget: ruff check + ruff format --check must stay under 60 s (issue #120).
-    # timeout-minutes covers the full job; ruff itself is typically <5 s.
-    # If the job times out, drop the slow gate and file a follow-up before re-adding it.
-    timeout-minutes: 2
+    # The job budget covers a COLD `uv sync`: a dependency bump misses the uv
+    # cache and the install can take a couple of minutes on the first run. The
+    # ruff gate itself must stay fast — that budget (issue #120) is enforced
+    # per-step below, so a slow cold install no longer trips a false lint timeout.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
       - run: uv sync
+      # Budget: ruff must stay well under a minute (issue #120). The step-level
+      # timeout guards ruff's own runtime, independent of install/cache cost.
       - run: uv run ruff check .
+        timeout-minutes: 1
       - run: uv run ruff format --check .
+        timeout-minutes: 1
 
   typecheck:
     runs-on: ubuntu-latest
