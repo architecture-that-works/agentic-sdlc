@@ -38,7 +38,7 @@ jobs:
       id-token: write  # Required for Workload Identity Federation
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # HITL: AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID are
       # produced by the one-time human WIF provisioning steps in
@@ -69,7 +69,7 @@ jobs:
       id-token: write  # Required for Workload Identity Federation
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # HITL: GCP_WORKLOAD_IDENTITY_PROVIDER / GCP_SERVICE_ACCOUNT are produced
       # by the one-time human WIF provisioning steps in SECURITY.md §
