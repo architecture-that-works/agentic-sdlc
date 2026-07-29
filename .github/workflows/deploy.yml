@@ -76,7 +76,7 @@ jobs:
       # "Provisioning WIF for GCP". Missing values here mean WIF has not yet
       # been provisioned — do not attempt to auto-create them.
       - name: Authenticate to GCP via Workload Identity Federation
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
