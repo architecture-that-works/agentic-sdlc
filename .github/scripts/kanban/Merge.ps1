@@ -1,10 +1,10 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Stage 4 — Merge PR after CI gate + approval check.
+    Merged lane — squash-merge the PR after the CI gate + approval check.
 
 .DESCRIPTION
-    Internal function library — dot-sourced by run.ps1 and review.ps1. Not a direct Taskfile target.
+    Kanban library — loaded by Kanban.psm1; Invoke-Merge is called by Orchestrator.ps1.
 
     Unless called with -Approved (the orchestrator's review stage already
     approved) or -Force, confirms an approval signal exists (agent:review label
@@ -13,7 +13,8 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-. "$PSScriptRoot\_common.ps1"
+# Module-internal library — loaded by Kanban.psm1 (which loads Config.ps1 first).
+# Not dot-sourced individually; see ADR-013.
 
 function Test-HasApproval {
     param([int]$IssueNumber, [int]$PRNumber)
@@ -308,7 +309,10 @@ function Invoke-Merge {
         throw "CI did not complete within ${CICompletionTimeoutSec}s for PR #$PRNumber."
     }
 
-    gh pr merge $PRNumber --merge --delete-branch 2>&1 | Out-Null
+    # --squash to match the docstring, the orchestrator.yml merge job, and the
+    # repo convention (one squashed commit per issue). Previously --merge, which
+    # silently diverged AFK merges (merge commits) from label-triggered squashes.
+    gh pr merge $PRNumber --squash --delete-branch 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "gh pr merge failed for PR #$PRNumber" }
 
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:merged'

@@ -7,7 +7,7 @@ default-branch resolution and issue-label reads/writes are not. This module
 asserts those levers stay off GraphQL so a future edit can't silently
 reintroduce a `gh repo view` or `gh issue edit --add-label` on the hot path.
 
-Background: memory `project_graphql_budget`. These are static-source checks (no
+Background: memory `project_graphql_budget` (ADR-012). Static-source checks (no
 pwsh/gh needed) so they run on every CI runner.
 """
 
@@ -15,13 +15,16 @@ import re
 from pathlib import Path
 
 KANBAN = Path(__file__).parents[2] / ".github" / "scripts" / "kanban"
-COMMON = KANBAN / "_common.ps1"
+CONFIG = (
+    KANBAN / "Config.ps1"
+)  # repo slug + default branch resolution (the fallback site)
+GITHUB = KANBAN / "GitHub.ps1"  # labels, agent state, board
 WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "orchestrator.yml"
 
-# Per-issue stage scripts — these run inside a drain and must never resolve the
-# default branch via GraphQL. _common.ps1 is the one place a guarded last-resort
-# fallback is allowed (see test_common_gh_repo_view_only_guarded_fallback).
-STAGE_SCRIPTS = [p for p in KANBAN.glob("*.ps1") if p.name != "_common.ps1"]
+# Library scripts that run inside a drain and must never resolve the default
+# branch via GraphQL. Config.ps1 is the one place a guarded last-resort fallback
+# is allowed (see test_config_gh_repo_view_only_guarded_fallback).
+STAGE_SCRIPTS = [p for p in KANBAN.glob("*.ps1") if p.name != "Config.ps1"]
 
 
 def _code_lines(path: Path) -> list[str]:
@@ -43,31 +46,31 @@ def _code(path: Path) -> str:
 
 
 def test_no_gh_repo_view_in_stage_scripts() -> None:
-    assert STAGE_SCRIPTS, "no kanban stage scripts found — wrong path?"
+    assert STAGE_SCRIPTS, "no kanban library scripts found — wrong path?"
     offenders = {
         p.name: [ln for ln in _code_lines(p) if "gh repo view" in ln]
         for p in STAGE_SCRIPTS
     }
     offenders = {name: lines for name, lines in offenders.items() if lines}
     assert not offenders, (
-        "`gh repo view` is GraphQL — stage scripts must use $KanbanDefaultBranch:\n"
-        f"{offenders}"
+        "`gh repo view` is GraphQL — library scripts must use $KanbanDefaultBranch "
+        f"/ $ctx.DefaultBranch:\n{offenders}"
     )
 
 
-def test_common_gh_repo_view_only_guarded_fallback() -> None:
-    """_common.ps1 may keep `gh repo view` only as a silent last-resort fallback."""
-    hits = [ln for ln in _code_lines(COMMON) if "gh repo view" in ln]
+def test_config_gh_repo_view_only_guarded_fallback() -> None:
+    """Config.ps1 may keep `gh repo view` only as a silent last-resort fallback."""
+    hits = [ln for ln in _code_lines(CONFIG) if "gh repo view" in ln]
     # Two allowed fallbacks: repo slug + default branch.
-    assert len(hits) <= 2, f"unexpected `gh repo view` usage in _common.ps1:\n{hits}"
+    assert len(hits) <= 2, f"unexpected `gh repo view` usage in Config.ps1:\n{hits}"
     for ln in hits:
         assert "2>$null" in ln, (
-            f"`gh repo view` in _common.ps1 must be the guarded fallback form: {ln!r}"
+            f"`gh repo view` in Config.ps1 must be the guarded fallback form: {ln!r}"
         )
 
 
 def test_no_gh_repo_view_in_orchestrator_workflow() -> None:
-    """The workflow's inline bash must read the default branch from the job env
+    """The workflow's inline pwsh must read the default branch from the job env
     (GITHUB_DEFAULT_BRANCH), never via GraphQL `gh repo view`."""
     hits = [ln for ln in _code_lines(WORKFLOW) if "gh repo view" in ln]
     assert not hits, (
@@ -82,20 +85,23 @@ def test_orchestrator_workflow_sets_default_branch_env() -> None:
     )
 
 
-def test_default_branch_cached_in_common() -> None:
-    code = _code(COMMON)
+def test_default_branch_cached_in_config() -> None:
+    code = _code(CONFIG)
     assert "$KanbanDefaultBranch =" in code, "expected a cached $KanbanDefaultBranch"
     assert "GITHUB_DEFAULT_BRANCH" in code, (
         "expected the GITHUB_DEFAULT_BRANCH env var as the zero-cost source"
     )
 
 
-def test_stage_scripts_reference_cached_default_branch() -> None:
-    """The scripts that previously called `gh repo view` now read the cache."""
-    for name in ("implement.ps1", "merge.ps1", "run.ps1"):
+def test_scripts_reference_cached_default_branch() -> None:
+    """The scripts that previously called `gh repo view` now read the cached
+    default branch — the `$KanbanDefaultBranch` constant (phases) or the run
+    context (`$ctx.DefaultBranch`, Orchestrator.ps1; see ADR-013)."""
+    for name in ("Implement.ps1", "Merge.ps1", "Orchestrator.ps1"):
         code = _code(KANBAN / name)
-        assert "$KanbanDefaultBranch" in code, (
-            f"{name} should resolve the default branch via $KanbanDefaultBranch"
+        assert "DefaultBranch" in code, (
+            f"{name} should resolve the default branch from the cache "
+            f"($KanbanDefaultBranch or $ctx.DefaultBranch), not `gh repo view`"
         )
 
 
@@ -105,7 +111,7 @@ def test_stage_scripts_reference_cached_default_branch() -> None:
 
 
 def test_set_issuelabel_writes_via_rest() -> None:
-    code = _code(COMMON)
+    code = _code(GITHUB)
     # The GraphQL label-write flags must be gone from the shared helpers.
     assert "--add-label" not in code and "--remove-label" not in code, (
         "label add/remove must go through `gh api .../labels` (REST), not "
@@ -118,7 +124,7 @@ def test_set_issuelabel_writes_via_rest() -> None:
 
 
 def test_agent_label_read_via_rest() -> None:
-    code = _code(COMMON)
+    code = _code(GITHUB)
     # No GraphQL label read remains.
     assert not re.search(r"gh issue view .*--json labels", code), (
         "the agent:* label read must use `gh api .../labels` (REST), not "

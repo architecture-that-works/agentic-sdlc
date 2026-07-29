@@ -1,18 +1,18 @@
-"""Tests for .github/scripts/kanban/architecture.ps1.
+"""Tests for .github/scripts/kanban/Architecture.ps1 (Backlog-gate Architect step).
 
-Covers the two critical business rules that must not regress:
+Covers the business rules that must not regress:
 
-1. File-count gate  — <=5 .py files in src/ → trivial path (one-liner
-   BLAST_RADIUS.md, no fake graphs); >5 → full analysis path.
-2. State.json       — Set-PipelineState writes a JSON file with the expected
-   phase label and a transitions array that accumulates across calls.
+1. File-count gate  — <=5 .py files in src/ → trivial path (one-liner impact, no
+   fake graphs); >5 → full AST analysis path.
+2. Impact section   — the architectural impact is rendered as Markdown written
+   INTO the issue body via a marker-bounded section (ADR-014, no .planning/).
+3. $safeStr         — the safe-module list truncates to the first 5 with a count.
 
 Each test uses an inline PowerShell snippet that replicates the exact logic from
-architecture.ps1 so we avoid dot-sourcing the full orchestrator (which requires
-a live Kanban environment) while still exercising the real business rules.
+Architecture.ps1 so we avoid importing the full Kanban module (which requires a
+live environment) while still exercising the real business rules.
 """
 
-import json
 import shutil
 import subprocess
 import textwrap
@@ -26,7 +26,7 @@ SCRIPT = (
     / ".github"
     / "scripts"
     / "kanban"
-    / "architecture.ps1"
+    / "Architecture.ps1"
 )
 
 pytestmark = pytest.mark.skipif(
@@ -105,130 +105,94 @@ def test_gate_counts_recursively(tmp_path: Path) -> None:
     assert result.returncode == 0, "Nested .py files must count toward the gate"
 
 
-# ── BLAST_RADIUS.md — trivial branch ─────────────────────────────────────────
+# ── Trivial-impact Markdown (written into the issue body) ──────────────────────
+# Replicates the trivial-branch impact string from Invoke-Architecture.
 
-_TRIVIAL_BLAST_RADIUS_SNIPPET = """\
-function Write-TrivialBlastRadius {
-    param([string]$Path)
-    'trivial codebase, no architectural risk computed' | Set-Content $Path -Encoding utf8
-}
-"""
-
-
-def test_trivial_blast_radius_one_liner(tmp_path: Path) -> None:
-    out = tmp_path / "BLAST_RADIUS.md"
-    result = _ps(_TRIVIAL_BLAST_RADIUS_SNIPPET + f"Write-TrivialBlastRadius '{out}'")
-    assert result.returncode == 0
-    assert out.exists(), "BLAST_RADIUS.md must be created"
-    content = out.read_text(encoding="utf-8").strip()
-    assert content == "trivial codebase, no architectural risk computed", (
-        f"Unexpected content: {content!r}"
-    )
-
-
-def test_trivial_blast_radius_has_no_graph_data(tmp_path: Path) -> None:
-    """The trivial one-liner must not contain dependency graph keywords."""
-    out = tmp_path / "BLAST_RADIUS.md"
-    _ps(_TRIVIAL_BLAST_RADIUS_SNIPPET + f"Write-TrivialBlastRadius '{out}'")
-    content = out.read_text(encoding="utf-8").lower()
-    # Graph keywords that would indicate a fake graph was generated
-    for keyword in ("fan-in", "fan_in", "module graph", "pydeps"):
-        assert keyword not in content, (
-            f"Trivial BLAST_RADIUS.md must not contain '{keyword}'"
-        )
-
-
-# ── State.json helpers ────────────────────────────────────────────────────────
-# Replicates Set-PipelineState from architecture.ps1 as a self-contained snippet.
-
-_STATE_SNIPPET = textwrap.dedent("""\
-    function Set-PipelineState {
-        param([int]$IssueNumber, [string]$Phase, [string]$PlanRoot)
-        $planDir   = "$PlanRoot\\$IssueNumber"
-        $statePath = "$planDir\\state.json"
-        $null      = New-Item -ItemType Directory -Force -Path $planDir
-
-        $transitions = @()
-        if (Test-Path $statePath) {
-            try {
-                $existing = Get-Content $statePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-                if ($null -ne $existing.transitions) { $transitions = @($existing.transitions) }
-            } catch {}
-        }
-
-        $transitions += [pscustomobject]@{ phase = $Phase; timestamp = (Get-Date -Format 'o') }
-
-        $entriesJson = ($transitions | ForEach-Object {
-            $ts = $_.timestamp -replace '"', '\\"'
-            $ph = $_.phase     -replace '"', '\\"'
-            "  {`"phase`":`"$ph`",`"timestamp`":`"$ts`"}"
-        }) -join ",`n"
-
-        $json = "{`n  `"issue`": $IssueNumber,`n  `"transitions`": [`n$entriesJson`n  ]`n}"
-        $json | Set-Content $statePath -Encoding utf8 -NoNewline
+_TRIVIAL_IMPACT_SNIPPET = textwrap.dedent("""\
+    function Get-TrivialImpact {
+        param([int]$pyCount)
+        return @(
+            "**At-risk:** none ($pyCount .py file(s) in src/ — below the analysis threshold)"
+            '**Safe:** all modules'
+            ''
+            '**Recommendation:** proceed'
+        ) -join "`n"
     }
 """)
 
 
-def _read_state(plan_root: Path, issue: int) -> dict:
-    path = plan_root / str(issue) / "state.json"
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def test_state_json_created_on_first_call(tmp_path: Path) -> None:
-    result = _ps(
-        _STATE_SNIPPET
-        + f"Set-PipelineState -IssueNumber 99 -Phase 'refining' -PlanRoot '{tmp_path}'"
-    )
+def test_trivial_impact_recommends_proceed() -> None:
+    result = _ps(_TRIVIAL_IMPACT_SNIPPET + "Get-TrivialImpact -pyCount 3")
     assert result.returncode == 0, result.stderr
-    state = _read_state(tmp_path, 99)
-    assert state["issue"] == 99
-    assert len(state["transitions"]) == 1
-    assert state["transitions"][0]["phase"] == "refining"
+    out = result.stdout
+    assert "**Recommendation:** proceed" in out
+    assert "below the analysis threshold" in out
 
 
-def test_state_json_accumulates_transitions(tmp_path: Path) -> None:
+def test_trivial_impact_has_no_graph_data() -> None:
+    """The trivial impact must not contain dependency-graph keywords (no fake graph)."""
+    result = _ps(_TRIVIAL_IMPACT_SNIPPET + "Get-TrivialImpact -pyCount 0")
+    assert result.returncode == 0, result.stderr
+    out = result.stdout.lower()
+    for keyword in ("fan-in", "fan_in", "module graph", "pydeps"):
+        assert keyword not in out, f"Trivial impact must not contain '{keyword}'"
+
+
+# ── Marker-bounded body-section upsert (Set-IssueBodySection core) ─────────────
+# Replicates the pure regex upsert (no gh) used to write ARCH-IMPACT / PLAN
+# sections into the issue body.
+
+_UPSERT_SNIPPET = textwrap.dedent("""\
+    function Set-Section {
+        param([string]$Body, [string]$Begin, [string]$End, [string]$Markdown)
+        $Body    = $Body.TrimEnd("`r", "`n")
+        $section = "$Begin`n$Markdown`n$End"
+        $pattern = [regex]::Escape($Begin) + '.*?' + [regex]::Escape($End)
+        $opts    = [System.Text.RegularExpressions.RegexOptions]::Singleline
+        if ([regex]::IsMatch($Body, $pattern, $opts)) {
+            return [regex]::Replace($Body, $pattern, { param($m) $section }, $opts)
+        }
+        return "$Body`n`n$section"
+    }
+""")
+
+_BEGIN = "<!-- ARCH-IMPACT:BEGIN -->"
+_END = "<!-- ARCH-IMPACT:END -->"
+
+
+def test_upsert_appends_when_absent() -> None:
     script = (
-        _STATE_SNIPPET
-        + f"Set-PipelineState -IssueNumber 42 -Phase 'refining'    -PlanRoot '{tmp_path}'\n"
-        + f"Set-PipelineState -IssueNumber 42 -Phase 'architecting' -PlanRoot '{tmp_path}'\n"
-        + f"Set-PipelineState -IssueNumber 42 -Phase 'implementing' -PlanRoot '{tmp_path}'\n"
+        _UPSERT_SNIPPET
+        + f"Set-Section -Body 'Original body.' -Begin '{_BEGIN}' -End '{_END}' "
+        + "-Markdown '## Architecture Impact`n`nproceed'"
     )
     result = _ps(script)
     assert result.returncode == 0, result.stderr
-    state = _read_state(tmp_path, 42)
-    phases = [t["phase"] for t in state["transitions"]]
-    assert phases == ["refining", "architecting", "implementing"], (
-        f"Expected refining → architecting → implementing, got: {phases}"
-    )
+    out = result.stdout
+    assert "Original body." in out, "existing prose must be preserved"
+    assert _BEGIN in out and _END in out, "markers must be present after append"
+    assert out.count(_BEGIN) == 1, "exactly one section must exist"
 
 
-def test_state_json_transitions_is_array(tmp_path: Path) -> None:
-    """transitions must always be a JSON array, even with a single entry."""
-    result = _ps(
-        _STATE_SNIPPET
-        + f"Set-PipelineState -IssueNumber 7 -Phase 'architecting' -PlanRoot '{tmp_path}'"
+def test_upsert_replaces_when_present() -> None:
+    existing = f"Prose.\n\n{_BEGIN}\n## Architecture Impact\n\nOLD\n{_END}"
+    # Pass the existing body via a here-string to preserve newlines.
+    script = (
+        _UPSERT_SNIPPET
+        + f"$b = @'\n{existing}\n'@\n"
+        + f"Set-Section -Body $b -Begin '{_BEGIN}' -End '{_END}' "
+        + "-Markdown '## Architecture Impact`n`nNEW'"
     )
+    result = _ps(script)
     assert result.returncode == 0, result.stderr
-    raw = (tmp_path / "7" / "state.json").read_text(encoding="utf-8")
-    parsed = json.loads(raw)
-    assert isinstance(parsed["transitions"], list), (
-        "transitions must be a JSON array even with one entry"
-    )
-
-
-def test_state_json_issue_number_correct(tmp_path: Path) -> None:
-    result = _ps(
-        _STATE_SNIPPET
-        + f"Set-PipelineState -IssueNumber 123 -Phase 'refining' -PlanRoot '{tmp_path}'"
-    )
-    assert result.returncode == 0, result.stderr
-    state = _read_state(tmp_path, 123)
-    assert state["issue"] == 123
+    out = result.stdout
+    assert "NEW" in out and "OLD" not in out, "section content must be replaced"
+    assert out.count(_BEGIN) == 1, "must not duplicate the section on replace"
+    assert "Prose." in out, "surrounding prose must be preserved"
 
 
 # ── $safeStr truncation logic ─────────────────────────────────────────────────
-# Replicates the fixed assignment block from Invoke-Architecture (non-trivial branch).
+# Replicates the assignment block from Invoke-Architecture (non-trivial branch).
 
 _SAFE_STR_SNIPPET = textwrap.dedent("""\
     function Get-SafeStr {

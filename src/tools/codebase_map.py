@@ -345,7 +345,6 @@ def serialise_map(
         return _serialise_json(
             ranked,
             budget_tokens=budget_tokens,
-            elapsed=elapsed,
             timeout_exceeded=timeout_exceeded,
         )
     return _serialise_md(
@@ -373,7 +372,10 @@ def _serialise_md(
         "<!-- CODEBASE-MAP:BEGIN -->\n"
         "# Auto-Generated Codebase Map\n"
         f"{warn}\n"
-        f"> Generated in {elapsed:.2f}s | Budget: {budget_tokens} tokens\n"
+        # No wall-clock generation time here — the map is a reproducible artifact
+        # (see generate_codebase_map's determinism contract). Elapsed is still used
+        # above for the timeout WARNING, which is an error path, not steady state.
+        f"> Budget: {budget_tokens} tokens\n"
         ">\n"
         "> **Relationship to Module Map:** This map is auto-generated and ranked\n"
         "> by import-graph PageRank. It complements — and must not replace — the\n"
@@ -400,12 +402,12 @@ def _serialise_json(
     ranked: list[ModuleEntry],
     *,
     budget_tokens: int,
-    elapsed: float,
     timeout_exceeded: bool,
 ) -> str:
     budget_chars = budget_tokens * _CHARS_PER_TOKEN
+    # No wall-clock timing field — keeps the JSON artifact reproducible, matching
+    # generate_codebase_map's determinism contract.
     wrapper: dict = {
-        "generated_in_seconds": round(elapsed, 3),
         "budget_tokens": budget_tokens,
         "timeout_exceeded": timeout_exceeded,
         "note": (

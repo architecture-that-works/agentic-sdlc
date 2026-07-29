@@ -1,4 +1,4 @@
-"""Tests for .github/scripts/kanban/plan.ps1.
+"""Tests for the Plan step (.github/scripts/kanban/Plan.ps1).
 
 Covers the four business rules that must not regress:
 
@@ -12,10 +12,11 @@ Covers the four business rules that must not regress:
 4. AFK / HITL heuristic — AFK only when narrow blast AND zero open questions;
    either signal flips to HITL.
 
-Each test dot-sources plan.ps1 (which is dot-source-safe — the standalone-mode
-guard at the bottom skips its run when `$MyInvocation.InvocationName -eq '.'`)
-and then exercises the exact functions the orchestrator calls. This avoids
-duplicating logic into snippets that drift from the source.
+Plan.ps1 is a module-internal library (ADR-013) — it carries no top-level
+param() block and is not dot-sourced standalone. Each test imports the Kanban
+module (which loads Config/GitHub/Plan and exports the functions) and then
+exercises the exact functions the orchestrator calls. This avoids duplicating
+logic into snippets that drift from the source.
 """
 
 import shutil
@@ -26,7 +27,7 @@ import pytest
 
 PWSH = shutil.which("pwsh") or "pwsh"
 REPO_ROOT = Path(__file__).parent.parent.parent
-SCRIPT = REPO_ROOT / ".github" / "scripts" / "kanban" / "plan.ps1"
+MODULE = REPO_ROOT / ".github" / "scripts" / "kanban" / "Kanban.psd1"
 
 pytestmark = pytest.mark.skipif(
     not shutil.which("pwsh"),
@@ -36,7 +37,7 @@ pytestmark = pytest.mark.skipif(
 
 def _ps(script: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     """Run a PowerShell snippet; never propagate $KanbanRepo lookups by isolating
-    via `_common.ps1` env vars set in the snippet itself when needed."""
+    via the GITHUB_* env vars set in the snippet itself when needed."""
     return subprocess.run(
         [PWSH, "-NoProfile", "-Command", script],
         capture_output=True,
@@ -45,14 +46,17 @@ def _ps(script: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str
     )
 
 
-def _dot_source_prelude() -> str:
-    """Set GITHUB_REPOSITORY + GITHUB_DEFAULT_BRANCH so `_common.ps1` resolves
-    without invoking `gh`, then dot-source plan.ps1. The standalone-mode guard
-    skips the run."""
+def _import_prelude() -> str:
+    """Set GITHUB_REPOSITORY + GITHUB_DEFAULT_BRANCH so Config.ps1 resolves the
+    repo/default-branch without invoking gh/git, then import the Kanban module so
+    the exported Plan functions are callable."""
+    # -DisableNameChecking suppresses the benign "unapproved verbs" warning
+    # (Acquire-/Release- etc.) that would otherwise pollute captured stdout and
+    # break the exact-match assertions below.
     return (
         f"$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
         f"$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
-        f". '{SCRIPT}'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
     )
 
 
@@ -62,7 +66,7 @@ def _dot_source_prelude() -> str:
 def test_key_terms_filters_stop_words() -> None:
     """Stop words like `for`, `the`, `to` must NOT appear in the result."""
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + "$kt = Get-PlanKeyTerms -Title 'Add a new feature for the API' -Top 5\n"
         + "$kt -join ','\n"
     )
@@ -78,7 +82,7 @@ def test_key_terms_filters_stop_words() -> None:
 def test_key_terms_drops_short_tokens() -> None:
     """Tokens shorter than 3 chars must be dropped (too noisy for search)."""
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + "$kt = Get-PlanKeyTerms -Title 'AI ML API' -Top 5\n"
         + "$kt -join ','\n"
     )
@@ -96,7 +100,7 @@ def test_key_terms_drops_short_tokens() -> None:
 def test_key_terms_deduplicates() -> None:
     """Repeated tokens must appear at most once."""
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + "$kt = Get-PlanKeyTerms -Title 'planning planning planning workflow workflow' -Top 5\n"
         + "$kt -join ','\n"
     )
@@ -110,7 +114,7 @@ def test_key_terms_deduplicates() -> None:
 def test_key_terms_respects_top() -> None:
     """Caller-supplied Top must cap the result length."""
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + "$kt = Get-PlanKeyTerms -Title 'alpha beta gamma delta epsilon zeta eta theta' -Top 3\n"
         + "$kt.Count\n"
     )
@@ -132,7 +136,7 @@ def test_out_of_scope_overlap_finds_matching_heading(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + f"$hits = Find-OutOfScopeOverlap -OutOfScopePath '{oos}' -KeyTerms @('langgraph')\n"
         + "$hits -join '|'\n"
     )
@@ -150,7 +154,7 @@ def test_out_of_scope_overlap_no_match_returns_empty(tmp_path: Path) -> None:
         "# Out of Scope\n\n## FastAPI in the starter\n\nText.\n", encoding="utf-8"
     )
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + f"$hits = Find-OutOfScopeOverlap -OutOfScopePath '{oos}' -KeyTerms @('streaming','tokens')\n"
         + "if ($hits.Count -eq 0) { 'EMPTY' } else { $hits -join '|' }\n"
     )
@@ -163,7 +167,7 @@ def test_out_of_scope_overlap_missing_file_returns_empty(tmp_path: Path) -> None
     """A missing `.out-of-scope.md` must not throw — it returns empty."""
     missing = tmp_path / "does-not-exist.md"
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + f"$hits = Find-OutOfScopeOverlap -OutOfScopePath '{missing}' -KeyTerms @('anything')\n"
         + "if ($hits.Count -eq 0) { 'EMPTY' } else { 'NON-EMPTY' }\n"
     )
@@ -181,7 +185,7 @@ def test_out_of_scope_overlap_word_boundary(tmp_path: Path) -> None:
         "# Out of Scope\n\n## Planet exploration robotics\n\nText.\n", encoding="utf-8"
     )
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + f"$hits = Find-OutOfScopeOverlap -OutOfScopePath '{oos}' -KeyTerms @('plan')\n"
         + "if ($hits.Count -eq 0) { 'EMPTY' } else { $hits -join '|' }\n"
     )
@@ -198,7 +202,7 @@ def test_out_of_scope_overlap_word_boundary(tmp_path: Path) -> None:
 def test_narrow_blast_recognises_at_risk_none() -> None:
     """`**At-risk:** none` must read as narrow."""
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + '$txt = "## Blast-Radius Report`n`n**At-risk:** none`n**Safe:** all"\n'
         + "Test-NarrowBlast -BlastText $txt\n"
     )
@@ -212,7 +216,7 @@ def test_narrow_blast_recognises_at_risk_none() -> None:
 def test_narrow_blast_recognises_recommendation_proceed() -> None:
     """`**Recommendation:** proceed` must read as narrow."""
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + '$txt = "## Blast-Radius Report`n`n**Recommendation:** proceed"\n'
         + "Test-NarrowBlast -BlastText $txt\n"
     )
@@ -226,7 +230,7 @@ def test_narrow_blast_recognises_recommendation_proceed() -> None:
 def test_narrow_blast_rejects_at_risk_listing() -> None:
     """An at-risk listing with a `refactor first` recommendation reads as wide."""
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + '$txt = "## Blast-Radius Report`n`n**At-risk:** main (fan-in=8)`n'
         + '**Recommendation:** refactor first — high fan-in modules detected"\n'
         + "Test-NarrowBlast -BlastText $txt\n"
@@ -240,7 +244,7 @@ def test_narrow_blast_rejects_at_risk_listing() -> None:
 
 def test_narrow_blast_missing_report_is_narrow() -> None:
     """An absent blast-radius report → narrow (no signal of widespread risk)."""
-    script = _dot_source_prelude() + "Test-NarrowBlast -BlastText ''\n"
+    script = _import_prelude() + "Test-NarrowBlast -BlastText ''\n"
     result = _ps(script)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "True", (
@@ -253,8 +257,7 @@ def test_narrow_blast_missing_report_is_narrow() -> None:
 
 def test_get_plan_label_narrow_zero_open_is_afk() -> None:
     script = (
-        _dot_source_prelude()
-        + "Get-PlanLabel -NarrowBlast $true -OpenQuestionCount 0\n"
+        _import_prelude() + "Get-PlanLabel -NarrowBlast $true -OpenQuestionCount 0\n"
     )
     result = _ps(script)
     assert result.returncode == 0, result.stderr
@@ -264,8 +267,7 @@ def test_get_plan_label_narrow_zero_open_is_afk() -> None:
 def test_get_plan_label_narrow_with_open_questions_is_hitl() -> None:
     """Open questions force HITL even when the blast is narrow."""
     script = (
-        _dot_source_prelude()
-        + "Get-PlanLabel -NarrowBlast $true -OpenQuestionCount 2\n"
+        _import_prelude() + "Get-PlanLabel -NarrowBlast $true -OpenQuestionCount 2\n"
     )
     result = _ps(script)
     assert result.returncode == 0, result.stderr
@@ -277,8 +279,7 @@ def test_get_plan_label_narrow_with_open_questions_is_hitl() -> None:
 def test_get_plan_label_wide_blast_is_hitl() -> None:
     """Wide blast forces HITL even with zero open questions."""
     script = (
-        _dot_source_prelude()
-        + "Get-PlanLabel -NarrowBlast $false -OpenQuestionCount 0\n"
+        _import_prelude() + "Get-PlanLabel -NarrowBlast $false -OpenQuestionCount 0\n"
     )
     result = _ps(script)
     assert result.returncode == 0, result.stderr
@@ -289,8 +290,7 @@ def test_get_plan_label_wide_blast_is_hitl() -> None:
 
 def test_get_plan_label_wide_with_open_questions_is_hitl() -> None:
     script = (
-        _dot_source_prelude()
-        + "Get-PlanLabel -NarrowBlast $false -OpenQuestionCount 5\n"
+        _import_prelude() + "Get-PlanLabel -NarrowBlast $false -OpenQuestionCount 5\n"
     )
     result = _ps(script)
     assert result.returncode == 0, result.stderr
@@ -307,7 +307,7 @@ def test_format_child_issue_header_fields_appear_first() -> None:
     """LABELS / ESTIMATE / PRIORITY must come before **Goal** so sync-issues.ps1
     parses them as header fields, not body content."""
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + "$body = Format-ChildIssue -Label 'AFK' -Estimate 2 -Priority 'P3' "
         + "-Goal 'Goal text' -Description 'Description text' "
         + "-Requirements @('r1','r2') -AcceptanceCriteria @('a1','a2')\n"
@@ -328,7 +328,7 @@ def test_format_child_issue_header_fields_appear_first() -> None:
 def test_format_child_issue_numbers_requirements() -> None:
     """Requirements must be numbered starting at 1."""
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + "$body = Format-ChildIssue -Label 'AFK' -Goal 'g' -Description 'd' "
         + "-Requirements @('alpha','beta','gamma') -AcceptanceCriteria @()\n"
         + "$body\n"
@@ -344,7 +344,7 @@ def test_format_child_issue_numbers_requirements() -> None:
 def test_format_child_issue_uses_checkboxes_for_acceptance() -> None:
     """Acceptance criteria render as `- [ ]` checkboxes."""
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + "$body = Format-ChildIssue -Label 'AFK' -Goal 'g' -Description 'd' "
         + "-Requirements @() -AcceptanceCriteria @('CI passes','tests green')\n"
         + "$body\n"
@@ -359,7 +359,7 @@ def test_format_child_issue_uses_checkboxes_for_acceptance() -> None:
 def test_format_child_issue_omits_estimate_when_zero() -> None:
     """Estimate=0 means `not set` — the line must NOT appear."""
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + "$body = Format-ChildIssue -Label 'HITL' -Estimate 0 -Goal 'g' -Description 'd' "
         + "-Requirements @() -AcceptanceCriteria @()\n"
         + "$body\n"
@@ -375,7 +375,7 @@ def test_format_child_issue_omits_estimate_when_zero() -> None:
 def test_format_prd_section_contains_required_headings() -> None:
     """All six Lean PRD sections from plan/SKILL.md must appear in the output."""
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + "$prd = [pscustomobject]@{\n"
         + "    problem_statement = 'Users need X.'\n"
         + "    user_stories      = @('As a user I want A','As a user I want B')\n"
@@ -404,7 +404,7 @@ def test_format_prd_section_uses_agent_prd_markers() -> None:
     """Body section must be bounded by AGENT-PRD markers so it is regex-
     replaceable independently of AGENT-STATE / AGENT-BRIEF blocks."""
     script = (
-        _dot_source_prelude()
+        _import_prelude()
         + "$prd = [pscustomobject]@{ problem_statement='X.'; user_stories=@(); "
         + "tracer_bullet='T'; implementation_decisions=@(); testing_decisions=@(); "
         + "out_of_scope=@() }\n"
