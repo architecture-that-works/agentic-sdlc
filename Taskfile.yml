@@ -2,35 +2,40 @@ version: '3'
 
 vars:
   ISSUE: '{{default "0" .ISSUE}}'
-  RETRIES: '{{default "-1" .RETRIES}}' # -1 = read from .github/scripts/kanban/config.ps1
+  RETRIES: '{{default "-1" .RETRIES}}' # -1 = read from .github/scripts/kanban/Config.ps1
 
 tasks:
 
   setup:
     desc: "Bootstrap — run once to configure GitHub Project field IDs, labels, and environment"
     cmds:
-      - pwsh -NoProfile -File .github/scripts/setup.ps1
+      - pwsh -NoProfile -File .github/scripts/tasks/setup.ps1
       - uv run python src/tools/setup.py
 
   sync:
-    desc: "Sync ISSUES.md — push pending ISSUE blocks to GitHub Issues + Project board"
+    desc: "Sync ISSUES.md — push pending ISSUE blocks to GitHub Issues + Project board (lands un-aligned)"
     cmds:
-      - pwsh -NoProfile -File .github/scripts/sync-issues.ps1 {{.CLI_ARGS}}
+      - pwsh -NoProfile -File .github/scripts/tasks/sync-issues.ps1 {{.CLI_ARGS}}
+
+  align:
+    desc: "Backlog gate — refine→architect→plan an issue and grant agent:backlog when ready (ISSUE=N for one; no arg = all un-aligned)"
+    cmds:
+      - pwsh -NoProfile -File .github/scripts/tasks/align.ps1 -Issue {{.ISSUE}}
 
   start:
     desc: "HITL — interactive Backlog picker; runs full orchestration in this terminal (ISSUE=N to skip picker)"
     cmds:
-      - pwsh -NoProfile -File .github/scripts/kanban/start.ps1 -Issue {{.ISSUE}} -MaxRetries {{.RETRIES}}
+      - pwsh -NoProfile -File .github/scripts/tasks/start.ps1 -Issue {{.ISSUE}} -MaxRetries {{.RETRIES}}
 
   runner:
     desc: "AFK — dispatch GHA to drain the whole agent:backlog queue in the cloud (laptop can be closed)"
     cmds:
-      - pwsh -NoProfile -File .github/scripts/kanban/runner.ps1 {{.CLI_ARGS}}
+      - pwsh -NoProfile -File .github/scripts/tasks/runner.ps1 {{.CLI_ARGS}}
 
   retry:
     desc: "Recovery — reset a stuck or failed issue back to agent:backlog (ISSUE=N required)"
     cmds:
-      - pwsh -NoProfile -File .github/scripts/kanban/retry.ps1 -Issue {{.ISSUE}}
+      - pwsh -NoProfile -File .github/scripts/tasks/retry.ps1 -Issue {{.ISSUE}}
 
   protect:
     desc: "Governance — apply branch-protection rules to main (requires GH_TOKEN with repo/admin scope)"

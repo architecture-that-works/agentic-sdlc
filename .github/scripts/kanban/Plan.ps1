@@ -1,50 +1,46 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Phase A.6 — Plan: Lean PRD synthesis + decomposition into child issues.
+    Backlog gate, Plan decomposition -- Lean PRD synthesis + child issues (epics).
 
 .DESCRIPTION
-    Internal function library — dot-sourced by implement.ps1; also runnable
-    standalone with -Issue N.
+    Kanban library -- loaded by Kanban.psm1. This is the heavy Plan path: when the
+    Plan step (Refine.ps1 -> Invoke-Plan) sees an EPIC (estimate >= DecomposeThreshold)
+    it hands off to Invoke-PlanDecomposition here, which synthesises a Lean PRD and
+    fans the epic out into child issues. Ordinary issues keep the lightweight
+    implementation-plan section written by Invoke-Plan.
 
-    Plan is the third readiness stage (refine → architect → plan) — NOT a kanban
-    lane. Per ADR-011 the GitHub issue is the cross-runtime carrier:
-      * Architecture / blast-radius is read FROM the issue (the `## Blast-Radius
-        Report` comment posted by architecture.ps1), not from
-        `.planning/<issue>/BLAST_RADIUS.md`.
+    Plan is the third readiness stage (refine -> architect -> plan) -- NOT a kanban
+    lane. Per ADR-011/ADR-014 the GitHub issue is the cross-runtime carrier:
+      * Blast-radius is read FROM the issue's ARCH-IMPACT body section (written by
+        Architecture.ps1) -- there is no .planning/ directory.
       * The Lean PRD is published as a BODY SECTION of the parent issue (between
-        AGENT-PRD markers) — not as a free-floating comment.
+        AGENT-PRD markers) -- not as a free-floating comment.
 
     Pipeline for one parent epic issue:
-      1. Dedupe — query open issues + grep `.out-of-scope.md` against the
-         parent issue's key terms. Abort with a `🤖❌ Plan Aborted — duplicate`
-         signal comment if overlap is found.
-      2. PRD synthesis — Claude produces a Lean PRD with the plan/SKILL.md
-         six-section structure (Problem Statement, User Stories, Tracer Bullet,
+      1. Dedupe -- query open issues + grep `.out-of-scope.md` against the parent
+         issue's key terms. Abort with a `🤖❌ Plan Aborted -- duplicate` signal
+         comment (and WITHOUT granting readiness.planned) if overlap is found.
+      2. PRD synthesis -- Claude produces a Lean PRD with the plan/SKILL.md six-
+         section structure (Problem Statement, User Stories, Tracer Bullet,
          Implementation Decisions, Testing Decisions, Out of Scope) plus a
-         children[] array sized ≥3.
-      3. PRD published into the parent issue body section, bounded by
-         AGENT-PRD markers (matches AGENT-STATE / AGENT-BRIEF pattern). A
-         signal comment announces the PRD for downstream agents and humans.
-      4. Child-issue emission — uses the sync-issues.ps1 block format
-         (LABELS:/ESTIMATE:/PRIORITY: header + Goal / Description /
-         Requirements / Acceptance Criteria body). Children[0] is the tracer
-         bullet; children land via `gh issue create` (NOT ISSUES.md editing).
+         children[] array sized >= 3.
+      3. PRD published into the parent issue body section (AGENT-PRD markers); a
+         signal comment announces it for downstream agents and humans.
+      4. Child-issue emission -- sync-issues.ps1 block format (LABELS:/ESTIMATE:/
+         PRIORITY: header + Goal/Description/Requirements/Acceptance Criteria).
+         children[0] is the tracer bullet; children land via `gh issue create`.
       5. AFK / HITL labelling heuristic:
-           * narrow blast radius AND zero unresolved open_questions → AFK
-           * wide blast OR open_questions[] non-empty                → HITL
-         Children may opt up to HITL via the synthesised PRD; never down.
+           * narrow blast radius AND zero unresolved open_questions -> AFK
+           * wide blast OR open_questions[] non-empty                 -> HITL
+         Children may opt UP to HITL via the synthesised PRD; never down.
 #>
 
-param([int]$Issue = 0)
-
 $ErrorActionPreference = 'Stop'
-. "$PSScriptRoot\_common.ps1"
-
-# Markers for the Lean PRD body section. Same pattern as AGENT-STATE /
-# AGENT-BRIEF — each block is independently regex-replaceable.
-$KanbanPrdBeginMarker = '<!-- AGENT-PRD:BEGIN -->'
-$KanbanPrdEndMarker   = '<!-- AGENT-PRD:END -->'
+# Module-internal library -- loaded by Kanban.psm1 (which loads Config.ps1 and
+# GitHub.ps1 first, so $KanbanStopWords, $KanbanRepo, $_Root, the AGENT-PRD /
+# ARCH-IMPACT markers and the issue-body helpers are all in module scope). Not
+# dot-sourced individually; carries no top-level param() block (ADR-013).
 
 # ── Key-term extraction ──────────────────────────────────────────────────────
 # Title → top-K content tokens after stop-word filtering. Used to query
@@ -111,19 +107,20 @@ function Find-OpenIssueOverlap {
     return @(@($items) | Where-Object { $_.number -ne $ExcludeIssue })
 }
 
-# ── Blast radius (read from issue carrier, NOT from .planning/) ─────────────
-# Per ADR-011 the GitHub issue is the cross-runtime state carrier. The
-# `## Blast-Radius Report` comment that architecture.ps1 publishes is the
-# orchestrator's authoritative artifact — read the most-recent instance so
-# re-runs use the freshest analysis.
+# ── Blast radius (read from the issue's ARCH-IMPACT body section) ────────────
+# ADR-014: the Architect step (Architecture.ps1) writes the blast-radius impact
+# INTO the issue body between ARCH-IMPACT markers — not a free-standing comment
+# and not a .planning/ file. Read that section back so the Plan heuristic uses
+# the freshest analysis on the cross-runtime carrier.
 
 function Get-IssueBlastRadius {
     param([int]$IssueNumber)
-    $body = gh issue view $IssueNumber --repo $KanbanRepo --json comments `
-        --jq '[.comments[] | select(.body | startswith("## Blast-Radius Report")) | .body] | last // ""' 2>&1 |
-        Out-String
-    if ($LASTEXITCODE -ne 0) { return '' }
-    return ($body.Trim())
+    $body = gh issue view $IssueNumber --repo $KanbanRepo --json body --jq '.body' 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0 -or -not $body) { return '' }
+    $pattern = [regex]::Escape($KanbanArchBeginMarker) + '(?<impact>.*?)' + [regex]::Escape($KanbanArchEndMarker)
+    $match   = [regex]::Match($body, $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+    if ($match.Success) { return $match.Groups['impact'].Value.Trim() }
+    return ''
 }
 
 # Narrow blast → at-risk is empty OR recommendation is "proceed".
@@ -233,7 +230,8 @@ function New-ChildIssue {
 
 # ── Lean PRD body section ───────────────────────────────────────────────────
 # Renders the synthesised PRD into the parent issue body between AGENT-PRD
-# markers. Idempotent — re-runs replace the previous block in place.
+# markers ($KanbanPrdBeginMarker/$KanbanPrdEndMarker from GitHub.ps1).
+# Idempotent — re-runs replace the previous block in place.
 
 function Format-PRDSection {
     param([Parameter(Mandatory)][pscustomobject]$Prd)
@@ -282,6 +280,9 @@ function Set-PRDSection {
         [Parameter(Mandatory)][int]$IssueNumber,
         [Parameter(Mandatory)][pscustomobject]$Prd
     )
+    # Format-PRDSection already embeds the AGENT-PRD markers (the announce comment
+    # reuses the same rendered block), so upsert it directly rather than through
+    # Set-IssueBodySection — that helper would wrap a SECOND marker pair around it.
     $section = Format-PRDSection -Prd $Prd
     $body = gh issue view $IssueNumber --repo $KanbanRepo --json body --jq '.body' 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
@@ -292,6 +293,7 @@ function Set-PRDSection {
     $pattern = [regex]::Escape($KanbanPrdBeginMarker) + '.*?' + [regex]::Escape($KanbanPrdEndMarker)
     $opts    = [System.Text.RegularExpressions.RegexOptions]::Singleline
     if ([regex]::IsMatch($body, $pattern, $opts)) {
+        # Callback-based Replace sidesteps $1/$& substitution in the replacement string.
         $newBody = [regex]::Replace($body, $pattern, { param($m) $section }, $opts)
     } else {
         $newBody = "$body`n`n$section"
@@ -345,7 +347,7 @@ Return ONLY valid JSON — no fences, no prose — matching this shape:
 
 Rules:
 - children[0] MUST be the tracer bullet (narrowest vertical slice).
-- ≥ 3 children in total.
+- >= 3 children in total.
 - Every child gets exactly one of: AFK | HITL. Default to AFK unless the
   child genuinely needs a human decision (UX, credentials, business call).
   The orchestrator may upgrade to HITL based on the blast-radius heuristic;
@@ -355,18 +357,22 @@ Rules:
 - Priorities are P0..P4. Use P3 unless the child is explicitly higher.
 "@
 
-    $raw = $prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String
+    $raw = Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
     if ($LASTEXITCODE -ne 0) { throw "Claude PRD synthesis failed: $raw" }
     $json = $raw.Trim()
     if ($json -match '(?s)```(?:json)?\s*(\{.+\})\s*```') { $json = $Matches[1] }
     return ($json | ConvertFrom-Json -ErrorAction Stop)
 }
 
-# ── Main entry point ─────────────────────────────────────────────────────────
+# ── Epic decomposition entry point ───────────────────────────────────────────
+# Called by Invoke-Plan (Refine.ps1) when the issue is an epic. Returns the
+# number of child issues created, or $null when it aborts (duplicate / zero
+# children). On abort it deliberately does NOT set readiness.planned, so the
+# alignment gate stays closed for a duplicate epic.
 
 function Invoke-PlanDecomposition {
     param([int]$IssueNumber)
-    Write-Log "  Phase A.6 — Plan decomposition for issue #$IssueNumber" -Color Yellow
+    Write-Log "  Plan — decomposing epic #$IssueNumber into child issues" -Color Yellow
 
     $issue = gh issue view $IssueNumber --repo $KanbanRepo --json title,body | ConvertFrom-Json
 
@@ -446,13 +452,4 @@ function Invoke-PlanDecomposition {
     Set-PlanningReadiness -IssueNumber $IssueNumber -Stage 'planned' -StageLabel 'plan' -PopulatedBy 'plan-decomposition'
     Write-Log "  Plan decomposition complete for #$IssueNumber — $($createdUrls.Count) child(ren) created." -Color Green
     return $createdUrls.Count
-}
-
-# ── Standalone entry point ───────────────────────────────────────────────────
-# Skip when dot-sourced ($MyInvocation.InvocationName -eq '.') so callers
-# (implement.ps1, tests) can import the functions without triggering a run.
-
-if ($MyInvocation.InvocationName -ne '.') {
-    if ($Issue -le 0) { throw 'Issue number is required (e.g. plan.ps1 -Issue 42).' }
-    Invoke-PlanDecomposition -IssueNumber $Issue
 }

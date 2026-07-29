@@ -56,19 +56,24 @@ The fastest path from zero to autonomous AI development:
 task setup
 ```
 
-**4. Label an issue** `agent:backlog` — the orchestrator picks it up on the next poll.
+**4. Create an issue** — the alignment gate (`align.yml`) automatically refines, architects, and plans it, then grants `agent:backlog` once it is ready (`task align` does the same locally / for backfill).
 
-**5. Walk away** — the orchestrator runs branch → implement → review → merge autonomously on `ubuntu-latest` using your `CLAUDE_CODE_OAUTH_TOKEN`.
+**5. Walk away** — run `task runner` to drain the `agent:backlog` queue: the orchestrator runs branch → implement → review → merge autonomously on `ubuntu-latest` using your `CLAUDE_CODE_OAUTH_TOKEN`. Granting `agent:backlog` does **not** auto-start work — you trigger processing, so "ready" and "go" stay separate (ADR-014).
 
 > **`GH_TOKEN` scope requirement:** Must be a **classic PAT** with all five scopes: `project`, `read:org`, `repo`, `user`, `workflow`. Fine-grained PATs do not support GitHub Projects v2. Missing scopes cause silent failures at runtime — `project` breaks kanban board mutations, `workflow` blocks any PR that touches `.github/workflows/*.yml`, `read:org` is required for org-owned projects, `user` for identity calls, and `repo` for issue/PR/commit operations.
 
-### AFK Label → PR Flow
+### AFK Issue → PR Flow
 
 ```mermaid
 flowchart LR
-    A([agent:backlog]) --> B([agent:refining])
-    B --> C([agent:architecting])
-    C --> D([agent:implementing])
+    N([issue created]) -- align.yml / task align --> A
+    subgraph Backlog gate
+      direction LR
+      R([refine]) --> AR([architect]) --> P([plan])
+    end
+    N -.-> R
+    P -- ready --> A([agent:backlog])
+    A -- task runner / task start --> D([agent:implementing])
     D --> E([agent:review])
     E --> F([agent:merged])
     E -- rejected --> D
@@ -149,7 +154,13 @@ my_template_repo/
 │   └── utils/                    Generic transferable modules (m_*.py)
 ├── tests/                        Pytest suite, mirrors src/ hierarchy
 ├── .agents/skills/               Skill system — AI workflow for every generated project
-├── .github/workflows/            CI: lint + typecheck + test
+├── .github/
+│   ├── workflows/                CI (ci.yml) + alignment gate (align.yml) + AFK orchestrator (orchestrator.yml)
+│   └── scripts/
+│       ├── kanban/               Orchestrator library — the Kanban PowerShell module (Import-Module)
+│       ├── tasks/                Thin Taskfile commands: align, start, runner, retry, setup, sync-issues
+│       ├── ci/                   CI gate scripts (check-module-map.ps1)
+│       └── Claude.ps1            Generic LLM helper (shared)
 ├── docs/adr/                     Architecture Decision Records (MADR format)
 ├── CONTEXT.md                    Domain glossary template (filled at generation time)
 └── AGENTS.md                     Agent standing instructions (filled at generation time)
@@ -219,61 +230,68 @@ ADRs for tool selection decisions are in `docs/adr/`. See `ADR-000` for the temp
 
 ### Orchestrator Workflow
 
-The Orchestrator Workflow is the autonomous execution layer. Once an issue is queued, the orchestrator runs end-to-end: branch → implement → review → merge.
+The Orchestrator Workflow is the autonomous execution layer. It splits into two flows (ADR-014): a **pre-backlog alignment gate** that makes an issue ready, and **processing** that ships it. Alignment is automatic; processing is something you trigger — granting `agent:backlog` means "ready", not "go".
+
+> **How it's built:** the orchestrator is a PowerShell module — `.github/scripts/kanban/` (`Import-Module Kanban`), one script per lane (`Refine.ps1` = Backlog gate, then `Implement`/`Review`/`Merge`, conducted by `Orchestrator.ps1`). The `task` commands below are thin scripts in `.github/scripts/tasks/` that import that library; `align.yml` and `orchestrator.yml` import it on the runner. Run parameters flow via environment variables into `Get-KanbanContext` (ADR-013), so nothing relies on fragile script-scope state.
 
 #### State machine
 
-Every issue carries exactly one `agent:` label at any time. The label name matches the project board lane name.
+The board is a 4-lane FSM (ADR-011). The alignment gate runs *before* the backlog and grants the `agent:backlog` label; from there an issue carries exactly one `agent:` label, matching its board lane.
 
 ```
-agent:backlog ──► agent:refining ──► agent:architecting ──► agent:implementing ──► agent:review ──► agent:merged
-     ▲                                                              │                    │
-     │                                                              │  (rejected)         │  (max retries exceeded)
-     │                                                              ▼                    ▼
-     └──────────────────────────────────────────────── agent:implementing ◄──── agent:failed ──► Backlog
+issue created
+     │  align.yml / task align  (refine → architect → plan; artefacts written into the issue body)
+     ▼  ── gate: refined + architected + planned + zero open questions ──
+agent:backlog ───► agent:implementing ───► agent:review ───► agent:merged
+     ▲   task runner / task start    │            │
+     │                               │ (rejected)  │ (max retries)
+     │                               ▼            ▼
+     └────────────────── agent:implementing ◄── agent:failed
 ```
 
 | Label | Lane | Meaning |
 |---|---|---|
-| `agent:backlog` | Backlog | Queued — orchestrator will pick up on next poll |
-| `agent:refining` | Refining | Orchestrator aligning on requirements and boundaries |
-| `agent:architecting` | Architecting | Blast-radius analysis and module map update |
-| `agent:implementing` | Implementing | Branch created, Claude Code actively implementing |
+| _(no label)_ | Backlog | Un-aligned — the gate has not yet granted readiness |
+| `agent:backlog` | Backlog | Aligned and **ready** — `task runner`/`task start` will process it |
+| `agent:implementing` | Implementing | Branch created, Claude Code implementing (Develop → PR) |
 | `agent:review` | Review | PR open, agent self-review running or passed |
 | `agent:merged` | Merged | PR squash-merged, issue closed |
 | `agent:failed` | Backlog | Unrecoverable error or max retries exceeded — human required |
+
+Refine, architect, and plan are readiness flags in the issue-carried state, not lanes — they run in the gate and leave their artefacts (`Architecture Impact`, `Implementation Plan`, `Agent Brief`) in the issue body.
 
 #### Transitions
 
 | Event | From → To |
 |---|---|
-| `task sync` or label applied manually | issue created → `agent:backlog` |
-| Orchestrator picks up (GHA or `task start`) | `agent:backlog` → `agent:refining` |
-| Refine phase complete | `agent:refining` → `agent:architecting` |
-| Architecture phase complete | `agent:architecting` → `agent:implementing` |
-| PR opened, review phase begins | `agent:implementing` → `agent:review` (lane moves immediately) |
+| `task sync` | issue created → Backlog, **un-aligned** (no `agent:*` label) |
+| `align.yml` (on issue created) or `task align` | runs refine → architect → plan → grants `agent:backlog` when ready |
+| Open questions remain | `agent:backlog` withheld; HITL child issue raised — resolve, then re-run align |
+| `task runner` (cloud) / `task start` (local) | `agent:backlog` → `agent:implementing` |
+| PR opened, review begins | `agent:implementing` → `agent:review` (lane moves immediately) |
 | Review passes | stays `agent:review` until orchestrator merges |
 | Review rejected | `agent:review` → `agent:implementing` (orchestrator retries implement) |
-| Max retries exceeded (default: 2) | → `agent:failed` + Backlog lane |
+| Max retries exceeded (default: 3) | → `agent:failed` + Backlog lane |
 | Orchestrator merges | `agent:review` → `agent:merged` |
 | `task retry ISSUE=N` | any state → `agent:backlog` (recovery) |
 
 #### Task commands
 
 ```bash
-task sync                   # parse ISSUES.md and push pending blocks to GitHub Issues
+task sync                   # parse ISSUES.md and push pending blocks to GitHub Issues (un-aligned)
+task align                  # Backlog gate — align every un-aligned issue (grants agent:backlog when ready)
+task align ISSUE=13         # align just issue #13
 task start                  # HITL — interactive Backlog picker; runs full orchestration here
 task start ISSUE=13         # HITL orchestration for issue #13, skipping the picker
 task runner                 # AFK — dispatch GHA to drain the whole agent:backlog queue (laptop can be closed)
 task retry ISSUE=13         # reset a stuck or failed issue back to agent:backlog
 ```
 
-GHA-triggered orchestration runs (label events on `agent:backlog`) process issues
-**lowest issue number first**. HITL runs use the interactive picker.
+`task runner` drains the `agent:backlog` queue **lowest issue number first**. HITL runs use the interactive picker.
 
 #### Issue body template
 
-Issues used with the Orchestrator Workflow should follow the structure defined in `ISSUES.md`. The orchestrator's refine phase will apply the template automatically if the body is missing required fields. It also assigns `estimate:N` (Fibonacci SP) and `priority:X` labels if absent — issues entering implementation are always fully specified.
+Issues used with the Orchestrator Workflow should follow the structure defined in `ISSUES.md`. The alignment gate's refine step applies the template automatically if the body is missing required fields, and assigns Estimate (Fibonacci SP) and Priority project fields if absent — so every issue that reaches `agent:backlog` is fully specified, architected, and planned.
 
 ---
 

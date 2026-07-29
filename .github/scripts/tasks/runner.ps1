@@ -31,7 +31,8 @@
 param([switch]$Force)
 
 $ErrorActionPreference = 'Stop'
-. "$PSScriptRoot\_common.ps1"
+Import-Module "$PSScriptRoot\..\kanban\Kanban.psd1" -Force
+$KanbanRepo = (Get-KanbanContext).Repo
 
 # ── Pre-flight: GraphQL budget ───────────────────────────────────────────────
 # Reading the backlog (gh issue list) AND the whole cloud pipeline drive the

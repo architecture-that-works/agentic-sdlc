@@ -1,43 +1,43 @@
 #Requires -Version 7.0
 <#
-.SYNOPSIS
-    Orchestrate the full pipeline (implement → review loop → merge) for a single issue.
+    Orchestrator.ps1 — drives ONE issue through the agent:* state machine.
 
-.DESCRIPTION
-    Called by start.ps1 (HITL) and orchestrator.yml (GHA). Not a direct Taskfile target.
+    This is the conductor of the Kanban library. It sequences the pipeline phases
+    and records every lane transition, using the other library files as building
+    blocks:
 
-    Acquires a per-issue process lock, runs the implement stage (refine + develop + PR),
-    then drives the review → implement loop up to MaxRetries times. Merges on first
-    approval. Marks agent:failed and posts a comment if retries are exhausted.
+        STATE MACHINE (ADR-011 4-lane FSM)        LIBRARY CALLS
+        ─────────────────────────────────        ───────────────────────────────
+        backlog → implementing                    Set-AgentState (GitHub.ps1)
+          run implement phase                     Invoke-Implement (Implement.ps1)
+            ├─ develop → PR  (alignment already done pre-backlog)
+        implementing → review  (loop ≤ MaxRetries) Invoke-Review (Review.ps1)
+          rejected → re-implement                 Invoke-Implement
+          approved → merged                       Invoke-Merge (Merge.ps1)
+        any error / exhausted retries → failed    Set-AgentState 'agent:failed'
 
-    Always returns to a clean, origin-synced default branch on exit.
+    Refine/Architect/Plan are NOT part of this conductor — they are the
+    pre-backlog alignment gate (Refine.ps1 / Invoke-Alignment) that grants
+    agent:backlog. This conductor processes issues that are already aligned.
 
-.PARAMETER Issue
-    Issue number to orchestrate. Required.
+    Cross-cutting helpers come from the rest of the library: the per-issue lock
+    and review counter (Util.ps1), branch + comment + lane helpers (GitHub.ps1),
+    and the run context (Config.ps1). Loaded LAST by Kanban.psm1 (after every
+    phase it calls) and exported as Invoke-Orchestration.
 
-.PARAMETER MaxRetries
-    Maximum implement→review cycles before marking agent:failed. Default: from config.ps1.
+    Processing is human-triggered: tasks/runner.ps1 dispatches orchestrator.yml
+    in the cloud (AFK drain), tasks/start.ps1 runs it locally (HITL). Both import
+    the module and call Invoke-Orchestration — they own *how* a run is triggered;
+    this file owns *what* a run does.
 #>
-param(
-    [int]$Issue      = 0,
-    [int]$MaxRetries = -1
-)
-
-$ErrorActionPreference = 'Stop'
-. "$PSScriptRoot\_common.ps1"
-
-if ($Issue -le 0) { throw "Issue number is required. This script is invoked with -Issue N by start.ps1 or orchestrator.yml." }
-if ($MaxRetries -lt 0) { $MaxRetries = $KanbanMaxRetries }
-. "$PSScriptRoot\implement.ps1"
-. "$PSScriptRoot\review.ps1"
-. "$PSScriptRoot\merge.ps1"
-
-# ── Full orchestration for one issue ─────────────────────────────────────────
 
 function Invoke-Orchestration {
-    param([int]$IssueNumber, [switch]$Force)
+    param([int]$IssueNumber, [int]$MaxRetries = -1, [switch]$Force)
 
-    # Prevent two concurrent terminal instances from processing the same issue.
+    $ctx = Get-KanbanContext               # run context: repo, default branch, retries
+    if ($MaxRetries -lt 0) { $MaxRetries = $ctx.MaxRetries }
+
+    # Prevent two concurrent instances from processing the same issue.
     if (-not (Acquire-OrchestratorLock -IssueNumber $IssueNumber)) {
         Write-Log "  ⏳ Issue #$IssueNumber is locked by another process — skipping." -Color Yellow
         return
@@ -46,9 +46,10 @@ function Invoke-Orchestration {
     $stashed = $false
 
     try {
-        $meta = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
+        $meta = gh issue view $IssueNumber --repo $ctx.Repo --json title | ConvertFrom-Json
         Write-Log "━━━ Orchestrator: issue #$IssueNumber — $($meta.title)" -Color Cyan
 
+        # ── backlog → implementing ────────────────────────────────────────────
         Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
 
         $stashOut = git stash 2>&1
@@ -63,7 +64,7 @@ function Invoke-Orchestration {
             # skip the review/merge stages.
             Clear-IssueReviewCount -IssueNumber $IssueNumber
             Set-AgentState -IssueNumber $IssueNumber -Label 'agent:merged'
-            gh issue close $IssueNumber --repo $KanbanRepo --reason completed 2>&1 | Out-Null
+            gh issue close $IssueNumber --repo $ctx.Repo --reason completed 2>&1 | Out-Null
             Write-Log "🎉 Issue #$IssueNumber complete — already implemented; closed without PR." -Color Green
             return
         }
@@ -73,6 +74,7 @@ function Invoke-Orchestration {
         if ($prList.Count -eq 0) { throw "No PR found for branch $branch after implement stage." }
         $prNum = $prList[0].number
 
+        # ── implementing → review loop (up to MaxRetries) ─────────────────────
         # Read the CUMULATIVE review count — persists across stall recovery and GHA reruns.
         $cyclesDone = Get-IssueReviewCount -IssueNumber $IssueNumber
         $approved   = $false
@@ -91,6 +93,7 @@ function Invoke-Orchestration {
             }
         }
 
+        # ── exhausted retries → failed ────────────────────────────────────────
         if (-not $approved) {
             Clear-IssueReviewCount -IssueNumber $IssueNumber
             Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
@@ -99,11 +102,13 @@ function Invoke-Orchestration {
             return
         }
 
+        # ── review → merged ───────────────────────────────────────────────────
         Clear-IssueReviewCount -IssueNumber $IssueNumber
         Invoke-Merge -IssueNumber $IssueNumber -PRNumber $prNum -Approved
         Write-Log "🎉 Issue #$IssueNumber complete." -Color Green
 
     } catch {
+        # ── any error → failed ────────────────────────────────────────────────
         Clear-IssueReviewCount -IssueNumber $IssueNumber
         Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
         $errBlock = Format-ErrorBlock -Raw "$_"
@@ -114,7 +119,7 @@ function Invoke-Orchestration {
         if ($stashed) { git stash pop 2>&1 | Out-Null }
 
         # Always return to a clean, origin-synced default branch so the next issue starts fresh.
-        $default = $KanbanDefaultBranch
+        $default = $ctx.DefaultBranch
         $curr    = git rev-parse --abbrev-ref HEAD 2>$null
 
         if ($curr -and $curr -ne $default) {
@@ -130,7 +135,3 @@ function Invoke-Orchestration {
         git reset --hard --quiet "origin/$default" 2>$null
     }
 }
-
-# ── Entry point ───────────────────────────────────────────────────────────────
-
-Invoke-Orchestration -IssueNumber $Issue
