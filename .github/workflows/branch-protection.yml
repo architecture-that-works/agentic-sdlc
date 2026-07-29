@@ -1,0 +1,27 @@
+name: Apply branch protection
+
+# One-shot governance workflow: applies branch-protection rules to main.
+# Run manually once after initial repo setup, or to re-apply after any drift.
+#
+# Closes rubric criteria 2.1–2.5 by making CI checks blocking on main:
+#   lint, typecheck, test, audit, secret-scan, module-map-check
+#
+# Requires: GH_TOKEN secret — classic PAT with 'repo' scope (admin access).
+# Verify:   gh api /repos/{owner}/{repo}/branches/main/protection
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    name: Apply branch-protection rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Apply branch protection
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: pwsh -NoProfile -File .github/scripts/setup-branch-protection.ps1

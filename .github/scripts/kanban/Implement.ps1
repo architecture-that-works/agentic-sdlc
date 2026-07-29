@@ -142,7 +142,8 @@ INSTRUCTIONS:
     Write-Log "  Running test suite independently..." -Color DarkGray
     $testOutput = uv run pytest --tb=short -q 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
-        Add-Comment -Number $Number -Body "🤖⚠️ Tests Failing`n``````text`n$($testOutput.Trim())`n``````"
+        $errBlock = Format-ErrorBlock -Raw $testOutput
+        Add-Comment -Number $Number -Body "🤖⚠️ Tests Failing`n`n$errBlock"
         throw "Test suite failed after implementation for issue #$Number"
     }
     $testSummary = (($testOutput -split '\r?\n') | Where-Object { $_.Trim() } | Select-Object -Last 4) -join "`n"
@@ -314,7 +315,8 @@ function Invoke-Implement {
         Write-Log "✅ Implement complete — PR at $prUrl" -Color Green
         return $prUrl
     } catch {
-        Add-Comment -Number $IssueNumber -Body "🤖❌ Implement Failed`n``````text`n$_`n``````"
+        $errBlock = Format-ErrorBlock -Raw "$_"
+        Add-Comment -Number $IssueNumber -Body "🤖❌ Implement Failed`n`n$errBlock"
         throw
     }
 }

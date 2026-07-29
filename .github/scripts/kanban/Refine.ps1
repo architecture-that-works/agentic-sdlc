@@ -208,13 +208,27 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 }
 
 # ── Plan (Backlog gate, third step) ───────────────────────────────────────────
-# Writes an ordered implementation plan into the issue body and marks
-# readiness.planned. Claude-backed; degrades to a placeholder (still setting
-# readiness) so forks without a Claude token can still align — mirrors the
-# self-grill fallback in Invoke-Refine.
+# Dispatches on issue size:
+#   * EPIC (estimate ≥ DecomposeThreshold) — too big to implement directly, so
+#     decompose it into child issues via Lean PRD synthesis (Invoke-PlanDecomposition,
+#     Plan.ps1). That path owns its own readiness/abort semantics.
+#   * ordinary issue — write an ordered implementation plan into the body and mark
+#     readiness.planned. Claude-backed; degrades to a placeholder (still setting
+#     readiness) so forks without a Claude token can still align — mirrors the
+#     self-grill fallback in Invoke-Refine.
 function Invoke-Plan {
     param([int]$Number)
     Write-Log "  Plan — issue #$Number" -Color Yellow
+
+    # Epic → hand off to decomposition (it sets readiness.planned on success, and
+    # deliberately withholds it on a duplicate/zero-children abort so the gate stays
+    # closed).
+    $estimate = Get-IssueEstimate -IssueNumber $Number
+    if ($estimate -ge $OrchestratorConfig.DecomposeThreshold) {
+        Write-Log "  Estimate $estimate ≥ $($OrchestratorConfig.DecomposeThreshold) — epic; decomposing into child issues." -Color DarkGray
+        $null = Invoke-PlanDecomposition -IssueNumber $Number
+        return
+    }
 
     $issue = gh issue view $Number --repo $KanbanRepo --json title,body | ConvertFrom-Json
 

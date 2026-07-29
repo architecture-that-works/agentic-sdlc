@@ -13,7 +13,7 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-# Module-internal library — loaded by Kanban.psm1 (which loads _common.ps1 first).
+# Module-internal library — loaded by Kanban.psm1 (which loads Config.ps1 first).
 # Not dot-sourced individually; see ADR-013.
 
 function Test-HasApproval {

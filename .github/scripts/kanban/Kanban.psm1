@@ -18,9 +18,10 @@
         GitHub        labels, lanes, comments, board, branches, issue-body state
         ../Claude     generic Claude helpers (Invoke-ClaudeStreaming, commit msg)
         _grill        refine self-grill subagent (Invoke-Grill)
-        Refine        Backlog gate — Invoke-Refine (the agent:backlog toll-gate)
-        Architecture  Implementing phase 1 — blast radius
-        Implement     Implementing phases 1-3 — architecture → develop → PR
+        Refine        Backlog gate — Invoke-Refine + Invoke-Plan + Invoke-Alignment
+        Architecture  Backlog gate, Architect step — blast radius
+        Plan          Backlog gate, Plan decomposition — Lean PRD + child issues
+        Implement     Implementing lane — develop → PR
         Review        Review lane — self-review loop
         Merge         Merged lane — squash-merge → CONTEXT.md
         Orchestrator  conducts the agent:* state machine across the lanes
@@ -35,6 +36,7 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\..\..\.agents\skills\refine\scripts\_grill.ps1"
 . "$PSScriptRoot\Refine.ps1"
 . "$PSScriptRoot\Architecture.ps1"
+. "$PSScriptRoot\Plan.ps1"
 . "$PSScriptRoot\Implement.ps1"
 . "$PSScriptRoot\Review.ps1"
 . "$PSScriptRoot\Merge.ps1"

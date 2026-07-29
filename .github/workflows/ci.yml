@@ -9,6 +9,10 @@ on:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    # Budget: ruff check + ruff format --check must stay under 60 s (issue #120).
+    # timeout-minutes covers the full job; ruff itself is typically <5 s.
+    # If the job times out, drop the slow gate and file a follow-up before re-adding it.
+    timeout-minutes: 2
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0

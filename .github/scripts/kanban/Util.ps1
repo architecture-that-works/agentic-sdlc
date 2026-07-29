@@ -101,3 +101,26 @@ function Get-IssueTemplate {
     }
     return $null
 }
+
+# ── LLM-optimized error formatter (issue #119) ────────────────────────────────
+# Wraps raw error output (pytest failures, ruff output, tracebacks) into a
+# structured Markdown block so the verification loop can self-correct, via
+# src/utils/m_error_formatter.py. Falls back to a raw fenced block when the
+# formatter is unavailable — raw output is never dropped.
+function Format-ErrorBlock {
+    param([string]$Raw)
+    if (-not $Raw.Trim()) { return '' }
+    try {
+        Push-Location $_Root
+        try {
+            $formatted = $Raw | uv run python -m src.utils.m_error_formatter 2>$null
+        } finally {
+            Pop-Location
+        }
+        if ($LASTEXITCODE -eq 0 -and $formatted -and $formatted.Trim()) {
+            return $formatted.Trim()
+        }
+    } catch {}
+    # Fallback: preserve raw output in a fenced block (never drop it).
+    return "``````text`n$($Raw.Trim())`n``````"
+}

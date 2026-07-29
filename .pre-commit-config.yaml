@@ -1,0 +1,20 @@
+# Local hooks reuse the project ruff installation via uv run.
+# No separate pre-commit-managed environment; no coupling to local paths.
+# Budget: each hook must complete in <60 s on ubuntu-latest (issue #120).
+# Drop a hook and file a follow-up if it cannot meet that budget.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        language: system
+        entry: uv run ruff check
+        types: [python]
+        pass_filenames: true
+
+      - id: ruff-format-check
+        name: ruff format --check
+        language: system
+        entry: uv run ruff format --check
+        types: [python]
+        pass_filenames: true

@@ -111,7 +111,8 @@ function Invoke-Orchestration {
         # ── any error → failed ────────────────────────────────────────────────
         Clear-IssueReviewCount -IssueNumber $IssueNumber
         Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
-        Add-Comment -Number $IssueNumber -Body "🤖❌ Orchestrator Error`n``````text`n$_`n``````"
+        $errBlock = Format-ErrorBlock -Raw "$_"
+        Add-Comment -Number $IssueNumber -Body "🤖❌ Orchestrator Error`n`n$errBlock"
         Write-Log "❌ Orchestrator error for issue #$IssueNumber : $_" -Color Red
     } finally {
         Release-OrchestratorLock

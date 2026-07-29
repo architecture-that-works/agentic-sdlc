@@ -64,6 +64,12 @@ $KanbanArchEndMarker   = '<!-- ARCH-IMPACT:END -->'
 $KanbanPlanBeginMarker = '<!-- PLAN:BEGIN -->'
 $KanbanPlanEndMarker   = '<!-- PLAN:END -->'
 
+# AGENT-PRD is the Lean PRD the Plan step publishes into an EPIC's body when it
+# decomposes the epic into child issues (Plan.ps1). Same independent-marker
+# pattern — regex-replaceable without touching the plan/arch/brief/state blocks.
+$KanbanPrdBeginMarker = '<!-- AGENT-PRD:BEGIN -->'
+$KanbanPrdEndMarker   = '<!-- AGENT-PRD:END -->'
+
 # 4-lane FSM. agent:failed returns the issue to the 'backlog' lane — it is an
 # in-Backlog label, not a separate lane.
 $KanbanAllowedTransitions = @{

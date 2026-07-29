@@ -41,6 +41,12 @@ $OrchestratorConfig = @{
     OpusImplementThreshold = 5   # 1–5 → Sonnet implement  |  8–21 → Opus implement
     OpusReviewThreshold    = 3   # 1–3 → Sonnet review     |  5–21 → Opus review
 
+    # Plan-step routing (story points): SP >= threshold → the issue is an epic and
+    # the Plan step decomposes it into child issues (Lean PRD synthesis, Plan.ps1)
+    # instead of writing a single implementation-plan section. 13 = "large multi-
+    # area", 21 = "epic requiring human collaboration" on the refine Fibonacci scale.
+    DecomposeThreshold = 13
+
     # Turn budgets — implement (scales with SP); key 0 = unknown-estimate fallback.
     MaxTurns_Implement = @{
         0  = 60; 1  = 60; 2  = 70; 3  = 80
