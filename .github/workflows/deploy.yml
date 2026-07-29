@@ -38,21 +38,21 @@ jobs:
       id-token: write  # Required for Workload Identity Federation
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       # HITL: AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID are
       # produced by the one-time human WIF provisioning steps in
       # SECURITY.md § "Provisioning WIF for Azure". Missing values here mean
       # WIF has not yet been provisioned — do not attempt to auto-create them.
       - name: Authenticate to Azure via Workload Identity Federation
-        uses: azure/login@v3
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43  # v3.0.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Update Azure Container App image
-        uses: azure/cli@v3
+        uses: azure/cli@9eb25b8360668fb0ecbafa808d40e2197b2f5f52  # v3.0.0
         with:
           azcliversion: latest
           inlineScript: |
@@ -69,20 +69,20 @@ jobs:
       id-token: write  # Required for Workload Identity Federation
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       # HITL: GCP_WORKLOAD_IDENTITY_PROVIDER / GCP_SERVICE_ACCOUNT are produced
       # by the one-time human WIF provisioning steps in SECURITY.md §
       # "Provisioning WIF for GCP". Missing values here mean WIF has not yet
       # been provisioned — do not attempt to auto-create them.
       - name: Authenticate to GCP via Workload Identity Federation
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093  # v3.0.0
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Deploy to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v3
+        uses: google-github-actions/deploy-cloudrun@2028e2d7d30a78c6910e0632e48dd561b064884d  # v3.0.1
         with:
           service: ${{ vars.GCP_CLOUD_RUN_SERVICE }}
           region: ${{ vars.GCP_REGION }}
