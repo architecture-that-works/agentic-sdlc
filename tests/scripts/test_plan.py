@@ -13,10 +13,10 @@ Covers the four business rules that must not regress:
    either signal flips to HITL.
 
 Plan.ps1 is a module-internal library (ADR-013) — it carries no top-level
-param() block and is not dot-sourced standalone. Each test imports the Kanban
-module (which loads Config/GitHub/Plan and exports the functions) and then
-exercises the exact functions the orchestrator calls. This avoids duplicating
-logic into snippets that drift from the source.
+param() block and is not dot-sourced standalone. Each test group imports the
+Kanban module ONCE per pwsh spawn and exercises all scenarios for a given
+function family in that single process, cutting cold-start overhead from one
+import per assertion to one import per family (~6 total).
 """
 
 import shutil
@@ -61,241 +61,212 @@ def _import_prelude() -> str:
     )
 
 
+def _parse_cases(stdout: str) -> dict[str, str]:
+    """Extract tagged results from a batched pwsh script.
+
+    Supports two output forms written by the PowerShell script:
+    - ``__CASE__key=value`` — single-line scalar result.
+    - ``__BEGIN__key`` / ``__END__key`` — multi-line block; lines between the
+      markers are joined with newlines and stored under *key*.
+    """
+    cases: dict[str, str] = {}
+    current_key: str | None = None
+    current_lines: list[str] = []
+
+    for line in stdout.splitlines():
+        if current_key is not None:
+            if line == f"__END__{current_key}":
+                cases[current_key] = "\n".join(current_lines)
+                current_key = None
+                current_lines = []
+            else:
+                current_lines.append(line)
+        elif line.startswith("__CASE__"):
+            key, _, val = line[len("__CASE__") :].partition("=")
+            cases[key] = val
+        elif line.startswith("__BEGIN__"):
+            current_key = line[len("__BEGIN__") :]
+            current_lines = []
+
+    return cases
+
+
 # ── Get-PlanKeyTerms ──────────────────────────────────────────────────────────
 
 
-def test_key_terms_filters_stop_words() -> None:
-    """Stop words like `for`, `the`, `to` must NOT appear in the result."""
+def test_key_terms_batch() -> None:
+    """All four Get-PlanKeyTerms invariants exercised in one pwsh spawn."""
     script = (
         _import_prelude()
-        + "$kt = Get-PlanKeyTerms -Title 'Add a new feature for the API' -Top 5\n"
-        + "$kt -join ','\n"
+        + "$r1 = Get-PlanKeyTerms -Title 'Add a new feature for the API' -Top 5\n"
+        + "Write-Output \"__CASE__stop_words=$($r1 -join ',')\"\n"
+        + "$r2 = Get-PlanKeyTerms -Title 'AI ML API' -Top 5\n"
+        + "Write-Output \"__CASE__short_tokens=$($r2 -join ',')\"\n"
+        + "$r3 = Get-PlanKeyTerms -Title 'planning planning planning workflow workflow' -Top 5\n"
+        + "Write-Output \"__CASE__dedup=$($r3 -join ',')\"\n"
+        + "$r4 = Get-PlanKeyTerms -Title 'alpha beta gamma delta epsilon zeta eta theta' -Top 3\n"
+        + 'Write-Output "__CASE__top_cap=$($r4.Count)"\n'
     )
     result = _ps(script)
     assert result.returncode == 0, result.stderr
-    output = result.stdout.strip()
-    for stop_word in ("for", "the", "a"):
-        assert stop_word not in output.split(","), (
-            f"Stop word {stop_word!r} should have been filtered, got: {output}"
+    cases = _parse_cases(result.stdout)
+
+    # stop-word filter: for / the / a must not appear
+    tokens = [t for t in cases.get("stop_words", "").split(",") if t]
+    for stop in ("for", "the", "a"):
+        assert stop not in tokens, (
+            f"Stop word {stop!r} should have been filtered, got: {tokens}"
         )
 
-
-def test_key_terms_drops_short_tokens() -> None:
-    """Tokens shorter than 3 chars must be dropped (too noisy for search)."""
-    script = (
-        _import_prelude()
-        + "$kt = Get-PlanKeyTerms -Title 'AI ML API' -Top 5\n"
-        + "$kt -join ','\n"
-    )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    tokens = result.stdout.strip().split(",") if result.stdout.strip() else []
+    # short-token filter: every returned token must be ≥3 chars
+    tokens = [t for t in cases.get("short_tokens", "").split(",") if t]
     for t in tokens:
-        if not t:
-            continue
         assert len(t) >= 3, (
             f"Token {t!r} is shorter than 3 chars — must have been dropped"
         )
 
-
-def test_key_terms_deduplicates() -> None:
-    """Repeated tokens must appear at most once."""
-    script = (
-        _import_prelude()
-        + "$kt = Get-PlanKeyTerms -Title 'planning planning planning workflow workflow' -Top 5\n"
-        + "$kt -join ','\n"
-    )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    tokens = [t for t in result.stdout.strip().split(",") if t]
+    # deduplication: repeated inputs appear at most once
+    tokens = [t for t in cases.get("dedup", "").split(",") if t]
     assert tokens.count("planning") == 1, f"planning duplicated, got: {tokens}"
     assert tokens.count("workflow") == 1, f"workflow duplicated, got: {tokens}"
 
-
-def test_key_terms_respects_top() -> None:
-    """Caller-supplied Top must cap the result length."""
-    script = (
-        _import_prelude()
-        + "$kt = Get-PlanKeyTerms -Title 'alpha beta gamma delta epsilon zeta eta theta' -Top 3\n"
-        + "$kt.Count\n"
-    )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "3", (
-        f"Top=3 should yield 3 tokens, got: {result.stdout!r}"
+    # Top cap: result length must not exceed -Top
+    assert cases.get("top_cap", "").strip() == "3", (
+        f"Top=3 should yield 3 tokens, got: {cases.get('top_cap')!r}"
     )
 
 
 # ── Find-OutOfScopeOverlap ────────────────────────────────────────────────────
 
 
-def test_out_of_scope_overlap_finds_matching_heading(tmp_path: Path) -> None:
-    """A key term contained in a `## ` heading must be reported as overlap."""
-    oos = tmp_path / "out-of-scope.md"
-    oos.write_text(
-        "# Out of Scope\n\n## LangGraph orchestrator runtime\n\nText.\n\n## Some other thing\n\nText.\n",
+def test_out_of_scope_overlap_batch(tmp_path: Path) -> None:
+    """All four Find-OutOfScopeOverlap invariants exercised in one pwsh spawn."""
+    oos_found = tmp_path / "oos_found.md"
+    oos_found.write_text(
+        "# Out of Scope\n\n"
+        "## LangGraph orchestrator runtime\n\nText.\n\n"
+        "## Some other thing\n\nText.\n",
         encoding="utf-8",
     )
-    script = (
-        _import_prelude()
-        + f"$hits = Find-OutOfScopeOverlap -OutOfScopePath '{oos}' -KeyTerms @('langgraph')\n"
-        + "$hits -join '|'\n"
+    oos_no_match = tmp_path / "oos_no_match.md"
+    oos_no_match.write_text(
+        "# Out of Scope\n\n## FastAPI in the starter\n\nText.\n",
+        encoding="utf-8",
     )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    assert "LangGraph orchestrator runtime" in result.stdout, (
-        f"Expected matching heading, got: {result.stdout!r}"
+    oos_word_boundary = tmp_path / "oos_word_boundary.md"
+    oos_word_boundary.write_text(
+        "# Out of Scope\n\n## Planet exploration robotics\n\nText.\n",
+        encoding="utf-8",
     )
-
-
-def test_out_of_scope_overlap_no_match_returns_empty(tmp_path: Path) -> None:
-    """No overlap → empty result, NOT an error."""
-    oos = tmp_path / "out-of-scope.md"
-    oos.write_text(
-        "# Out of Scope\n\n## FastAPI in the starter\n\nText.\n", encoding="utf-8"
-    )
-    script = (
-        _import_prelude()
-        + f"$hits = Find-OutOfScopeOverlap -OutOfScopePath '{oos}' -KeyTerms @('streaming','tokens')\n"
-        + "if ($hits.Count -eq 0) { 'EMPTY' } else { $hits -join '|' }\n"
-    )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "EMPTY", f"Expected EMPTY, got: {result.stdout!r}"
-
-
-def test_out_of_scope_overlap_missing_file_returns_empty(tmp_path: Path) -> None:
-    """A missing `.out-of-scope.md` must not throw — it returns empty."""
     missing = tmp_path / "does-not-exist.md"
+
     script = (
         _import_prelude()
-        + f"$hits = Find-OutOfScopeOverlap -OutOfScopePath '{missing}' -KeyTerms @('anything')\n"
-        + "if ($hits.Count -eq 0) { 'EMPTY' } else { 'NON-EMPTY' }\n"
+        + f"$h1 = Find-OutOfScopeOverlap -OutOfScopePath '{oos_found}'"
+        + " -KeyTerms @('langgraph')\n"
+        + "Write-Output \"__CASE__found=$($h1 -join '|')\"\n"
+        + f"$h2 = Find-OutOfScopeOverlap -OutOfScopePath '{oos_no_match}'"
+        + " -KeyTerms @('streaming','tokens')\n"
+        + 'Write-Output "__CASE__no_match=$($h2.Count)"\n'
+        + f"$h3 = Find-OutOfScopeOverlap -OutOfScopePath '{missing}'"
+        + " -KeyTerms @('anything')\n"
+        + 'Write-Output "__CASE__missing=$($h3.Count)"\n'
+        + f"$h4 = Find-OutOfScopeOverlap -OutOfScopePath '{oos_word_boundary}'"
+        + " -KeyTerms @('plan')\n"
+        + 'Write-Output "__CASE__word_boundary=$($h4.Count)"\n'
     )
     result = _ps(script)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "EMPTY", (
-        f"Expected EMPTY for missing file, got: {result.stdout!r}"
-    )
+    cases = _parse_cases(result.stdout)
 
-
-def test_out_of_scope_overlap_word_boundary(tmp_path: Path) -> None:
-    """`plan` must NOT match `planet` — overlap uses word boundaries."""
-    oos = tmp_path / "out-of-scope.md"
-    oos.write_text(
-        "# Out of Scope\n\n## Planet exploration robotics\n\nText.\n", encoding="utf-8"
+    # matching heading must be returned
+    assert "LangGraph orchestrator runtime" in cases.get("found", ""), (
+        f"Expected matching heading, got: {cases.get('found')!r}"
     )
-    script = (
-        _import_prelude()
-        + f"$hits = Find-OutOfScopeOverlap -OutOfScopePath '{oos}' -KeyTerms @('plan')\n"
-        + "if ($hits.Count -eq 0) { 'EMPTY' } else { $hits -join '|' }\n"
+    # no overlap → empty result, NOT an error
+    assert cases.get("no_match", "1").strip() == "0", (
+        f"Expected empty result, got count: {cases.get('no_match')!r}"
     )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "EMPTY", (
-        f"`plan` should not match `planet` due to word boundary, got: {result.stdout!r}"
+    # missing file → empty, NOT a throw
+    assert cases.get("missing", "1").strip() == "0", (
+        f"Missing file must return empty, got count: {cases.get('missing')!r}"
+    )
+    # `plan` must NOT match `planet` — word boundary enforcement
+    assert cases.get("word_boundary", "1").strip() == "0", (
+        f"`plan` should not match `planet` due to word boundary, "
+        f"got count: {cases.get('word_boundary')!r}"
     )
 
 
 # ── Test-NarrowBlast ──────────────────────────────────────────────────────────
 
 
-def test_narrow_blast_recognises_at_risk_none() -> None:
-    """`**At-risk:** none` must read as narrow."""
+def test_narrow_blast_batch() -> None:
+    """All four Test-NarrowBlast invariants exercised in one pwsh spawn."""
     script = (
         _import_prelude()
-        + '$txt = "## Blast-Radius Report`n`n**At-risk:** none`n**Safe:** all"\n'
-        + "Test-NarrowBlast -BlastText $txt\n"
-    )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "True", (
-        f"Expected True for at-risk none, got: {result.stdout!r}"
-    )
-
-
-def test_narrow_blast_recognises_recommendation_proceed() -> None:
-    """`**Recommendation:** proceed` must read as narrow."""
-    script = (
-        _import_prelude()
-        + '$txt = "## Blast-Radius Report`n`n**Recommendation:** proceed"\n'
-        + "Test-NarrowBlast -BlastText $txt\n"
-    )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "True", (
-        f"Expected True for Recommendation=proceed, got: {result.stdout!r}"
-    )
-
-
-def test_narrow_blast_rejects_at_risk_listing() -> None:
-    """An at-risk listing with a `refactor first` recommendation reads as wide."""
-    script = (
-        _import_prelude()
-        + '$txt = "## Blast-Radius Report`n`n**At-risk:** main (fan-in=8)`n'
+        + '$t1 = "## Blast-Radius Report`n`n**At-risk:** none`n**Safe:** all"\n'
+        + 'Write-Output "__CASE__at_risk_none=$(Test-NarrowBlast -BlastText $t1)"\n'
+        + '$t2 = "## Blast-Radius Report`n`n**Recommendation:** proceed"\n'
+        + 'Write-Output "__CASE__rec_proceed=$(Test-NarrowBlast -BlastText $t2)"\n'
+        + '$t3 = "## Blast-Radius Report`n`n**At-risk:** main (fan-in=8)`n'
         + '**Recommendation:** refactor first — high fan-in modules detected"\n'
-        + "Test-NarrowBlast -BlastText $txt\n"
+        + 'Write-Output "__CASE__at_risk_listing=$(Test-NarrowBlast -BlastText $t3)"\n'
+        + "Write-Output \"__CASE__empty_blast=$(Test-NarrowBlast -BlastText '')\"\n"
     )
     result = _ps(script)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "False", (
-        f"Expected False for at-risk listing, got: {result.stdout!r}"
+    cases = _parse_cases(result.stdout)
+
+    assert cases.get("at_risk_none", "").strip() == "True", (
+        f"Expected True for at-risk none, got: {cases.get('at_risk_none')!r}"
     )
-
-
-def test_narrow_blast_missing_report_is_narrow() -> None:
-    """An absent blast-radius report → narrow (no signal of widespread risk)."""
-    script = _import_prelude() + "Test-NarrowBlast -BlastText ''\n"
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "True", (
-        f"Expected True for missing report, got: {result.stdout!r}"
+    assert cases.get("rec_proceed", "").strip() == "True", (
+        f"Expected True for Recommendation=proceed, got: {cases.get('rec_proceed')!r}"
+    )
+    assert cases.get("at_risk_listing", "").strip() == "False", (
+        f"Expected False for at-risk listing, got: {cases.get('at_risk_listing')!r}"
+    )
+    assert cases.get("empty_blast", "").strip() == "True", (
+        f"Expected True for missing report, got: {cases.get('empty_blast')!r}"
     )
 
 
 # ── Get-PlanLabel ─────────────────────────────────────────────────────────────
 
 
-def test_get_plan_label_narrow_zero_open_is_afk() -> None:
+def test_get_plan_label_batch() -> None:
+    """All four Get-PlanLabel invariants exercised in one pwsh spawn."""
     script = (
-        _import_prelude() + "Get-PlanLabel -NarrowBlast $true -OpenQuestionCount 0\n"
+        _import_prelude()
+        + 'Write-Output "__CASE__narrow_zero='
+        + '$(Get-PlanLabel -NarrowBlast $true -OpenQuestionCount 0)"\n'
+        + 'Write-Output "__CASE__narrow_open='
+        + '$(Get-PlanLabel -NarrowBlast $true -OpenQuestionCount 2)"\n'
+        + 'Write-Output "__CASE__wide_zero='
+        + '$(Get-PlanLabel -NarrowBlast $false -OpenQuestionCount 0)"\n'
+        + 'Write-Output "__CASE__wide_open='
+        + '$(Get-PlanLabel -NarrowBlast $false -OpenQuestionCount 5)"\n'
     )
     result = _ps(script)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "AFK"
+    cases = _parse_cases(result.stdout)
 
-
-def test_get_plan_label_narrow_with_open_questions_is_hitl() -> None:
-    """Open questions force HITL even when the blast is narrow."""
-    script = (
-        _import_prelude() + "Get-PlanLabel -NarrowBlast $true -OpenQuestionCount 2\n"
+    assert cases.get("narrow_zero", "").strip() == "AFK", (
+        f"narrow blast + zero open questions should be AFK, "
+        f"got: {cases.get('narrow_zero')!r}"
     )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "HITL", (
-        f"Expected HITL when open questions > 0, got: {result.stdout!r}"
+    assert cases.get("narrow_open", "").strip() == "HITL", (
+        f"Open questions force HITL even when blast is narrow, "
+        f"got: {cases.get('narrow_open')!r}"
     )
-
-
-def test_get_plan_label_wide_blast_is_hitl() -> None:
-    """Wide blast forces HITL even with zero open questions."""
-    script = (
-        _import_prelude() + "Get-PlanLabel -NarrowBlast $false -OpenQuestionCount 0\n"
+    assert cases.get("wide_zero", "").strip() == "HITL", (
+        f"Wide blast forces HITL even with zero open questions, "
+        f"got: {cases.get('wide_zero')!r}"
     )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "HITL", (
-        f"Expected HITL for wide blast, got: {result.stdout!r}"
+    assert cases.get("wide_open", "").strip() == "HITL", (
+        f"Wide blast + open questions should be HITL, got: {cases.get('wide_open')!r}"
     )
-
-
-def test_get_plan_label_wide_with_open_questions_is_hitl() -> None:
-    script = (
-        _import_prelude() + "Get-PlanLabel -NarrowBlast $false -OpenQuestionCount 5\n"
-    )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "HITL"
 
 
 # ── Format-ChildIssue ────────────────────────────────────────────────────────
@@ -304,77 +275,82 @@ def test_get_plan_label_wide_with_open_questions_is_hitl() -> None:
 # followed by **Goal**/**Description**/**Requirements**/**Acceptance Criteria**).
 
 
-def test_format_child_issue_header_fields_appear_first() -> None:
-    """LABELS / ESTIMATE / PRIORITY must come before **Goal** so sync-issues.ps1
-    parses them as header fields, not body content."""
+def test_format_child_issue_batch() -> None:
+    """All four Format-ChildIssue invariants exercised in one pwsh spawn."""
     script = (
         _import_prelude()
-        + "$body = Format-ChildIssue -Label 'AFK' -Estimate 2 -Priority 'P3' "
+        # Scenario 1: LABELS / ESTIMATE / PRIORITY must precede **Goal**
+        + "$b1 = Format-ChildIssue -Label 'AFK' -Estimate 2 -Priority 'P3' "
         + "-Goal 'Goal text' -Description 'Description text' "
         + "-Requirements @('r1','r2') -AcceptanceCriteria @('a1','a2')\n"
-        + "$body\n"
-    )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    body = result.stdout
-    labels_idx = body.find("LABELS: AFK")
-    estimate_idx = body.find("ESTIMATE: 2")
-    priority_idx = body.find("PRIORITY: P3")
-    goal_idx = body.find("**Goal**")
-    assert 0 <= labels_idx < goal_idx, "LABELS must precede **Goal**"
-    assert 0 <= estimate_idx < goal_idx, "ESTIMATE must precede **Goal**"
-    assert 0 <= priority_idx < goal_idx, "PRIORITY must precede **Goal**"
-
-
-def test_format_child_issue_numbers_requirements() -> None:
-    """Requirements must be numbered starting at 1."""
-    script = (
-        _import_prelude()
-        + "$body = Format-ChildIssue -Label 'AFK' -Goal 'g' -Description 'd' "
+        + '$b1s = $b1 -join "`n"\n'
+        + "Write-Output \"__CASE__labels_idx=$($b1s.IndexOf('LABELS: AFK'))\"\n"
+        + "Write-Output \"__CASE__estimate_idx=$($b1s.IndexOf('ESTIMATE: 2'))\"\n"
+        + "Write-Output \"__CASE__priority_idx=$($b1s.IndexOf('PRIORITY: P3'))\"\n"
+        + "Write-Output \"__CASE__goal_idx=$($b1s.IndexOf('**Goal**'))\"\n"
+        # Scenario 2: requirements must be numbered starting at 1
+        + "$b2 = Format-ChildIssue -Label 'AFK' -Goal 'g' -Description 'd' "
         + "-Requirements @('alpha','beta','gamma') -AcceptanceCriteria @()\n"
-        + "$body\n"
-    )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    body = result.stdout
-    assert "1. alpha" in body, body
-    assert "2. beta" in body, body
-    assert "3. gamma" in body, body
-
-
-def test_format_child_issue_uses_checkboxes_for_acceptance() -> None:
-    """Acceptance criteria render as `- [ ]` checkboxes."""
-    script = (
-        _import_prelude()
-        + "$body = Format-ChildIssue -Label 'AFK' -Goal 'g' -Description 'd' "
+        + '$b2s = $b2 -join "`n"\n'
+        + "Write-Output \"__CASE__req_1=$(($b2s -match '1\\. alpha'))\"\n"
+        + "Write-Output \"__CASE__req_2=$(($b2s -match '2\\. beta'))\"\n"
+        + "Write-Output \"__CASE__req_3=$(($b2s -match '3\\. gamma'))\"\n"
+        # Scenario 3: acceptance criteria render as `- [ ]` checkboxes
+        + "$b3 = Format-ChildIssue -Label 'AFK' -Goal 'g' -Description 'd' "
         + "-Requirements @() -AcceptanceCriteria @('CI passes','tests green')\n"
-        + "$body\n"
+        + '$b3s = $b3 -join "`n"\n'
+        + "Write-Output \"__CASE__ckbox_ci=$(($b3s -match '- \\[ \\] CI passes'))\"\n"
+        + "Write-Output \"__CASE__ckbox_green=$(($b3s -match '- \\[ \\] tests green'))\"\n"
+        # Scenario 4: Estimate=0 means not set — ESTIMATE: line must not appear
+        + "$b4 = Format-ChildIssue -Label 'HITL' -Estimate 0 -Goal 'g' "
+        + "-Description 'd' -Requirements @() -AcceptanceCriteria @()\n"
+        + '$b4s = $b4 -join "`n"\n'
+        + "Write-Output \"__CASE__no_estimate=$(($b4s -match 'ESTIMATE:'))\"\n"
     )
     result = _ps(script)
     assert result.returncode == 0, result.stderr
-    body = result.stdout
-    assert "- [ ] CI passes" in body, body
-    assert "- [ ] tests green" in body, body
+    cases = _parse_cases(result.stdout)
 
-
-def test_format_child_issue_omits_estimate_when_zero() -> None:
-    """Estimate=0 means `not set` — the line must NOT appear."""
-    script = (
-        _import_prelude()
-        + "$body = Format-ChildIssue -Label 'HITL' -Estimate 0 -Goal 'g' -Description 'd' "
-        + "-Requirements @() -AcceptanceCriteria @()\n"
-        + "$body\n"
+    # header ordering
+    labels_idx = int(cases.get("labels_idx", "-1"))
+    estimate_idx = int(cases.get("estimate_idx", "-1"))
+    priority_idx = int(cases.get("priority_idx", "-1"))
+    goal_idx = int(cases.get("goal_idx", "-1"))
+    assert 0 <= labels_idx < goal_idx, (
+        f"LABELS must precede **Goal** (labels={labels_idx}, goal={goal_idx})"
     )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    assert "ESTIMATE:" not in result.stdout, "Estimate=0 must not emit ESTIMATE: line"
+    assert 0 <= estimate_idx < goal_idx, (
+        f"ESTIMATE must precede **Goal** (estimate={estimate_idx}, goal={goal_idx})"
+    )
+    assert 0 <= priority_idx < goal_idx, (
+        f"PRIORITY must precede **Goal** (priority={priority_idx}, goal={goal_idx})"
+    )
+
+    # numbered requirements
+    assert cases.get("req_1", "").strip() == "True", "requirement '1. alpha' missing"
+    assert cases.get("req_2", "").strip() == "True", "requirement '2. beta' missing"
+    assert cases.get("req_3", "").strip() == "True", "requirement '3. gamma' missing"
+
+    # checkboxes
+    assert cases.get("ckbox_ci", "").strip() == "True", (
+        "Acceptance criterion '- [ ] CI passes' missing"
+    )
+    assert cases.get("ckbox_green", "").strip() == "True", (
+        "Acceptance criterion '- [ ] tests green' missing"
+    )
+
+    # no ESTIMATE line when Estimate=0
+    assert cases.get("no_estimate", "").strip() == "False", (
+        "Estimate=0 must not emit ESTIMATE: line"
+    )
 
 
-# ── PRD section ──────────────────────────────────────────────────────────────
+# ── Format-PRDSection ────────────────────────────────────────────────────────
 
 
-def test_format_prd_section_contains_required_headings() -> None:
-    """All six Lean PRD sections from plan/SKILL.md must appear in the output."""
+def test_format_prd_section_batch() -> None:
+    """Both Format-PRDSection invariants (required headings + AGENT-PRD markers)
+    exercised in one pwsh spawn."""
     script = (
         _import_prelude()
         + "$prd = [pscustomobject]@{\n"
@@ -385,11 +361,16 @@ def test_format_prd_section_contains_required_headings() -> None:
         + "    testing_decisions = @('unit on module M')\n"
         + "    out_of_scope      = @('multi-tenant — deferred because Y')\n"
         + "}\n"
+        + "Write-Output '__BEGIN__prd'\n"
         + "Format-PRDSection -Prd $prd\n"
+        + "Write-Output '__END__prd'\n"
     )
     result = _ps(script)
     assert result.returncode == 0, result.stderr
-    body = result.stdout
+    cases = _parse_cases(result.stdout)
+    body = cases.get("prd", "")
+
+    # all six Lean PRD sections from plan/SKILL.md must appear
     for heading in (
         "**Problem Statement**",
         "**User Stories**",
@@ -400,19 +381,6 @@ def test_format_prd_section_contains_required_headings() -> None:
     ):
         assert heading in body, f"PRD section missing heading {heading!r}"
 
-
-def test_format_prd_section_uses_agent_prd_markers() -> None:
-    """Body section must be bounded by AGENT-PRD markers so it is regex-
-    replaceable independently of AGENT-STATE / AGENT-BRIEF blocks."""
-    script = (
-        _import_prelude()
-        + "$prd = [pscustomobject]@{ problem_statement='X.'; user_stories=@(); "
-        + "tracer_bullet='T'; implementation_decisions=@(); testing_decisions=@(); "
-        + "out_of_scope=@() }\n"
-        + "Format-PRDSection -Prd $prd\n"
-    )
-    result = _ps(script)
-    assert result.returncode == 0, result.stderr
-    body = result.stdout
-    assert "<!-- AGENT-PRD:BEGIN -->" in body
-    assert "<!-- AGENT-PRD:END -->" in body
+    # body must be bounded by AGENT-PRD markers for regex-replaceable updates
+    assert "<!-- AGENT-PRD:BEGIN -->" in body, "Missing AGENT-PRD:BEGIN marker"
+    assert "<!-- AGENT-PRD:END -->" in body, "Missing AGENT-PRD:END marker"
