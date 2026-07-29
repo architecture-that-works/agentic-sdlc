@@ -1,13 +1,15 @@
-"""Tests for the metadata-header stripping logic in .github/scripts/sync-issues.ps1.
+"""Tests for .github/scripts/tasks/sync-issues.ps1.
 
-Two layers of coverage:
+Layers of coverage:
 
-1. Oracle snippet tests — replicate the strip logic as a PS function and verify
-   it correctly removes LABELS:, ESTIMATE:, and PRIORITY: lines in all positions.
+1. Oracle snippet tests — replicate a piece of the script's logic as a PS
+   function and verify its behaviour (metadata-header stripping; sentinel
+   resolution).
 
-2. File-based checks — verify that sync-issues.ps1 uses -replace (regex) to
-   strip headers, not just Select-Object -Skip (which only handles consecutive
-   headers at the top of the body).
+2. File-based checks — assert the script implements the expected patterns:
+   regex -replace header stripping (not Select-Object -Skip), a line-anchored
+   sentinel match (not a bare IndexOf), and a three-levels-up repo-root path
+   (the script lives in .github/scripts/tasks/).
 """
 
 import shutil
@@ -185,4 +187,60 @@ def test_script_strips_priority_with_regex_replace() -> None:
     content = SCRIPT.read_text(encoding="utf-8")
     assert "(?m)^PRIORITY:" in content, (
         "sync-issues.ps1 must use -replace '(?m)^PRIORITY:...' to strip PRIORITY headers"
+    )
+
+
+# ── Sentinel resolution ───────────────────────────────────────────────────────
+# The <!-- ISSUES --> sentinel divides header docs (above) from syncable blocks
+# (below). The header docs themselves mention the marker in prose/backticks, so
+# the divider must be matched on its OWN LINE — a bare IndexOf splits on the
+# first (prose) mention and parses the documentation as an ISSUE block.
+
+_SENTINEL_SNIPPET = r"""
+function Get-ParseContent([string]$Content) {
+    $m = [regex]::Match($Content, '(?m)^<!-- ISSUES -->\s*$')
+    if ($m.Success) { return $Content.Substring($m.Index) } else { return $Content }
+}
+"""
+
+
+def test_sentinel_ignores_inline_mention_above_real_divider() -> None:
+    """A <!-- ISSUES --> mentioned inline in the docs must not be treated as the
+    divider — only content below the marker on its own line is parsed."""
+    result = _ps(
+        _SENTINEL_SNIPPET
+        + r"""
+$content = "Docs mention the <!-- ISSUES --> sentinel inline.`nISSUE: doc-example END_ISSUE`n`n<!-- ISSUES -->`n`nISSUE: RealItem`n**Goal**: keep`nEND_ISSUE"
+$parse = Get-ParseContent $content
+if (($parse -match 'RealItem') -and ($parse -notmatch 'doc-example')) { exit 0 } else {
+    Write-Host "Got: $parse"; exit 1
+}
+"""
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_script_matches_sentinel_on_its_own_line() -> None:
+    """sync-issues.ps1 must anchor the sentinel to its own line, not use a bare
+    IndexOf that matches the prose mention in the header docs."""
+    content = SCRIPT.read_text(encoding="utf-8")
+    assert "(?m)^<!-- ISSUES -->" in content, (
+        "sync-issues.ps1 must match the sentinel line-anchored ((?m)^<!-- ISSUES -->)"
+    )
+    assert ".IndexOf('<!-- ISSUES -->')" not in content, (
+        "bare IndexOf('<!-- ISSUES -->') matches the first (prose) occurrence above "
+        "the real divider — use the line-anchored regex instead"
+    )
+
+
+# ── Repo-root resolution ──────────────────────────────────────────────────────
+
+
+def test_root_resolves_three_levels_up_from_tasks_dir() -> None:
+    """sync-issues.ps1 lives in .github/scripts/tasks/, so $_Root must climb
+    three levels to the repo root — two only reaches .github/ and ISSUES.md/.env
+    are not found there."""
+    content = SCRIPT.read_text(encoding="utf-8")
+    assert r"$PSScriptRoot\..\..\.." in content, (
+        r"$_Root must be $PSScriptRoot\..\..\.. (three levels up to the repo root)"
     )

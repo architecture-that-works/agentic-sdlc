@@ -1,5 +1,5 @@
 #Requires -Version 7.0
-# .github/scripts/sync-issues.ps1
+# .github/scripts/tasks/sync-issues.ps1
 # Parses ISSUES.md ISSUE blocks → GitHub Issues + GitHub Project board.
 #
 # For each ISSUE: <title> ... END_ISSUE block below <!-- ISSUES -->:
@@ -19,7 +19,8 @@ $ErrorActionPreference = 'Stop'
 
 # ── Load .env ─────────────────────────────────────────────────────────────────
 
-$_Root    = "$PSScriptRoot\..\.."
+# tasks/ is three levels below the repo root (.github/scripts/tasks/).
+$_Root    = "$PSScriptRoot\..\..\.."
 $_EnvPath = "$_Root\.env"
 
 if (Test-Path $_EnvPath) {
@@ -70,9 +71,13 @@ if (-not $ProjectName) { $ProjectName = if ($ProjectNumber -gt 0) { "#$ProjectNu
 
 $Content = Get-Content $IssuesPath -Raw
 
-# Only parse content below the <!-- ISSUES --> sentinel
-$SentinelIndex = $Content.IndexOf('<!-- ISSUES -->')
-$ParseContent  = if ($SentinelIndex -ge 0) { $Content.Substring($SentinelIndex) } else { $Content }
+# Only parse content below the <!-- ISSUES --> sentinel. Match it on its OWN LINE
+# so a prose/backtick mention of the marker in the header docs above (e.g.
+# "promote an item to a block below the `<!-- ISSUES -->` sentinel") is never
+# mistaken for the real divider — IndexOf would otherwise split on that mention
+# and parse the documentation as an ISSUE block.
+$SentinelMatch = [regex]::Match($Content, '(?m)^<!-- ISSUES -->\s*$')
+$ParseContent  = if ($SentinelMatch.Success) { $Content.Substring($SentinelMatch.Index) } else { $Content }
 
 $IssueRegex = '(?s)ISSUE:\s*(.*?)\r?\n(.*?)\r?\nEND_ISSUE'
 $Found      = [regex]::Matches($ParseContent, $IssueRegex)

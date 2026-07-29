@@ -19,7 +19,8 @@
 
 $ErrorActionPreference = 'Stop'
 
-$_Root    = "$PSScriptRoot\..\.."
+# tasks/ is three levels below the repo root (.github/scripts/tasks/).
+$_Root    = "$PSScriptRoot\..\..\.."
 $_EnvPath = "$_Root\.env"
 
 # ── Load .env ─────────────────────────────────────────────────────────────────
