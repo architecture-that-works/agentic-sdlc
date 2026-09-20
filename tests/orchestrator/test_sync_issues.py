@@ -18,13 +18,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = (
-    Path(__file__).parent.parent.parent
-    / ".github"
-    / "scripts"
-    / "tasks"
-    / "sync-issues.ps1"
-)
+SCRIPT = Path(__file__).parent.parent.parent / ".github" / "tasks" / "sync.ps1"
 PWSH = shutil.which("pwsh") or "pwsh"
 
 pytestmark = pytest.mark.skipif(
@@ -236,11 +230,10 @@ def test_script_matches_sentinel_on_its_own_line() -> None:
 # ── Repo-root resolution ──────────────────────────────────────────────────────
 
 
-def test_root_resolves_three_levels_up_from_tasks_dir() -> None:
-    """sync-issues.ps1 lives in .github/scripts/tasks/, so $_Root must climb
-    three levels to the repo root — two only reaches .github/ and ISSUES.md/.env
-    are not found there."""
+def test_root_resolves_two_levels_up_from_tasks_dir() -> None:
+    """sync.ps1 lives in .github/tasks/, so $_Root must climb
+    two levels to the repo root."""
     content = SCRIPT.read_text(encoding="utf-8")
-    assert r"$PSScriptRoot\..\..\.." in content, (
-        r"$_Root must be $PSScriptRoot\..\..\.. (three levels up to the repo root)"
+    assert r"$PSScriptRoot\..\.." in content, (
+        r"$_Root must be $PSScriptRoot\..\.. (two levels up to the repo root)"
     )

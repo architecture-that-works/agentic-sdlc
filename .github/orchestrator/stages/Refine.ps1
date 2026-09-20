@@ -184,14 +184,14 @@ Return ONLY valid JSON — no markdown fences, no explanation:
             $decided = @($grillResult.decided_questions)
             Set-PlanningQuestions -IssueNumber $Number -Open $open -Decided $decided
 
-            $hitlCount = 0
+            $decisionCount = 0
             foreach ($q in $open) {
-                $url = New-HitlChildIssue -ParentNumber $Number -ParentTitle $refreshed.title -Question $q
-                if ($url) { $hitlCount++ }
+                $url = New-DecisionChildIssue -ParentNumber $Number -ParentTitle $refreshed.title -Question $q
+                if ($url) { $decisionCount++ }
             }
-            if ($hitlCount -gt 0) {
-                $changes += "HITL children=$hitlCount"
-                Add-Comment -Number $Number -Body "· self-grill — $hitlCount HITL child issue(s) emitted; resolve before backlog entry"
+            if ($decisionCount -gt 0) {
+                $changes += "human:decision children=$decisionCount"
+                Add-Comment -Number $Number -Body "· self-grill — $decisionCount human:decision child issue(s) emitted; resolve before backlog entry"
             } else {
                 $changes += 'agent-brief written, open_questions=0'
             }

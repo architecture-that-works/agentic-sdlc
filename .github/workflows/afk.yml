@@ -1,17 +1,14 @@
-name: Orchestrator
+name: AFK
 
-# AFK pipeline: process aligned (agent:backlog) issues → implement → review → merge.
+# AFK pipeline: Refine → Architect → Plan → Implement → Review → Ship.
 # Requires secrets: GH_TOKEN (classic PAT, project scope), CLAUDE_CODE_OAUTH_TOKEN.
 #
-# Processing is HUMAN-TRIGGERED, never automatic on labelling: alignment (align.yml)
-# grants agent:backlog, then YOU start the drain via `task runner` (workflow_dispatch)
-# or `task start` (local HITL). Granting agent:backlog does NOT start implementation.
-#
 # Trigger summary:
-#   workflow_dispatch (stage=implement) → drain the agent:backlog queue (task runner)
-#   workflow_dispatch (stage=merge)     → merge one approved PR
-#   agent:reviewing label                  → merge job (resilient handoff for the
-#                                         review→merge step within a run)
+#   issue opened (not HITL, not agent:backlog) → refine
+#   workflow_dispatch (stage=refine)           → refine one issue manually
+#   workflow_dispatch (stage=implement)        → drain the agent:backlog queue (task runner)
+#   workflow_dispatch (stage=ship)             → ship one approved PR manually
+#   agent:reviewing label                      → ship job (resilient handoff for review→ship)
 #
 # Queue behaviour:
 #   The implement job uses a concurrency group so only one run executes at a time.
@@ -20,11 +17,11 @@ name: Orchestrator
 
 on:
   issues:
-    types: [labeled]
+    types: [opened, labeled]
   workflow_dispatch:
     inputs:
       issue_number:
-        description: Issue number to process (0 or empty = auto-pick oldest agent:backlog)
+        description: Issue number to process (0 or empty = auto-pick oldest agent:backlog for implement)
         required: false
         default: '0'
         type: string
@@ -32,7 +29,7 @@ on:
         description: Pipeline stage to run
         required: true
         type: choice
-        options: [implement, merge]
+        options: [refine, implement, ship]
 
 permissions:
   contents: write
@@ -45,20 +42,71 @@ env:
 
 jobs:
 
-  # ── Implement (full pipeline: implement → review loop → merge) ───────────────
+  # ── Refine (refine → architect → plan → grant agent:backlog) ─────────────────
+  refine:
+    name: Refine issue
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.stage == 'refine') ||
+      (github.event_name == 'issues' && github.event.action == 'opened' &&
+       !contains(github.event.issue.labels.*.name, 'human:decision') &&
+       !contains(github.event.issue.labels.*.name, 'agent:backlog'))
+    runs-on: ${{ vars.KANBAN_RUNNER_PROFILE == 'self-hosted' && fromJSON('["self-hosted","gha-project"]') || 'ubuntu-latest' }}
+    concurrency:
+      group: refine-${{ github.event.issue.number || inputs.issue_number }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      KANBAN_ENGINE: ${{ vars.KANBAN_ENGINE || 'claude' }}
+      GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
+      KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
+      KANBAN_PROJECT_ID: ${{ vars.KANBAN_PROJECT_ID }}
+      KANBAN_STATUS_FIELD_ID: ${{ vars.KANBAN_STATUS_FIELD_ID }}
+      KANBAN_OPT_BACKLOG: ${{ vars.KANBAN_OPT_BACKLOG }}
+      KANBAN_OPT_IMPLEMENTING: ${{ vars.KANBAN_OPT_IMPLEMENTING }}
+      KANBAN_OPT_REVIEW: ${{ vars.KANBAN_OPT_REVIEW }}
+      KANBAN_OPT_MERGED: ${{ vars.KANBAN_OPT_MERGED }}
+      KANBAN_ESTIMATE_FIELD_ID: ${{ vars.KANBAN_ESTIMATE_FIELD_ID }}
+      KANBAN_PRIORITY_FIELD_ID: ${{ vars.KANBAN_PRIORITY_FIELD_ID }}
+      KANBAN_PRIORITY_OPT_P0: ${{ vars.KANBAN_PRIORITY_OPT_P0 }}
+      KANBAN_PRIORITY_OPT_P1: ${{ vars.KANBAN_PRIORITY_OPT_P1 }}
+      KANBAN_PRIORITY_OPT_P2: ${{ vars.KANBAN_PRIORITY_OPT_P2 }}
+      KANBAN_PRIORITY_OPT_P3: ${{ vars.KANBAN_PRIORITY_OPT_P3 }}
+      KANBAN_PRIORITY_OPT_P4: ${{ vars.KANBAN_PRIORITY_OPT_P4 }}
+      KANBAN_ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Install tooling (hosted runner)
+        if: vars.KANBAN_RUNNER_PROFILE != 'self-hosted'
+        shell: bash
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          sudo npm install -g @anthropic-ai/claude-code
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Refine (refine → architect → plan → grant agent:backlog when ready)
+        shell: pwsh
+        run: |
+          Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
+          $ctx = Get-OrchestratorContext
+          if ($ctx.IssueNumber -le 0) {
+            throw "KANBAN_ISSUE='$($ctx.IssueNumber)' did not resolve to a positive issue number — refusing to align #0."
+          }
+          Invoke-Orchestration -From refine -IssueNumber $ctx.IssueNumber
+
+  # ── Implement (full pipeline: implement → review loop → ship) ────────────────
   implement:
     name: Implement
-    # Human-triggered only (task runner / manual dispatch). Alignment grants
-    # agent:backlog; it does not auto-start processing — see the header.
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.stage == 'implement'
-    # Runner profile controlled by KANBAN_RUNNER_PROFILE variable (set by `task setup`):
-    #   hosted (default) — ubuntu-latest; uv + claude CLI installed at runtime via CLAUDE_CODE_OAUTH_TOKEN.
-    #   self-hosted       — developer's machine; uv, claude, git, and auth are pre-installed.
     runs-on: ${{ vars.KANBAN_RUNNER_PROFILE == 'self-hosted' && fromJSON('["self-hosted","gha-project"]') || 'ubuntu-latest' }}
-    # Serialize all pipeline runs — only one executes at a time; the next queues.
-    # cancel-in-progress: false ensures a queued run waits rather than being cancelled.
     concurrency:
       group: implement-pipeline
       cancel-in-progress: false
@@ -66,9 +114,6 @@ jobs:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       KANBAN_ENGINE: ${{ vars.KANBAN_ENGINE || 'claude' }}
-      # Default branch from the event payload — lets Config.ps1 resolve it with
-      # zero API cost (no `gh repo view`, which is GraphQL-bound). See memory
-      # project_graphql_budget.
       GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
       KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
@@ -129,20 +174,13 @@ jobs:
             "issue_number=$issue" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
           }
 
-      - name: Run full pipeline (refine → architecture → implement → review → merge)
+      - name: Run full pipeline (implement → review loop → ship)
         if: steps.resolve.outputs.issue_number != ''
         shell: pwsh
         env:
-          # Run parameters travel as env — the only transport stable across the
-          # module import and nested pwsh (see ADR-013). Get-OrchestratorContext reads
-          # them; the fail-loud guard below means the pipeline can never silently
-          # run against #0 (the earlier failure mode).
           KANBAN_ISSUE: ${{ steps.resolve.outputs.issue_number }}
           KANBAN_MAX_RETRIES: '3'
         run: |
-          # The Kanban library (Import-Module) runs the full pipeline:
-          #   refine → architecture → develop → PR → review loop → merge.
-          # Absolute path: Import-Module treats a bare relative path as a module NAME.
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           $ctx = Get-OrchestratorContext
           if ($ctx.IssueNumber -le 0) {
@@ -156,9 +194,6 @@ jobs:
         env:
           RESOLVED_ISSUE: ${{ steps.resolve.outputs.issue_number }}
         run: |
-          # Loop guard: if the issue we just resolved is STILL agent:backlog, the
-          # pipeline made no progress (e.g. it errored before claiming the issue).
-          # Re-dispatching would re-pick the same issue forever — halt loudly instead.
           $stillBacklog = gh issue view $env:RESOLVED_ISSUE --repo $env:GITHUB_REPOSITORY `
             --json labels --jq '[.labels[].name] | contains(["agent:backlog"])' 2>$null
           if ($stillBacklog -eq 'true') {
@@ -171,9 +206,7 @@ jobs:
           $remaining = if ($remaining) { [int]$remaining.Trim() } else { 0 }
           if ($remaining -gt 0) {
             Write-Output "$remaining remaining agent:backlog issue(s) — dispatching next drain run."
-            # Re-dispatch on the SAME ref so a branch-run drains entirely on that
-            # branch's code (defaults to the default branch for a normal main run).
-            gh workflow run orchestrator.yml `
+            gh workflow run afk.yml `
               --repo $env:GITHUB_REPOSITORY `
               --ref "$env:GITHUB_REF_NAME" `
               --field stage=implement `
@@ -182,17 +215,15 @@ jobs:
             Write-Output "Backlog fully drained."
           }
 
-  # ── Merge (approved PR) — reuses the Kanban library's Invoke-Ship ───────────
-  merge:
-    name: Merge approved PR and update CONTEXT.md
+  # ── Ship (approved PR) — reuses the Kanban library's Invoke-Ship ────────────
+  ship:
+    name: Ship approved PR and update CONTEXT.md
     if: >-
-      (github.event_name == 'issues' &&
+      (github.event_name == 'issues' && github.event.action == 'labeled' &&
        github.event.label.name == 'agent:reviewing') ||
       (github.event_name == 'workflow_dispatch' &&
-       inputs.stage == 'merge')
+       inputs.stage == 'ship')
     runs-on: ubuntu-latest
-    # Same concurrency group as implement: if the pipeline is still running it has
-    # already merged, and the already-merged guard below makes this job a no-op.
     concurrency:
       group: implement-pipeline
       cancel-in-progress: false
@@ -201,7 +232,6 @@ jobs:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
-      # Invoke-Ship → Set-AgentState/Move-ToLane needs the board vars (as env).
       KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
       KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
       KANBAN_PROJECT_ID: ${{ vars.KANBAN_PROJECT_ID }}
@@ -221,43 +251,27 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Claude is only needed for Invoke-ContextUpdate; install it only when a
-          # token is present (forks without it skip the CONTEXT.md update cleanly).
           if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
             sudo npm install -g @anthropic-ai/claude-code
-          fi
           fi
           if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] ; then
             echo "::notice::CLAUDE_CODE_OAUTH_TOKEN not set — engines not installed; post-merge CONTEXT.md update will be skipped."
           fi
 
-      - name: Merge approved PR via the Kanban library
+      - name: Ship approved PR via the Kanban library
         shell: pwsh
         run: |
-          # Label-triggered / manual merges reuse the SAME merge as the AFK pipeline
-          # (Invoke-Ship): CI gate → squash-merge → agent:shipped → CONTEXT.md update.
-          # Single source of truth — no bash re-implementation (ADR-013).
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           $issue = [int]$env:ISSUE_NUMBER
           if ($issue -le 0) { throw "ISSUE_NUMBER did not resolve to a positive issue." }
 
-          # The agent:reviewing label that triggered this also queues the job behind a
-          # running implement pipeline (same concurrency group). If that pipeline
-          # already merged, skip — Invoke-Ship would otherwise find no open PR.
           $merged = gh api "repos/$env:GITHUB_REPOSITORY/issues/$issue/labels" `
             --jq 'any(.[]; .name == "agent:shipped")' 2>$null
           if ($merged -eq 'true') {
-            Write-Host "Issue #$issue already merged by the pipeline — skipping."
+            Write-Host "Issue #$issue already shipped by the pipeline — skipping."
             exit 0
           }
 
-          # This job checks out the default branch; make the feature branch
-          # available locally for Invoke-Ship's checkout + rebase.
           git fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
-
           $pr = Resolve-PR -IssueNumber $issue
           Invoke-Ship -IssueNumber $issue -PRNumber $pr
-
-
-
-

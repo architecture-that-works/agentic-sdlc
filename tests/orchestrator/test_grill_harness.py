@@ -10,8 +10,8 @@ Three surfaces are exercised:
    AGENT-BRIEF section is bounded by HTML-comment markers that must remain
    identifiable from outside PowerShell (Python parsers, future Cloud Run
    service, etc.).
-3. ``.github/orchestrator/lib/GitHub.ps1`` § ``New-HitlChildIssue`` title format
-   — the HITL child issue title must carry the parent number and a truncated
+3. ``.github/orchestrator/lib/GitHub.ps1`` § ``New-DecisionChildIssue`` title format
+   — the human:decision child issue title must carry the parent number and a truncated
    question stub so a human scanning the issue list can see the linkage.
 
 Each test inlines just enough of the production logic to keep the test fully
@@ -151,14 +151,14 @@ def test_agent_brief_markers_present_in_github_ps1() -> None:
     assert "<!-- AGENT-BRIEF:END -->" in github
 
 
-# ── HITL child-issue title format ─────────────────────────────────────────────
+# ── human:decision child-issue title format ─────────────────────────────────────────────
 
 
-def test_hitl_child_title_carries_parent_number_and_stub() -> None:
-    """The HITL child issue title is the only handle a human scanning the
+def test_decision_child_title_carries_parent_number_and_stub() -> None:
+    """The human:decision child issue title is the only handle a human scanning the
     issue list sees — it must include the parent number and a short stub of
     the question so the linkage is visible without clicking through."""
-    # Inline the title-building logic from New-HitlChildIssue so the test is
+    # Inline the title-building logic from New-DecisionChildIssue so the test is
     # hermetic and does not depend on a live `gh` environment.
     snippet = """
 $Question = [pscustomobject]@{
@@ -167,19 +167,19 @@ $Question = [pscustomobject]@{
 $ParentNumber = 85
 $shortText = ($Question.text -replace '\\s+', ' ').Trim()
 if ($shortText.Length -gt 70) { $shortText = $shortText.Substring(0, 67) + '...' }
-$title = "HITL decision needed (#${ParentNumber}): $shortText"
+$title = "human:decision needed (#${ParentNumber}): $shortText"
 Write-Output $title
 """
     result = _ps(snippet)
     assert result.returncode == 0, result.stderr
     title = result.stdout.strip()
-    assert title.startswith("HITL decision needed (#85):"), (
-        f"Title must lead with HITL framing and parent number, got: {title!r}"
+    assert title.startswith("human:decision needed (#85):"), (
+        f"Title must lead with human:decision framing and parent number, got: {title!r}"
     )
     assert "endpoint" in title
 
 
-def test_hitl_child_title_truncates_long_questions() -> None:
+def test_decision_child_title_truncates_long_questions() -> None:
     """A 200-character question must be truncated to <= 100 chars in the title
     so the GitHub issue list remains scannable."""
     long_text = "Should the new endpoint " + ("xyz " * 60)
@@ -187,8 +187,8 @@ def test_hitl_child_title_truncates_long_questions() -> None:
 $Question = [pscustomobject]@{{ text = '{long_text.strip()}' }}
 $ParentNumber = 99
 $shortText = ($Question.text -replace '\\s+', ' ').Trim()
-if ($shortText.Length -gt 70) {{ $shortText = $shortText.Substring(0, 67) + '...' }}
-$title = "HITL decision needed (#${{ParentNumber}}): $shortText"
+if ($shortText.Length -gt 60) {{ $shortText = $shortText.Substring(0, 57) + '...' }}
+$title = "human:decision needed (#${{ParentNumber}}): $shortText"
 Write-Output $title
 """
     result = _ps(snippet)

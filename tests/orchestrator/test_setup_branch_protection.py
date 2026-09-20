@@ -1,4 +1,4 @@
-"""Tests for .github/scripts/setup-branch-protection.ps1 business logic.
+"""Tests for .github/tasks/protect.ps1 business logic.
 
 Each test runs an inline PowerShell snippet that replicates the exact decision
 logic from the script, avoiding the need for a live GitHub connection while

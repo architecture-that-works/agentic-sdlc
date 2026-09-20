@@ -397,9 +397,9 @@ function Set-IssueBodySection {
     return $true
 }
 
-# Spawns one HITL child issue per unresolvable open_question. Each child links
+# Spawns one human:decision child issue per unresolvable open_question. Each child links
 # back to the parent and frames the question as "decision needed".
-function New-HitlChildIssue {
+function New-DecisionChildIssue {
     param(
         [Parameter(Mandatory)][int]$ParentNumber,
         [Parameter(Mandatory)][string]$ParentTitle,
@@ -407,8 +407,8 @@ function New-HitlChildIssue {
     )
 
     $shortText = ($Question.text -replace '\s+', ' ').Trim()
-    if ($shortText.Length -gt 70) { $shortText = $shortText.Substring(0, 67) + '...' }
-    $title = "HITL decision needed (#${ParentNumber}): $shortText"
+    if ($shortText.Length -gt 60) { $shortText = $shortText.Substring(0, 57) + '...' }
+    $title = "human:decision needed (#${ParentNumber}): $shortText"
 
     $recommendation = if ($Question.decision) { $Question.decision } else { '_(no recommendation supplied)_' }
     $body = @"
@@ -433,9 +433,9 @@ The self-grill subagent could not resolve this branch from the codebase alone �
             --repo $KanbanRepo `
             --title $title `
             --body-file $tmp.FullName `
-            --label 'HITL' 2>&1 | Out-String
+            --label 'human:decision' 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
-            Write-Log "  ⚠️ Could not create HITL child for #${ParentNumber}: $($url.Trim())" -Color Yellow
+            Write-Log "  ⚠️ Could not create human:decision child for #${ParentNumber}: $($url.Trim())" -Color Yellow
             return $null
         }
         return $url.Trim()
@@ -445,6 +445,27 @@ The self-grill subagent could not resolve this branch from the codebase alone �
 }
 
 # ── Atomic state transition (label + lane in one call) ───────────────────────
+
+function Set-AgentFailedState {
+    param([int]$IssueNumber, [string]$FailedAt, [string]$Reason)
+    
+    $state = Get-PlanningState -IssueNumber $IssueNumber
+    if ($state) {
+        if ($null -eq $state.failed_at) {
+            $state | Add-Member -NotePropertyName failed_at -NotePropertyValue $FailedAt -Force
+        } else {
+            $state.failed_at = $FailedAt
+        }
+        if ($null -eq $state.failed_reason) {
+            $state | Add-Member -NotePropertyName failed_reason -NotePropertyValue $Reason -Force
+        } else {
+            $state.failed_reason = $Reason
+        }
+        Set-PlanningState -IssueNumber $IssueNumber -State $state
+    }
+    
+    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
+}
 
 function Set-AgentState {
     param([int]$IssueNumber, [string]$Label)

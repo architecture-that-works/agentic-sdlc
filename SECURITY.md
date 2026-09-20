@@ -138,7 +138,7 @@ registered with the `gha-project` label (see `runs-on: [self-hosted, gha-project
 `task runner` dispatches the `agent:backlog` queue to the cloud — it does not start the
 runner process.
 
-### AFK operation checklist
+### Cloud runner operation checklist
 
 One-time setup steps for a freshly generated project:
 
@@ -187,7 +187,7 @@ Secrets live under **Settings → Secrets and variables → Actions → Secrets*
 
 ### Provisioning WIF for Azure
 
-> **HITL — human action required.** This procedure cannot run from inside CI; it
+> **Manual intervention — human action required.** This procedure cannot run from inside CI; it
 > requires Owner or User Access Administrator on the target subscription. Perform
 > it once, manually, after `deploy.yml` lands on `main`. The repository secrets
 > and variables produced in steps 4–5 are what `deploy.yml` consumes at runtime.
@@ -231,7 +231,7 @@ Secrets live under **Settings → Secrets and variables → Actions → Secrets*
 
 ### Provisioning WIF for GCP
 
-> **HITL — human action required.** This procedure cannot run from inside CI; it
+> **Manual intervention — human action required.** This procedure cannot run from inside CI; it
 > requires `roles/iam.workloadIdentityPoolAdmin` and `roles/iam.serviceAccountAdmin`
 > on the target project. Perform it once, manually, after `deploy.yml` lands on
 > `main`. The repository secrets and variables produced in steps 4–5 are what

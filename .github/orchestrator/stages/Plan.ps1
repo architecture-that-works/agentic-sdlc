@@ -30,10 +30,9 @@
       4. Child-issue emission -- sync-issues.ps1 block format (LABELS:/ESTIMATE:/
          PRIORITY: header + Goal/Description/Requirements/Acceptance Criteria).
          children[0] is the tracer bullet; children land via `gh issue create`.
-      5. AFK / HITL labelling heuristic:
-           * narrow blast radius AND zero unresolved open_questions -> AFK
-           * wide blast OR open_questions[] non-empty                 -> HITL
-         Children may opt UP to HITL via the synthesised PRD; never down.
+      5. Heuristic:
+           * wide blast OR open_questions[] non-empty -> human:decision
+         Children may opt UP to human:decision via the synthesised PRD; never down.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -134,9 +133,9 @@ function Test-NarrowBlast {
     return $false
 }
 
-# ── AFK/HITL heuristic ──────────────────────────────────────────────────────
-# AFK only when blast is narrow AND there are no unresolved open_questions.
-# Either signal flips the issue to HITL — correctness for recursive issue
+# ── Labelling heuristic ──────────────────────────────────────────────────────
+# No label when blast is narrow AND there are no unresolved open_questions.
+# Either signal flips the issue to human:decision — correctness for recursive issue
 # creation matters more than throughput.
 
 function Get-PlanLabel {
@@ -144,8 +143,8 @@ function Get-PlanLabel {
         [Parameter(Mandatory)][bool]$NarrowBlast,
         [int]$OpenQuestionCount = 0
     )
-    if ($NarrowBlast -and $OpenQuestionCount -eq 0) { return 'AFK' }
-    return 'HITL'
+    if ($NarrowBlast -and $OpenQuestionCount -eq 0) { return '' }
+    return 'human:decision'
 }
 
 # ── Child-issue block format (matches sync-issues.ps1 ISSUE: ... END_ISSUE) ──
@@ -156,7 +155,7 @@ function Get-PlanLabel {
 
 function Format-ChildIssue {
     param(
-        [Parameter(Mandatory)][string]$Label,             # AFK or HITL
+        [string]$Label,
         [int]$Estimate = 0,
         [string]$Priority,
         [Parameter(Mandatory)][string]$Goal,
@@ -165,7 +164,7 @@ function Format-ChildIssue {
         [string[]]$AcceptanceCriteria = @()
     )
     $sb = [System.Text.StringBuilder]::new()
-    $null = $sb.AppendLine("LABELS: $Label")
+    if ($Label) { $null = $sb.AppendLine("LABELS: $Label") }
     if ($Estimate -gt 0) { $null = $sb.AppendLine("ESTIMATE: $Estimate") }
     if ($Priority)       { $null = $sb.AppendLine("PRIORITY: $Priority") }
     $null = $sb.AppendLine()
@@ -215,8 +214,11 @@ function New-ChildIssue {
         $ghArgs = @('issue', 'create',
             '--repo',      $KanbanRepo,
             '--title',     $Child.title,
-            '--body-file', $tmp.FullName,
-            '--label',     $Child.label)
+            '--body-file', $tmp.FullName)
+        if ($Child.label) {
+            $ghArgs += '--label'
+            $ghArgs += $Child.label
+        }
         $url = gh @ghArgs 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
             Write-Log "  ⚠️ Could not create child issue '$($Child.title)': $($url.Trim())" -Color Yellow
@@ -334,7 +336,7 @@ Return ONLY valid JSON — no fences, no prose — matching this shape:
   "children": [
     {
       "title": "<short, action-oriented child issue title>",
-      "label": "AFK",
+      "label": "<leave empty, or 'human:decision'>",
       "estimate": 2,
       "priority": "P3",
       "goal": "<one-sentence goal>",
@@ -348,9 +350,9 @@ Return ONLY valid JSON — no fences, no prose — matching this shape:
 Rules:
 - children[0] MUST be the tracer bullet (narrowest vertical slice).
 - >= 3 children in total.
-- Every child gets exactly one of: AFK | HITL. Default to AFK unless the
-  child genuinely needs a human decision (UX, credentials, business call).
-  The orchestrator may upgrade to HITL based on the blast-radius heuristic;
+- Assign the 'human:decision' label if the child genuinely needs a human decision
+  (UX, credentials, business call). Otherwise leave the label empty.
+  The orchestrator may upgrade to human:decision based on the blast-radius heuristic;
   it never downgrades.
 - Estimates use Fibonacci 1/2/3/5/8/13. Use 13 only when the child needs
   decomposition itself — prefer breaking it further.
@@ -435,11 +437,10 @@ function Invoke-PlanDecomposition {
     $childIdx    = 0
     foreach ($c in $children) {
         $childIdx++
-        # Children may opt UP to HITL (Claude flagged it as such); the heuristic
-        # may opt the orchestrator's default UP to HITL — never down. AFK is
-        # only set when both the model and the heuristic agree.
-        $modelLabel = if ($c.PSObject.Properties['label'] -and $c.label) { "$($c.label)" } else { 'AFK' }
-        $effective  = if ($modelLabel -eq 'HITL' -or $defaultLabel -eq 'HITL') { 'HITL' } else { 'AFK' }
+        # Children may opt UP to human:decision (Claude flagged it as such); the heuristic
+        # may opt the orchestrator's default UP to human:decision — never down.
+        $modelLabel = if ($c.PSObject.Properties['label'] -and $c.label) { "$($c.label)" } else { '' }
+        $effective  = if ($modelLabel -eq 'human:decision' -or $defaultLabel -eq 'human:decision') { 'human:decision' } else { '' }
         $c | Add-Member -NotePropertyName label -NotePropertyValue $effective -Force
 
         $url = New-ChildIssue -ParentNumber $IssueNumber -Child $c

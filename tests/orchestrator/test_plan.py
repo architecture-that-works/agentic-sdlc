@@ -9,8 +9,8 @@ Covers the four business rules that must not regress:
 3. Blast-radius narrow detection — `At-risk: none` or `Recommendation: proceed`
    reads as narrow; an at-risk listing reads as wide. Missing report → narrow
    (no signal of widespread risk).
-4. AFK / HITL heuristic — AFK only when narrow blast AND zero open questions;
-   either signal flips to HITL.
+4. Labelling heuristic — empty label only when narrow blast AND zero open questions;
+   either signal flips to human:decision.
 
 Plan.ps1 is a module-internal library (ADR-013) — it carries no top-level
 param() block and is not dot-sourced standalone. Each test group imports the
@@ -264,20 +264,20 @@ def test_get_plan_label_batch() -> None:
     assert result.returncode == 0, result.stderr
     cases = _parse_cases(result.stdout)
 
-    assert cases.get("narrow_zero", "").strip() == "AFK", (
-        f"narrow blast + zero open questions should be AFK, "
+    assert cases.get("narrow_zero", "").strip() == "", (
+        f"narrow blast + zero open questions should be empty, "
         f"got: {cases.get('narrow_zero')!r}"
     )
-    assert cases.get("narrow_open", "").strip() == "HITL", (
-        f"Open questions force HITL even when blast is narrow, "
+    assert cases.get("narrow_open", "").strip() == "human:decision", (
+        f"Open questions force human:decision even when blast is narrow, "
         f"got: {cases.get('narrow_open')!r}"
     )
-    assert cases.get("wide_zero", "").strip() == "HITL", (
-        f"Wide blast forces HITL even with zero open questions, "
+    assert cases.get("wide_zero", "").strip() == "human:decision", (
+        f"Wide blast forces human:decision even with zero open questions, "
         f"got: {cases.get('wide_zero')!r}"
     )
-    assert cases.get("wide_open", "").strip() == "HITL", (
-        f"Wide blast + open questions should be HITL, got: {cases.get('wide_open')!r}"
+    assert cases.get("wide_open", "").strip() == "human:decision", (
+        f"Wide blast + open questions should be human:decision, got: {cases.get('wide_open')!r}"
     )
 
 
@@ -292,29 +292,29 @@ def test_format_child_issue_batch() -> None:
     script = (
         _import_prelude()
         # Scenario 1: LABELS / ESTIMATE / PRIORITY must precede **Goal**
-        + "$b1 = Format-ChildIssue -Label 'AFK' -Estimate 2 -Priority 'P3' "
+        + "$b1 = Format-ChildIssue -Label 'human:decision' -Estimate 2 -Priority 'P3' "
         + "-Goal 'Goal text' -Description 'Description text' "
         + "-Requirements @('r1','r2') -AcceptanceCriteria @('a1','a2')\n"
         + '$b1s = $b1 -join "`n"\n'
-        + "Write-Output \"__CASE__labels_idx=$($b1s.IndexOf('LABELS: AFK'))\"\n"
+        + "Write-Output \"__CASE__labels_idx=$($b1s.IndexOf('LABELS: human:decision'))\"\n"
         + "Write-Output \"__CASE__estimate_idx=$($b1s.IndexOf('ESTIMATE: 2'))\"\n"
         + "Write-Output \"__CASE__priority_idx=$($b1s.IndexOf('PRIORITY: P3'))\"\n"
         + "Write-Output \"__CASE__goal_idx=$($b1s.IndexOf('**Goal**'))\"\n"
         # Scenario 2: requirements must be numbered starting at 1
-        + "$b2 = Format-ChildIssue -Label 'AFK' -Goal 'g' -Description 'd' "
+        + "$b2 = Format-ChildIssue -Label '' -Goal 'g' -Description 'd' "
         + "-Requirements @('alpha','beta','gamma') -AcceptanceCriteria @()\n"
         + '$b2s = $b2 -join "`n"\n'
         + "Write-Output \"__CASE__req_1=$(($b2s -match '1\\. alpha'))\"\n"
         + "Write-Output \"__CASE__req_2=$(($b2s -match '2\\. beta'))\"\n"
         + "Write-Output \"__CASE__req_3=$(($b2s -match '3\\. gamma'))\"\n"
         # Scenario 3: acceptance criteria render as `- [ ]` checkboxes
-        + "$b3 = Format-ChildIssue -Label 'AFK' -Goal 'g' -Description 'd' "
+        + "$b3 = Format-ChildIssue -Label '' -Goal 'g' -Description 'd' "
         + "-Requirements @() -AcceptanceCriteria @('CI passes','tests green')\n"
         + '$b3s = $b3 -join "`n"\n'
         + "Write-Output \"__CASE__ckbox_ci=$(($b3s -match '- \\[ \\] CI passes'))\"\n"
         + "Write-Output \"__CASE__ckbox_green=$(($b3s -match '- \\[ \\] tests green'))\"\n"
         # Scenario 4: Estimate=0 means not set — ESTIMATE: line must not appear
-        + "$b4 = Format-ChildIssue -Label 'HITL' -Estimate 0 -Goal 'g' "
+        + "$b4 = Format-ChildIssue -Label 'human:decision' -Estimate 0 -Goal 'g' "
         + "-Description 'd' -Requirements @() -AcceptanceCriteria @()\n"
         + '$b4s = $b4 -join "`n"\n'
         + "Write-Output \"__CASE__no_estimate=$(($b4s -match 'ESTIMATE:'))\"\n"

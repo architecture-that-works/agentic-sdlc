@@ -1,0 +1,15 @@
+{
+  "auto-approve": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh .agents/scripts/auto_approve.ps1"
+          }
+        ]
+      }
+    ]
+  }
+}
