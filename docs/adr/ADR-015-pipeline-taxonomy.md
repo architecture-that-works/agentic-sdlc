@@ -447,11 +447,12 @@ TDD loses no prominence: it remains the sanctioned way code is written, stated i
 
 ## Implementation status
 
-Living checklist. Update as each PR lands — this is the durable record of where the refactor stands.
+Living checklist and the handoff point. **An agent resuming this refactor from `main` should read this section, then the Definitions, Folder structure and Execution plan sections above — they are the whole brief.** Update this section as each PR lands; it is the durable record, the conversation is not.
 
 - [x] **PR 0** — ADR-015 (#198). Status Accepted.
 - [x] **PR 1** — Labels (#199). `agent:review`→`agent:reviewing`, `agent:merged`→`agent:shipped`, `human:approval`/`human:decision` provisioned, two stale descriptions corrected. Live renames applied with `gh label edit --name`; all 60 issue associations verified preserved, zero orphaned names.
-- [ ] **PR 2** — Library → `.github/orchestrator/`
+- [x] **PR 2** — Library → `.github/orchestrator/` (#200). Module moved with `stages/`, `engines/`, `lib/`; loader and conductor merged into `Orchestrator.psm1` (the old `Orchestrator.ps1` is gone); `Get-KanbanContext`→`Get-OrchestratorContext`, `Invoke-Architecture`→`Invoke-Architect`, `Invoke-Merge`→`Invoke-Ship`; `tests/scripts/`→`tests/orchestrator/`; explicit `FunctionsToExport` (17, was 78 via wildcard).
+- [ ] **PR 2b** — Delete `Invoke-Alignment`; fold refine→architect→plan into `Invoke-Orchestration -From refine|implement`. Split out of PR 2: it changes behaviour and callers, which does not belong inside a 34-file move.
 - [ ] **PR 3** — `checks/` + `check-script-paths.ps1` + `check-module-api.ps1`
 - [ ] **PR 4** — Workflows → `afk.yml`, `checks.yml`; `tasks/` 1:1 with Taskfile
 - [ ] **PR 5** — Execution modes: retire `AFK`/`HITL` labels, wire `human:*`, `failed_at`
@@ -460,11 +461,35 @@ Living checklist. Update as each PR lands — this is the durable record of wher
 
 **Manual steps (live state no PR can carry)**
 
-- [ ] Rename the Project board column `Merged` → `Shipped`. `KANBAN_OPT_MERGED` keeps its option ID, so nothing breaks while this lags.
+- [x] Rename the Project board column `Merged` → `Shipped`. Done in the Project UI; `KANBAN_OPT_MERGED` keeps its option ID, so the env var name lags the column name harmlessly until PR 4.
 
 **Open decisions**
 
-- PR 2: `_grill.ps1` is dot-sourced by *both* the module loader and the refine skill's own `grill.ps1`. Decide whether the skill imports the module instead, or the file stays dual-consumed — the export list and the skill's path both depend on it.
+- **PR 2b or PR 6** — `_grill.ps1` is dot-sourced by *both* `Orchestrator.psm1` and the refine skill's own `grill.ps1`, so the orchestrator reaches into `.agents/`. That dependency direction is wrong. Either the skill's `grill.ps1` imports the module instead (behavioural, and it is the skill tree's PR), or the file stays dual-consumed and the coupling is accepted. Not decided; the loader carries a comment pointing here.
+
+### Working notes for whoever picks this up
+
+Learned the hard way during PRs 1–2. Each one cost a cycle; none is guessable from the code.
+
+- **Never `gh label delete` + recreate.** `gh label edit <old> --name <new>` preserves issue associations; delete-and-recreate silently drops them from every issue that carried the label.
+- **Tests that exercise module internals must run inside module scope.** With `FunctionsToExport` now an explicit list, private functions are genuinely unreachable from a test. Use `& (Get-Module Orchestrator) { … }` — dot-sourcing the `.psm1` populates *nothing* in the caller's scope (not even `Invoke-Orchestration`, defined in that file), and dot-sourcing a single stage file resolves its functions but not the module-scoped `$Kanban*` variables they read. `tests/orchestrator/test_plan.py` is the worked example; it is also ~5× faster this way. Do not widen the export list to make a test pass — that is how the list decays back to `'*'`.
+- **This repo is simultaneously a project and a Copier template of itself.** Anything under `tests/`, `pyproject.toml`, or the skill tree usually has a second home under the template root (`.jinja2` suffix, or excluded via `_exclude`). Check for a parallel path before assuming one edit is enough — it has bitten twice (#154, #192).
+- **`test_kanban_script_contract.py` globs; it does not assert paths.** It will happily pass against a tree where every path moved. That is exactly the gap `check-script-paths.ps1` fills, which is why **PR 3 must land before PR 4** — nothing currently catches a stale path except a failing runner.
+- **The orchestrator is GraphQL-bound** (5000 pts/hr, shared between local `gh` and the cloud runner on one PAT). Prefer `git`, REST (`gh api`), or an env var over `gh repo view` / `gh issue view --json labels`. `tests/orchestrator/test_kanban_graphql_budget.py` enforces this statically.
+- **Self-review is not a gate.** It approved both #154 and #192, which CI then rejected. Run the full local suite before pushing; do not lean on the reviewer.
+
+Local verification before any push, all six must be clean:
+
+```powershell
+uv run pytest ; uv run ruff check . ; uv run ruff format . ; uv run pyright
+```
+
+Plus, for anything touching the module surface:
+
+```powershell
+Import-Module .\.github\orchestrator\Orchestrator.psd1 -Force
+(Get-Command -Module Orchestrator).Count   # expect 17
+```
 
 **Carried threads, tracked separately from this refactor**
 
@@ -479,8 +504,9 @@ Not a single find-and-replace. Six ordered PRs, each independently reviewable an
 | # | Scope | Why this order |
 |---|---|---|
 | 1 | **Labels** — `agent:review` → `agent:reviewing`, `agent:merged` → `agent:shipped` via `gh label edit`; `agent:implementing` kept (its stale *"(refine + develop)"* description corrected). Plus the `setup.ps1` provisioning list and the `Set-AgentState` / `Test-Readiness` constants. | State names are referenced by everything downstream, so later PRs get written against the final vocabulary. `edit` preserves issue associations; recreating would drop them. |
-| 2 | **Library** — `.github/scripts/kanban/` → `.github/orchestrator/` with `stages/`, `engines/`, `lib/`; `Kanban.ps*` → `Orchestrator.ps*`; `Get-KanbanContext` → `Get-OrchestratorContext`; `Architecture.ps1` → `Architect.ps1`; `Merge.ps1` → `Ship.ps1`; `tests/scripts/` → `tests/orchestrator/`; the `Import-Module` absolute paths in both workflows; the `ROOT/".github"/"scripts"` constant in `test_kanban_script_contract.py` — **and delete `Invoke-Alignment`, folding refine/architect/plan into `Invoke-Orchestration -From refine`**. | The largest mechanical change, plus the structural fix: one conductor, six stages, no intermediate wrapper. Callers to update: `tasks/align.ps1`, `align.yml`. |
-| 3 | **Structure + the missing guard** — create `orchestrator/engines/` and move `Claude.ps1` + `Gemini.ps1` into it; `scripts/ci/` → `.github/checks/`; add `scripts/checks/check-script-paths.ps1` and wire it into `checks.yml`. | Pure moves, plus the guard that makes PR 4 safe. The guard must exist *before* the workflow and task renames, not after. |
+| 2 | **Library** — `.github/scripts/kanban/` → `.github/orchestrator/` with `stages/`, `engines/`, `lib/`; `Kanban.ps*` → `Orchestrator.ps*`; `Get-KanbanContext` → `Get-OrchestratorContext`; `Architecture.ps1` → `Architect.ps1`; `Merge.ps1` → `Ship.ps1`; `tests/scripts/` → `tests/orchestrator/`; the `Import-Module` absolute paths in both workflows; the `ROOT/".github"/"scripts"` constant in `test_kanban_script_contract.py`. Engines moved here too, not in PR 3 — the loader dot-sources them by a path relative to the module directory, so they could not stay behind. | The largest mechanical change. Pure moves and renames, so it is reviewable as one diff. |
+| 2b | **One conductor** — delete `Invoke-Alignment`, folding refine/architect/plan into `Invoke-Orchestration -From refine\|implement`. Callers to update: `tasks/align.ps1`, `align.yml`. | Split out of PR 2: this changes behaviour and callers, and burying it inside a 34-file move would make both unreviewable. It is the structural fix the ADR opens by complaining about — two conductors, one level down. |
+| 3 | **The missing guard** — `scripts/ci/` → `.github/checks/`; add `check-script-paths.ps1` and `check-module-api.ps1`, wire both into `checks.yml`. | The guard must exist *before* the workflow and task renames, not after. Nothing today catches a stale path or a drifted export list. |
 | 4 | **Workflows + tasks** — `ci.yml` → `checks.yml`; **merge `align.yml` into `orchestrator.yml` → `afk.yml`** with `stage: [refine, implement, ship]`; `tasks/{align,runner,start}.ps1` → `{refine,afk,hitl}.ps1`; `sync-issues.ps1` → `sync.ps1`; `setup-branch-protection.ps1` → `tasks/protect.ps1`; `Taskfile.yml` targets aligned 1:1 with filenames. | Depends on PRs 2–3. Now guarded: a stale path fails a check instead of a runner. The workflow merge is the riskiest step here — it changes triggers, so verify each of the three entry paths (issue opened, dispatch per stage, `agent:reviewing` label) fires once and only once. |
 | 5 | **Execution modes** — retire the `AFK` / `HITL` labels; add `human:approval` and `human:decision`; drop the `HITL and not AFK` condition in the gate and rewrite the hold gate's label check; record `failed_at` / `failed_reason` in the carrier and teach `task retry` to resume from it. | The only behavioural change in the sequence. It deserves its own review rather than being buried in a rename, and it supersedes the merge-hold mechanism from #195 — which was never exercised end-to-end, so there is no working behaviour to regress. |
 | 6 | **Skill tree** — rename `architecture/` → `architect/` and `tdd/` → `implement/`; retire `harness/` (content to `docs/HARNESS.md`, `verify-settings.ps1` to `scripts/checks/`); fix the **"Interfaces with" cross-references in all 27 skill files** that name a renamed or retired skill; rename `tests/scripts/test_grill_harness.py`. | Touches the Copier-propagated skill tree, so it lands once the pipeline is stable. The cross-references are the hidden bulk — every `SKILL.md` declares what it interfaces with by name, so a rename that stops at directory level leaves 27 files lying. |
