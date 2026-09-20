@@ -95,11 +95,11 @@ if ($runnerProfile -eq 'self-hosted') {
 }
 
 # ── Dispatch the cloud drain ─────────────────────────────────────────────────
-gh workflow run orchestrator.yml --repo $KanbanRepo `
+gh workflow run afk.yml --repo $KanbanRepo `
     --field stage=implement --field issue_number=0
-if ($LASTEXITCODE -ne 0) { throw "Failed to dispatch orchestrator.yml" }
+if ($LASTEXITCODE -ne 0) { throw "Failed to dispatch afk.yml" }
 
 Write-Log "  🚀 Dispatched — oldest-first drain of $count issue$(if ($count -ne 1) { 's' }) started." -Color Green
-Write-Log "  Watch: https://github.com/$KanbanRepo/actions/workflows/orchestrator.yml" -Color Cyan
+Write-Log "  Watch: https://github.com/$KanbanRepo/actions/workflows/afk.yml" -Color Cyan
 Write-Host ""
 Write-Log "  The drain step re-dispatches until the queue is empty. You can walk away." -Color DarkGray

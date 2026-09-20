@@ -1,5 +1,9 @@
-"""Tests for the field-provisioning helpers in .github/scripts/setup.ps1.
-
+"""SCRIPT = (
+    Path(__file__).parent.parent.parent
+    / ".github"
+    / "tasks"
+    / "setup.ps1"
+)
 Each test runs an inline PowerShell snippet that replicates the exact business
 logic from setup.ps1, avoiding the need for a live GitHub Project while still
 verifying the real decision rules.
