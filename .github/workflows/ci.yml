@@ -64,8 +64,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Check module map
-        run: pwsh .github/scripts/ci/check-module-map.ps1
+      - name: Check Module Map integrity
+        shell: pwsh
+        run: .github/checks/check-module-map.ps1
+      - name: Check Script Paths
+        shell: pwsh
+        run: .github/checks/check-script-paths.ps1
+      - name: Check Module API boundary
+        shell: pwsh
+        run: .github/checks/check-module-api.ps1
 
   secret-scan:
     runs-on: ubuntu-latest

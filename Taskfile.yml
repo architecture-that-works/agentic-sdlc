@@ -2,7 +2,7 @@ version: '3'
 
 vars:
   ISSUE: '{{default "0" .ISSUE}}'
-  RETRIES: '{{default "-1" .RETRIES}}' # -1 = read from .github/orchestrator/Config.ps1
+  RETRIES: '{{default "-1" .RETRIES}}' # -1 = read from .github/orchestrator/lib/Config.ps1
 
 tasks:
 

@@ -26,7 +26,6 @@
         'Invoke-Orchestration'
 
         # Stages invoked directly (by tasks/ and the workflows)
-        'Invoke-Refine'
         'Invoke-Ship'
 
         # Issue + board state
@@ -42,9 +41,6 @@
         # Self-grill subagent (refine stage; also driven standalone by the
         # refine skill's grill.ps1 probe)
         'Invoke-Grill'
-        'Get-GrillUserPrompt'
-        'Resolve-GrillModel'
-        'Test-GrillResultSchema'
 
         # Shared helpers used by the task scripts
         'Write-Log'
