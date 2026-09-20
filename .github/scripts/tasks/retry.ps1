@@ -9,7 +9,7 @@
     picks it up from the beginning.
 
     Works from any intermediate state: agent:failed, agent:implementing,
-    agent:review, or even agent:backlog already set (idempotent).
+    agent:reviewing, or even agent:backlog already set (idempotent).
 
 .PARAMETER Issue
     Issue number to reset. Required.

@@ -66,7 +66,7 @@ function Invoke-Orchestration {
             # was delivered by previously-merged child PRs). Mark merged, close,
             # skip the review/merge stages.
             Clear-IssueReviewCount -IssueNumber $IssueNumber
-            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:merged'
+            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:shipped'
             gh issue close $IssueNumber --repo $ctx.Repo --reason completed 2>&1 | Out-Null
             Write-Log "🎉 Issue #$IssueNumber complete — already implemented; closed without PR." -Color Green
             return
@@ -109,7 +109,7 @@ function Invoke-Orchestration {
         Clear-IssueReviewCount -IssueNumber $IssueNumber
         $merged = Invoke-Merge -IssueNumber $IssueNumber -PRNumber $prNum -Approved
 
-        # Invoke-Merge returns $false when it holds a HITL issue at agent:review rather
+        # Invoke-Merge returns $false when it holds a HITL issue at agent:reviewing rather
         # than merging. Report that honestly — claiming "complete" for work still
         # awaiting a human merge is the same class of false signal as a drain run
         # exiting 0 while the issue it processed ended agent:failed.
