@@ -37,6 +37,9 @@ $OrchestratorConfig = @{
     ModelOpus   = 'claude-opus-4-7'            # implement (high-SP), review (high-SP)
     ModelHaiku  = 'claude-haiku-4-5-20251001'  # commit messages, auxiliary one-shot calls
 
+    ModelGeminiPro   = 'gemini-3.1-pro'
+    ModelGeminiFlash = 'gemini-3.5-flash'
+
     # Model tier thresholds (story points): SP > threshold → Opus for that phase
     OpusImplementThreshold = 5   # 1–5 → Sonnet implement  |  8–21 → Opus implement
     OpusReviewThreshold    = 3   # 1–3 → Sonnet review     |  5–21 → Opus review
@@ -129,9 +132,14 @@ if (-not $KanbanDefaultBranch) {
 }
 
 # ── Models + turn budgets (env overrides over $OrchestratorConfig) ────────────
+$KanbanEngine = if ($env:KANBAN_ENGINE) { $env:KANBAN_ENGINE } else { 'claude' }
+
 $KanbanModel_Sonnet = if ($env:KANBAN_MODEL_SONNET) { $env:KANBAN_MODEL_SONNET } else { $OrchestratorConfig.ModelSonnet }
 $KanbanModel_Opus   = if ($env:KANBAN_MODEL_OPUS)   { $env:KANBAN_MODEL_OPUS   } else { $OrchestratorConfig.ModelOpus   }
 $KanbanModel_Aux    = if ($env:KANBAN_MODEL_AUX)     { $env:KANBAN_MODEL_AUX    } else { $OrchestratorConfig.ModelHaiku  }
+
+$KanbanModel_GeminiPro   = if ($env:KANBAN_MODEL_GEMINI_PRO)   { $env:KANBAN_MODEL_GEMINI_PRO   } else { $OrchestratorConfig.ModelGeminiPro   }
+$KanbanModel_GeminiFlash = if ($env:KANBAN_MODEL_GEMINI_FLASH) { $env:KANBAN_MODEL_GEMINI_FLASH } else { $OrchestratorConfig.ModelGeminiFlash }
 
 $KanbanMaxTurns_Review        = if ($env:KANBAN_MAX_TURNS_REVIEW)  { [int]$env:KANBAN_MAX_TURNS_REVIEW  } else { $OrchestratorConfig.MaxTurns_Review        }
 $KanbanMaxTurns_Refine        = if ($env:KANBAN_MAX_TURNS_REFINE)  { [int]$env:KANBAN_MAX_TURNS_REFINE  } else { $OrchestratorConfig.MaxTurns_Refine         }
@@ -170,6 +178,7 @@ function Get-KanbanContext {
         DefaultBranch = $KanbanDefaultBranch
         ProjectNumber = $KanbanProjectNumber
         Runtime       = Get-RuntimeName
+        Engine        = $KanbanEngine
     }
     return $script:_KanbanContext
 }
@@ -187,10 +196,18 @@ function Get-IssueEstimate {
 
 function Get-PhaseModel {
     param([int]$Estimate, [string]$Phase)
-    switch ($Phase) {
-        'implement' { if ($Estimate -gt $OrchestratorConfig.OpusImplementThreshold) { return $KanbanModel_Opus } else { return $KanbanModel_Sonnet } }
-        'review'    { if ($Estimate -gt $OrchestratorConfig.OpusReviewThreshold)    { return $KanbanModel_Opus } else { return $KanbanModel_Sonnet } }
-        default     { return $KanbanModel_Aux }
+    if ($KanbanEngine -eq 'gemini') {
+        switch ($Phase) {
+            'implement' { if ($Estimate -gt $OrchestratorConfig.OpusImplementThreshold) { return $KanbanModel_GeminiPro } else { return $KanbanModel_GeminiFlash } }
+            'review'    { if ($Estimate -gt $OrchestratorConfig.OpusReviewThreshold)    { return $KanbanModel_GeminiPro } else { return $KanbanModel_GeminiFlash } }
+            default     { return $KanbanModel_GeminiFlash }
+        }
+    } else {
+        switch ($Phase) {
+            'implement' { if ($Estimate -gt $OrchestratorConfig.OpusImplementThreshold) { return $KanbanModel_Opus } else { return $KanbanModel_Sonnet } }
+            'review'    { if ($Estimate -gt $OrchestratorConfig.OpusReviewThreshold)    { return $KanbanModel_Opus } else { return $KanbanModel_Sonnet } }
+            default     { return $KanbanModel_Aux }
+        }
     }
 }
 

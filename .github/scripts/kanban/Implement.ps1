@@ -76,8 +76,13 @@ INSTRUCTIONS:
     $writingPosted     = $false
     $testedOnce        = $false
 
-    $prompt | claude --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1 |
-    ForEach-Object {
+    $stream = if ($KanbanEngine -eq 'gemini') {
+        $prompt | agy --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1
+    } else {
+        $prompt | claude --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1
+    }
+    
+    $stream | ForEach-Object {
         $raw = [string]$_
         try {
             $ev = $raw | ConvertFrom-Json -ErrorAction Stop
@@ -124,7 +129,7 @@ INSTRUCTIONS:
         }
     }
 
-    if ($LASTEXITCODE -ne 0) { throw "Claude Code exited with code $LASTEXITCODE." }
+    if ($LASTEXITCODE -ne 0) { throw "Agent CLI exited with code $LASTEXITCODE." }
 
     $bullets     = ($allText.ToString() -split '\r?\n') |
                    Where-Object { $_ -match '^\s*[-*•]' } |
@@ -186,7 +191,11 @@ function Invoke-CommitAndPR {
 
     if (git diff --cached --name-only 2>&1) {
         $diff    = git diff --staged 2>&1 | Out-String
-        $message = Get-CommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title"
+        $message = if ($KanbanEngine -eq 'gemini') {
+            Get-GeminiCommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title"
+        } else {
+            Get-CommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title"
+        }
         $msgFile = New-TemporaryFile
         try {
             $message | Out-File $msgFile.FullName -Encoding utf8

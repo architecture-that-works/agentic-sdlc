@@ -37,6 +37,9 @@ function Invoke-Orchestration {
     $ctx = Get-KanbanContext               # run context: repo, default branch, retries
     if ($MaxRetries -lt 0) { $MaxRetries = $ctx.MaxRetries }
 
+    # Fail-fast engine validation
+    Assert-EngineReady
+
     # Prevent two concurrent instances from processing the same issue.
     if (-not (Acquire-OrchestratorLock -IssueNumber $IssueNumber)) {
         Write-Log "  ⏳ Issue #$IssueNumber is locked by another process — skipping." -Color Yellow

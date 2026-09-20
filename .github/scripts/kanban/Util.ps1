@@ -124,3 +124,18 @@ function Format-ErrorBlock {
     # Fallback: preserve raw output in a fenced block (never drop it).
     return "``````text`n$($Raw.Trim())`n``````"
 }
+
+# ── Engine Readiness Validation ───────────────────────────────────────────────
+
+function Assert-EngineReady {
+    $ctx = Get-KanbanContext
+    if ($ctx.Engine -eq 'gemini') {
+        Write-Log "  Verifying Gemini (agy) authentication..." -Color DarkGray
+        $out = "ping" | agy --model gemini-3.5-flash 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) { throw "Gemini (agy) authentication or execution failed:`n$out" }
+    } else {
+        Write-Log "  Verifying Claude authentication..." -Color DarkGray
+        $out = "ping" | claude --model claude-haiku-4-5-20251001 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) { throw "Claude Code authentication or execution failed:`n$out" }
+    }
+}
