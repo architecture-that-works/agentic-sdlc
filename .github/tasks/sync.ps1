@@ -20,7 +20,7 @@ $ErrorActionPreference = 'Stop'
 # ── Load .env ─────────────────────────────────────────────────────────────────
 
 # tasks/ is three levels below the repo root (.github/scripts/tasks/).
-$_Root    = "$PSScriptRoot\..\..\.."
+$_Root    = (Resolve-Path "$PSScriptRoot\..\..").ProviderPath
 $_EnvPath = "$_Root\.env"
 
 if (Test-Path $_EnvPath) {

@@ -19,7 +19,7 @@ CONFIG = (
     MODULE / "lib" / "Config.ps1"
 )  # repo slug + default branch resolution (the fallback site)
 GITHUB = MODULE / "lib" / "GitHub.ps1"  # labels, agent state, board
-WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "orchestrator.yml"
+WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "afk.yml"
 
 # Library scripts that run inside a drain and must never resolve the default
 # branch via GraphQL. Config.ps1 is the one place a guarded last-resort fallback
@@ -78,15 +78,14 @@ def test_no_gh_repo_view_in_orchestrator_workflow() -> None:
     """The workflow's inline pwsh must read the default branch from the job env
     (GITHUB_DEFAULT_BRANCH), never via GraphQL `gh repo view`."""
     hits = [ln for ln in _code_lines(WORKFLOW) if "gh repo view" in ln]
-    assert not hits, (
-        f"orchestrator.yml must use $GITHUB_DEFAULT_BRANCH, not `gh repo view`:\n{hits}"
+    assert len(hits) == 0, (
+        f"afk.yml must use $GITHUB_DEFAULT_BRANCH, not `gh repo view`:\n{hits}"
     )
 
-
-def test_orchestrator_workflow_sets_default_branch_env() -> None:
-    code = _code(WORKFLOW)
-    assert "GITHUB_DEFAULT_BRANCH" in code, (
-        "orchestrator.yml should export GITHUB_DEFAULT_BRANCH from the event payload"
+    # ... and prove it DOES pass it to the environment.
+    workflow = _code(WORKFLOW)
+    assert "GITHUB_DEFAULT_BRANCH:" in workflow, (
+        "afk.yml should export GITHUB_DEFAULT_BRANCH from the event payload"
     )
 
 

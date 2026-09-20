@@ -21,7 +21,10 @@ from pathlib import Path
 import pytest
 
 SCRIPT = (
-    Path(__file__).parent.parent.parent / ".github" / "scripts" / "tasks" / "setup.ps1"
+    Path(__file__).parent.parent.parent
+    / ".github"
+    / "tasks"
+    / "setup.ps1"
 )
 PWSH = shutil.which("pwsh") or "pwsh"
 

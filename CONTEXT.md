@@ -48,7 +48,7 @@ Navigation index for agents. Read CONTEXT.md, identify the target bounded contex
 | ci + shared | `.github/scripts/` | `.github/scripts/` | `ci/check-module-map.ps1` (Module Map gate); `Claude.ps1` (generic LLM helper, shared) |
 | skills | `.agents/skills/` | `.agents/skills/` | one directory per skill, each with `SKILL.md` |
 | ADRs | `docs/adr/` | `docs/adr/` | `ADR_STRUCTURE.md` (master index) |
-| CI | `.github/workflows/` | (cross-cutting) | `ci.yml`, `build.yml`, `align.yml` (alignment gate), `orchestrator.yml` (processing) |
+| CI | `.github/workflows/` | (cross-cutting) | `checks.yml`, `build.yml`, `afk.yml` (AFK pipeline) |
 | `<domain>` | `src/<domain>/` | declared on first feature | declared on first feature |
 
 ## Issue-Type → Files Index
@@ -57,9 +57,9 @@ For each kind of work, read these files before opening anything else. If an unex
 
 | Working on... | Read first (nothing else unless surprised) |
 |---|---|
-| orchestrator change | `.github/scripts/kanban/Kanban.psm1` (load order), `Config.ps1`, the affected library file (`GitHub.ps1` / `Implement.ps1` / `Review.ps1` / `Merge.ps1` / `Orchestrator.ps1`) or task entry (`tasks/start.ps1`) |
-| alignment-gate change | `.github/scripts/kanban/Refine.ps1` (`Invoke-Alignment`), `Architecture.ps1`, `.github/workflows/align.yml`, `tasks/align.ps1`, `tests/scripts/test_architecture.py` |
-| sync-issues change | `.github/scripts/tasks/sync-issues.ps1`, `tests/scripts/test_sync_issues.py` |
+| orchestrator change | `.github/orchestrator/Orchestrator.psm1` (load order), `Config.ps1`, the affected library file (`GitHub.ps1` / `Implement.ps1` / `Review.ps1` / `Ship.ps1` / `Orchestrator.ps1`) or task entry (`.github/tasks/start.ps1`) |
+| alignment-gate change | `.github/orchestrator/stages/Refine.ps1` (`Invoke-Refine`), `Architecture.ps1`, `.github/workflows/afk.yml`, `.github/tasks/align.ps1`, `tests/orchestrator/test_architecture.py` |
+| sync-issues change | `.github/tasks/sync.ps1`, `tests/orchestrator/test_sync_issues.py` |
 | `src/utils/` change | `src/utils/m_*.py`, matching `tests/utils/test_*.py` |
 | `src/tools/` change | `src/tools/*.py`, matching `tests/tools/test_*.py` |
 | ADR addition | `docs/adr/ADR_STRUCTURE.md`, `ADR-000` template |
