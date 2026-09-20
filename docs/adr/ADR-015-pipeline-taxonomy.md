@@ -92,6 +92,29 @@ The stop after `plan` is ADR-014's gate — "ready" is not "go" — expressed as
 
 `Refine.ps1` keeps `Invoke-Refine` only. Callers to update: `tasks/align.ps1`, `align.yml`.
 
+### Declaring the public API
+
+The module defines **78 functions**. Fifteen are called from outside it. `FunctionsToExport = '*'` currently exports all 78.
+
+The API is declared in **`Orchestrator.psd1` as an explicit `FunctionsToExport` array**. This is PowerShell's documented guidance, and it is the option with *no* logic in it:
+
+| Option | Nature | Verdict |
+|---|---|---|
+| `FunctionsToExport` in the `.psd1` | A literal hashtable. Zero executable statements. | **Chosen** |
+| `Export-ModuleMember` in the `.psm1` | Code that runs at import time. | Rejected — it is the loose logic we are removing |
+| Both | The manifest additionally filters the call. | Rejected — two places to read, interaction is non-obvious |
+
+Beyond avoiding logic, the explicit list buys a concrete behaviour: PowerShell can resolve "which module provides `Invoke-Orchestration`?" from the manifest **without loading or executing the module**. A wildcard forces a full module load to answer the same question, which defeats command discovery and auto-loading. Wildcards in `FunctionsToExport` are specifically advised against for this reason.
+
+The split is then a clean data/code boundary, and nothing else is needed:
+
+* `Orchestrator.psd1` — *what you may call.* Declarative.
+* `Orchestrator.psm1` — *what happens.* Imperative.
+
+Anything absent from the list is private to the module automatically. No `_`-prefix convention, no `internal/` directory, no `Export-ModuleMember` call — the manifest **is** the boundary.
+
+**Keeping it true.** An explicit list rots the moment someone adds a caller and forgets the manifest. Since `checks/` exists, the guard belongs there: `check-module-api.ps1` asserts that every module function called from `tasks/`, `workflows/` and skill scripts appears in `FunctionsToExport`, and that nothing exported is uncalled. That makes the API declaration verified rather than aspirational — the same move as `check-script-paths.ps1`, and the reason both land in PR 3.
+
 ### One word for the unit: *stage*
 
 The repo currently uses three words for the same thing — `phase` (11 occurrences), `step` (8) and `stage` (8). This ADR standardises on **stage**, for three reasons: `orchestrator.yml` already exposes it as a machine-readable `stage:` input; "stage gate" is the established term for a checkpoint in an engineering process; and **`step` is disqualified outright** because GitHub Actions uses `steps:` natively in every workflow file, so reusing it for our concept would be ambiguous exactly where people read YAML.
