@@ -41,6 +41,7 @@ permissions:
 
 env:
   GH_TOKEN: ${{ secrets.GH_TOKEN }}
+  KANBAN_ENGINE: ${{ vars.KANBAN_ENGINE || 'claude' }}
 
 jobs:
 
@@ -65,6 +66,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       MY_TEMPLATE_REPO_GCLOUD_JSON: ${{ secrets.MY_TEMPLATE_REPO_GCLOUD_JSON }}
+      KANBAN_ENGINE: ${{ vars.KANBAN_ENGINE || 'claude' }}
       # Default branch from the event payload — lets Config.ps1 resolve it with
       # zero API cost (no `gh repo view`, which is GraphQL-bound). See memory
       # project_graphql_budget.
