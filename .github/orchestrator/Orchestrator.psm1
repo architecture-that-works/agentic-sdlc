@@ -69,7 +69,7 @@ $ErrorActionPreference = 'Stop'
 # PowerShell resolve commands without loading the module (ADR-015).
 
 function Invoke-Orchestration {
-    param([int]$IssueNumber, [int]$MaxRetries = -1, [switch]$Force)
+    param([int]$IssueNumber, [ValidateSet('refine','implement')] [string]$From = 'implement', [int]$MaxRetries = -1, [switch]$Force)
 
     $ctx = Get-OrchestratorContext               # run context: repo, default branch, retries
     if ($MaxRetries -lt 0) { $MaxRetries = $ctx.MaxRetries }
@@ -86,8 +86,49 @@ function Invoke-Orchestration {
     $stashed = $false
 
     try {
-        $meta = gh issue view $IssueNumber --repo $ctx.Repo --json title | ConvertFrom-Json
-        Write-Log "━━━ Orchestrator: issue #$IssueNumber — $($meta.title)" -Color Cyan
+        $meta = gh issue view $IssueNumber --repo $ctx.Repo --json title,labels,state | ConvertFrom-Json
+
+        if ($From -eq 'refine') {
+            Write-Log "━━━ Orchestrator (Refine): issue #$IssueNumber — $($meta.title)" -Color Cyan
+            $labels = @($meta.labels.name)
+            if ($meta.state -ne 'OPEN') {
+                Write-Log "  Issue #$IssueNumber is $($meta.state) — skipping alignment." -Color DarkGray
+                return $false
+            }
+            if ($labels -contains 'agent:backlog') {
+                Write-Log "  Issue #$IssueNumber already agent:backlog — alignment already granted." -Color DarkGray
+                return $true
+            }
+            if (($labels -contains 'HITL') -and ($labels -notcontains 'AFK')) {
+                Write-Log "  Issue #$IssueNumber is a HITL decision — skipping alignment." -Color DarkGray
+                return $false
+            }
+
+            try {
+                Invoke-Refine    -Number      $IssueNumber
+                Invoke-Architect -IssueNumber $IssueNumber
+                Invoke-Plan      -Number      $IssueNumber
+            } catch {
+                Add-Comment -Number $IssueNumber -Body "🤖❌ Alignment Failed`n``````text`n`$_`n``````"
+                Write-Log "❌ Alignment error for issue #$IssueNumber : `$_" -Color Red
+                return $false
+            }
+
+            $state = Get-PlanningState -IssueNumber $IssueNumber
+            if (Test-Readiness -State $state) {
+                Set-AgentState -IssueNumber $IssueNumber -Label 'agent:backlog'
+                Add-Comment -Number $IssueNumber -Body "🤖✅ Aligned — refined, architected, planned, zero open questions. Queued in Backlog (agent:backlog); run ``task runner`` or ``task start`` to process."
+                Write-Log "✅ Issue #$IssueNumber aligned — agent:backlog granted." -Color Green
+                return $true
+            }
+
+            $open = if ($state -and $state.open_questions) { @($state.open_questions).Count } else { 0 }
+            Add-Comment -Number $IssueNumber -Body "🤖⏸ Alignment incomplete — $open open question(s) need a human decision before this issue can enter the backlog. Resolve the linked HITL issue(s), record the answer in ``decided_questions[]``, then re-run ``task align ISSUE=$IssueNumber``."
+            Write-Log "⏸ Issue #$IssueNumber NOT aligned — readiness gate unmet (open questions=$open). agent:backlog withheld." -Color Yellow
+            return $false
+        }
+
+        Write-Log "━━━ Orchestrator (Implement): issue #$IssueNumber — $($meta.title)" -Color Cyan
 
         # ── backlog → implementing ────────────────────────────────────────────
         Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'

@@ -97,7 +97,7 @@ jobs:
           if ($ctx.IssueNumber -le 0) {
             throw "KANBAN_ISSUE='$($ctx.IssueNumber)' did not resolve to a positive issue number — refusing to align #0."
           }
-          Invoke-Alignment -IssueNumber $ctx.IssueNumber
+          Invoke-Orchestration -From refine -IssueNumber $ctx.IssueNumber
 
 
 
