@@ -85,3 +85,23 @@ Default new issues to **P3** (new work) or **P4** (improvement). Escalation to P
 ---
 
 <!-- ISSUES -->
+
+ISSUE: Close the loop on agent PRs left sitting at agent:review
+LABELS: AFK
+ESTIMATE: 3
+PRIORITY: P3
+**Goal**: An agent-authored PR cannot quietly rot at `agent:review` until `main` has moved far enough to make it unmergeable.
+**Description**: The pipeline drives an issue to `agent:review` and then stops — nothing tracks how long a PR waits for the human approval that lane implies. PR #175 (issue #154) sat from 2026-07-29 to 2026-09-20, seven weeks, during which `main` advanced past it and the branch acquired a `pyproject.toml` conflict that required hand resolution before CI could even run. The cost compounds: a stale branch also rebases onto a `main` whose CI gates have since changed, so the eventual rerun fails for reasons unrelated to the original work. There is no dashboard, notification, or scheduled sweep surfacing "these agent PRs are waiting on you". Note this is about *surfacing* staleness, not auto-merging — the human approval gate is deliberate and must stay.
+**Requirements**:
+1. Add a scheduled workflow (daily is sufficient) that lists open PRs whose linked issue carries `agent:review`, with the age of each in days.
+2. Escalate past a threshold (suggest 3 days): post or update a single comment on the PR noting how long it has waited, without spamming a new comment per run.
+3. Surface the same list in a form the developer actually sees — a job summary on the scheduled run at minimum; consider a `task` target mirroring `task runner`'s queue display for local use.
+4. Optionally flag PRs whose branch has fallen behind `main` by more than N commits, since that is the specific condition that turns a wait into a conflict.
+5. Do not auto-close, auto-merge, or relabel anything — this issue only makes the backlog of waiting reviews visible.
+**Acceptance Criteria**:
+- A scheduled workflow exists and runs green on `main`.
+- Given an open PR linked to an `agent:review` issue older than the threshold, the workflow reports it by number, title, and age.
+- Re-running the workflow updates rather than duplicates any comment it posts.
+- No PR state, label, or merge status is modified by the workflow.
+- `uv run pytest` passes and `ruff check .` / `ruff format --check .` are clean.
+END_ISSUE
