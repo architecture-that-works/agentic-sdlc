@@ -278,3 +278,4 @@ jobs:
 
           $pr = Resolve-PR -IssueNumber $issue
           Invoke-Merge -IssueNumber $issue -PRNumber $pr
+

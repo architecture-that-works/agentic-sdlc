@@ -83,7 +83,9 @@ jobs:
         if: env.MY_TEMPLATE_REPO_GCLOUD_JSON != ''
         shell: bash
         run: |
-          echo "$MY_TEMPLATE_REPO_GCLOUD_JSON" > $HOME/adc.json
+          printf "%s" "$MY_TEMPLATE_REPO_GCLOUD_JSON" > $HOME/adc.json
+          sed -i '1s/^\xef\xbb\xbf//' $HOME/adc.json
+          jq . $HOME/adc.json > /dev/null
           echo "GOOGLE_APPLICATION_CREDENTIALS=$HOME/adc.json" >> $GITHUB_ENV
 
       - name: Install tooling (hosted runner)
