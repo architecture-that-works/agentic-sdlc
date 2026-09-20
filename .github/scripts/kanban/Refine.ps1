@@ -291,8 +291,17 @@ function Invoke-Alignment {
         Write-Log "  Issue #$IssueNumber already agent:backlog — alignment already granted." -Color DarkGray
         return $true
     }
-    # HITL decision children are prompts for a human, not work items — never align them.
-    if ($labels -contains 'HITL') {
+    # HITL alone marks a decision child — a prompt for a human, not a work item — so it
+    # is never aligned (this also stops recursion when refine spawns HITL children for
+    # its own open questions).
+    #
+    # HITL + AFK is a different animal: a real work item that CAN be implemented
+    # autonomously but must not be merged without human approval — governance files
+    # such as CONTEXT.md, CODEOWNERS or SECURITY.md (issues #147, #151, #152). Those
+    # align and implement normally; Invoke-Merge holds them at agent:review instead of
+    # squash-merging. Before this distinction existed the label pair was unreachable:
+    # the pipeline could not touch them at all, so governance work had no route in.
+    if (($labels -contains 'HITL') -and ($labels -notcontains 'AFK')) {
         Write-Log "  Issue #$IssueNumber is a HITL decision — skipping alignment." -Color DarkGray
         return $false
     }

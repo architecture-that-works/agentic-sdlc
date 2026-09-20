@@ -525,6 +525,21 @@ function Get-CurrentIssueNumber {
     return 0
 }
 
+# True when origin already carries this branch. Used to distinguish "first run for
+# this issue" from "resuming work that was already pushed" — a distinction an
+# ephemeral CI runner cannot make from local refs alone, because it clones only the
+# default branch and therefore never has a local feature branch.
+function Test-RemoteBranch {
+    param([string]$Branch)
+    # Deliberately NOT `--exit-code`: that flag makes git exit 2 when the ref is absent,
+    # leaving $LASTEXITCODE poisoned for whatever the caller does next. This module
+    # tests $LASTEXITCODE after native commands throughout, so a predicate must not
+    # disturb it. Without the flag ls-remote exits 0 either way and empty output is the
+    # signal.
+    $out = git ls-remote --heads origin $Branch 2>$null | Out-String
+    return (-not [string]::IsNullOrWhiteSpace($out))
+}
+
 function New-FeatureBranch {
     param([int]$Number, [string]$Title)
     $branch  = Get-BranchName -Number $Number -Title $Title
@@ -533,6 +548,22 @@ function New-FeatureBranch {
 
     if (git branch --list $branch) {
         if ($current -ne $branch) { git checkout --quiet $branch }
+    } elseif (Test-RemoteBranch -Branch $branch) {
+        # Remote carries prior work for this issue but this clone has no local branch.
+        # That is the NORMAL state on a hosted runner, which checks out only the
+        # default branch. Falling through to the creation path below would cut a new
+        # branch from the default, orphaning the pushed commits and guaranteeing a
+        # non-fast-forward rejection at push time. Observed on issue #154: the agent
+        # re-implemented the work, the suite passed (251 tests), then the push was
+        # refused and everything died with the runner.
+        #
+        # Fetch with an explicit refspec so refs/remotes/origin/<branch> definitely
+        # exists — --force-with-lease on the later push needs that remote-tracking ref.
+        git fetch --quiet origin "+refs/heads/${branch}:refs/remotes/origin/${branch}" 2>$null
+        if ($LASTEXITCODE -ne 0) { throw "Could not fetch existing remote branch $branch" }
+        git checkout --quiet -B $branch "origin/$branch"
+        if ($LASTEXITCODE -ne 0) { throw "Could not check out existing branch $branch from origin" }
+        Write-Log "  Resumed branch $branch from origin (prior work preserved)." -Color DarkGray
     } else {
         if ($current -ne $default) {
             git checkout --quiet $default
