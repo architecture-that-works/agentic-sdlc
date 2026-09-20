@@ -49,11 +49,11 @@ Chosen: **Option B.**
 | **Stage** | One of the six units of work an issue passes through: `refine`, `architect`, `plan`, `implement`, `review`, `ship`. Each stage has one skill and one library script of the same name. Three carry a label. |
 | **Lane** | A column on the GitHub Project board. There are four: Backlog, Implementing, Review, Shipped. A lane holds work; a stage does work. |
 | **Method** | How a stage is carried out. TDD is the method of `implement`. A stage may change method without changing its name. |
-| **Pipeline** | The PowerShell module at `.github/scripts/pipeline/`. A library: one file per stage, plus shared helpers (`Config`, `Util`, `GitHub`). It sequences nothing. Imported as `Pipeline`; run context from `Get-PipelineContext`. |
+| **Pipeline** | The PowerShell module at `.github/pipeline/`. A library: one file per stage, plus shared helpers (`Config`, `Util`, `GitHub`). It sequences nothing. Imported as `Pipeline`; run context from `Get-PipelineContext`. |
 | **Orchestrator** | `Orchestrator.ps1`. Sequences stages for one issue and owns every lane transition. The only component that decides what runs next. |
-| **Engine** | An LLM provider adapter in `.github/scripts/engines/`. One file per provider: `Claude.ps1`, `Gemini.ps1`. Selected by the `KANBAN_ENGINE` variable. |
-| **Check** | A validator in `.github/scripts/checks/`, run by `checks.yml`. Named `check-<thing>.ps1`. |
-| **Task** | A command in `Taskfile.yml`. Each target `X` is backed by `.github/scripts/tasks/X.ps1`, named identically. |
+| **Engine** | An LLM provider adapter in `.github/pipeline/engines/`. One file per provider: `Claude.ps1`, `Gemini.ps1`. Selected by the `KANBAN_ENGINE` variable. |
+| **Check** | A validator in `.github/checks/`, run by `checks.yml`. Named `check-<thing>.ps1`. |
+| **Task** | A command in `Taskfile.yml`. Each target `X` is backed by `.github/tasks/X.ps1`, named identically. |
 | **Skill** | A constraint document at `.agents/skills/<name>/SKILL.md`, with optional `REFERENCE.md`, `EXAMPLES.md` and `scripts/`. |
 | **Library** | A PowerShell file dot-sourced by the module loader. PascalCase. Declares no top-level `param()`. |
 | **Runnable** | A PowerShell file invoked directly. lowercase. Owns its `param()`. |
@@ -72,18 +72,26 @@ Chosen: **Option B.**
 | **Alignment** | Not used. The pre-backlog gate is the `refine` stage. |
 | **Kanban** | Not used as a module or directory name. Retained only in `Kanban lane` and the `KANBAN_*` variables. |
 
-### One conductor
+### One conductor, six stages, no intermediate abstractions
 
-Sequencing lives in `Orchestrator.ps1`. A stage file contains its own stage and nothing else.
+`Orchestrator.ps1` holds the six stages in order and sequences them. A stage file contains its own stage and nothing else. There is no second conductor and no named sub-sequence.
 
-This is violated today. `Invoke-Alignment` sequences `refine → architect → plan` from inside `Refine.ps1`, so the Orchestrator conducts only three of the six stages — the same defect this ADR opens with, one level down.
+This is violated today: `Invoke-Alignment` sequences `refine → architect → plan` from inside `Refine.ps1`, so the Orchestrator conducts only three of six stages. `Invoke-Alignment` is **deleted**, not renamed — a wrapper around "run the first three stages" earns nothing over the orchestrator simply running them.
 
-`Invoke-Alignment` is renamed and moved to `Orchestrator.ps1` in PR 2. `Refine.ps1` keeps `Invoke-Refine` only. The two sequences it then holds are:
+```powershell
+# Orchestrator.ps1
+$Stages = 'refine', 'architect', 'plan', 'implement', 'review', 'ship'
 
-| Function | Sequences | Produces |
-|---|---|---|
-| `Invoke-Readiness` | `refine → architect → plan` | `agent:backlog`, or `agent:failed` with `failed_at` |
-| `Invoke-Orchestration` | `implement → review → ship` | `agent:shipped`, or a hold at `agent:reviewing` |
+function Invoke-Orchestration {
+    param([int]$IssueNumber, [ValidateSet('refine','implement')] [string]$From)
+    # 'refine'    → runs refine, architect, plan; stops at agent:backlog
+    # 'implement' → runs implement, review, ship
+}
+```
+
+The stop after `plan` is ADR-014's gate — "ready" is not "go" — expressed as where the sequence ends rather than as a separate function. `-From` takes the same values as `afk.yml`'s `stage:` input, so the workflow and the conductor read alike.
+
+`Refine.ps1` keeps `Invoke-Refine` only. Callers to update: `tasks/align.ps1`, `align.yml`.
 
 ### One word for the unit: *stage*
 
@@ -230,19 +238,19 @@ Every workflow's helpers live in the directory of the same name.
 | Old | New |
 |---|---|
 | `workflows/ci.yml` | `workflows/checks.yml` |
-| `scripts/ci/` | `scripts/checks/` |
+| `scripts/ci/` | `.github/checks/` |
 | `workflows/align.yml` + `workflows/orchestrator.yml` | `workflows/afk.yml` (merged, `stage` input) |
-| `scripts/kanban/` | `scripts/pipeline/` |
+| `scripts/kanban/` | `.github/pipeline/` (module) with `stages/`, `engines/`, `lib/` |
 | `Kanban.psd1` / `.psm1` | `Pipeline.psd1` / `.psm1` |
 | `Get-KanbanContext` | `Get-PipelineContext` |
 | `Architecture.ps1` | `Architect.ps1` |
 | `Merge.ps1` | `Ship.ps1` |
-| `Claude.ps1`, `Gemini.ps1` *(loose)* | `scripts/engines/` |
-| `scripts/tasks/align.ps1` | `scripts/tasks/refine.ps1` |
-| `scripts/tasks/runner.ps1` | `scripts/tasks/afk.ps1` |
-| `scripts/tasks/start.ps1` | `scripts/tasks/hitl.ps1` |
-| `scripts/tasks/sync-issues.ps1` | `scripts/tasks/sync.ps1` |
-| `scripts/setup-branch-protection.ps1` | `scripts/tasks/protect.ps1` |
+| `Claude.ps1`, `Gemini.ps1` *(loose)* | `pipeline/engines/` |
+| `scripts/tasks/align.ps1` | `.github/tasks/refine.ps1` |
+| `scripts/tasks/runner.ps1` | `.github/tasks/afk.ps1` |
+| `scripts/tasks/start.ps1` | `.github/tasks/hitl.ps1` |
+| `scripts/tasks/sync-issues.ps1` | `.github/tasks/sync.ps1` |
+| `scripts/setup-branch-protection.ps1` | `.github/tasks/protect.ps1` |
 | `tests/scripts/` | `tests/pipeline/` |
 | `task align` / `runner` / `start` | `task refine` / `afk` / `hitl` |
 | `AFK` / `HITL` labels | *retired* — modes are commands |
@@ -285,7 +293,7 @@ This is not a new pattern — it is what the repo already does. `orchestrator.ym
 
 What this buys: **`afk.yml` is the only workflow the pipeline needs**, and it is named for the one thing that genuinely distinguishes it — the venue. AFK is not insider jargon here; it is front-page vocabulary, with README sections titled *"5-Minute AFK Setup"* and *"AFK Issue → PR Flow"*. HITL needs no workflow at all, because local runs invoke the library directly. So `task afk` ⇒ `afk.yml`, `task hitl` ⇒ no workflow, and the asymmetry is the point rather than an inconsistency.
 
-A workflow's own helpers still live in `scripts/<workflow>/`; shared libraries get their own directory.
+Runnables a workflow invokes live in a directory named for their role (`checks/`, `tasks/`); the library lives in `pipeline/`.
 
 **3. `tasks/` has no naming rule, so two names are wrong.** `Taskfile.yml` exposes `setup, sync, align, start, runner, retry, protect`, but the files are `setup.ps1, sync-issues.ps1, align.ps1, start.ps1, runner.ps1, retry.ps1` — and `protect` reaches outside the directory entirely to `scripts/setup-branch-protection.ps1`. Adopting **one file per task target, named identically** fixes both: `sync-issues.ps1` → `sync.ps1`, and `setup-branch-protection.ps1` → `tasks/protect.ps1`. Then `task X` ⇒ `scripts/tasks/X.ps1`, with no exceptions to remember.
 
@@ -306,42 +314,53 @@ The structure is future-proof to the extent that each directory answers "where d
 
 | Directory | Grows with | Next addition lands as |
 |---|---|---|
-| `scripts/pipeline/` | pipeline stages | `<Stage>.ps1` |
-| `scripts/engines/` | LLM providers | `OpenAI.ps1` (cf. #89, cross-family critique) |
-| `scripts/checks/` | validators run by `checks.yml` | `check-<thing>.ps1` |
-| `scripts/tasks/` | CLI commands | `<task-target>.ps1` |
+| `pipeline/stages/` | pipeline stages | `<Stage>.ps1` |
+| `pipeline/engines/` | LLM providers | `OpenAI.ps1` (cf. #89, cross-family critique) |
+| `checks/` | validators run by `checks.yml` | `check-<thing>.ps1` |
+| `tasks/` | CLI commands | `<task-target>.ps1` |
 
 Each is a single question with a single answer. That is the test this structure has to pass, not tidiness.
 
 **5. Everything here ships to strangers.** `copier.yml`'s `_exclude` does not list `.github/`, so **every generated project inherits these workflows verbatim**. That is the constraint that settles naming arguments: a name has to be legible to someone who did not build this. It is also why `afk.yml` passes — AFK is documented on the front page of the README, not buried — and why `process.yml` would not: "process what?" has no answer in the filename.
+
+**7. `scripts/` is the abstract intermediate.** It groups by file *type*, not purpose — every child is scripts, so the word carries no information and costs a level of nesting. `.github/` already scopes "GitHub automation"; `scripts/` inside it says only "and these are files".
+
+Removing it leaves four purpose-named peers that read as a set: **what runs** (`workflows/`), **what it runs** (`pipeline/`), **what validates** (`checks/`), **what you type** (`tasks/`).
+
+`pipeline/` does earn its place, for a reason `scripts/` does not: it is the **module boundary**. Everything inside is dot-sourced library; everything outside it is a runnable. That is the distinction the contract test already enforces, made visible as a directory.
+
+Inside it, `stages/` puts the taxonomy in the filesystem — open it and there are exactly six files, named for the six stages.
 
 Target tree:
 
 ```
 .github/
   workflows/
+    afk.yml                 ← orchestrator.yml + align.yml merged; stage as input
     checks.yml              ← ci.yml
-    afk.yml                 ← orchestrator.yml + align.yml, merged; stage as input
     build.yml  deploy.yml  branch-protection.yml
-  scripts/
-    pipeline/               ← kanban/   shared stage library, PascalCase
-      Pipeline.psd1  Pipeline.psm1
-      Config.ps1  Util.ps1  GitHub.ps1
+  pipeline/                 ← the module; everything here is library
+    Pipeline.psd1  Pipeline.psm1
+    Orchestrator.ps1        sequences the six stages
+    stages/
       Refine.ps1  Architect.ps1  Plan.ps1
       Implement.ps1  Review.ps1  Ship.ps1
-      Orchestrator.ps1
-    engines/                ← NEW    Claude.ps1 + Gemini.ps1, previously loose
+    engines/
       Claude.ps1  Gemini.ps1
-    checks/                 ← ci/     runnable validators for checks.yml
-      check-module-map.ps1
-      verify-settings.ps1   ← rescued from the retiring harness skill
-    tasks/                  one file per Taskfile target, identically named
-      refine.ps1  afk.ps1  hitl.ps1  retry.ps1
-      setup.ps1  sync.ps1  protect.ps1
+    lib/
+      Config.ps1  Util.ps1  GitHub.ps1
+  checks/                   ← runnables, invoked by checks.yml
+    check-module-map.ps1  check-script-paths.ps1
+    verify-settings.ps1     ← rescued from the retiring harness skill
+  tasks/                    ← runnables, one per Taskfile target
+    refine.ps1  afk.ps1  hitl.ps1  retry.ps1
+    setup.ps1  sync.ps1  protect.ps1
 tests/
-  pipeline/                 ← tests/scripts/   mirrors scripts/pipeline/
-  checks/                                      mirrors scripts/checks/
+  pipeline/                 ← tests/scripts/, mirrors .github/pipeline/
+  checks/                                      mirrors .github/checks/
 ```
+
+Cost, stated plainly: this supersedes the `.github/scripts/` layout ADR-013 established, and `test_kanban_script_contract.py` hardcodes `ROOT/".github"/"scripts"` as its root — that constant changes with the move. `.github/` conventionally holds GitHub metadata rather than application directories, which is the one argument for keeping `scripts/`; it is outweighed by the fact that every directory here *is* GitHub automation.
 
 `tests/scripts/` becomes `tests/pipeline/` so the test tree mirrors the source tree the way `tests/utils/` and `tests/tools/` already mirror `src/utils/` and `src/tools/`. "Which scripts?" is not a question a directory name should leave open.
 
@@ -349,7 +368,7 @@ tests/
 
 **6. A missed path reference has no guard, and the contract test is not one.** `test_kanban_script_contract.py` discovers files with `rglob` over `.github/scripts`, so it is indifferent to which directory a file sits in. It catches a renamed *dot-sourced* file (the resolver returns nothing) but is blind to a stale directory path in a workflow or Taskfile. The only current signal for that is `Import-Module` failing on the runner — a late, expensive signal, and precisely how #154 burned a full pipeline run.
 
-This refactor therefore adds one check, `scripts/checks/check-script-paths.ps1`: every `.ps1`/`.psd1` path referenced from `.github/workflows/*.yml` and `Taskfile.yml` must exist on disk. It is a few lines, runs in milliseconds, and converts the next rename from a runtime failure into a failed check. Without it, this ADR's own execution plan is unguarded.
+This refactor therefore adds one check, `.github/checks/check-script-paths.ps1`: every `.ps1`/`.psd1` path referenced from `.github/workflows/*.yml` and `Taskfile.yml` must exist on disk. It is a few lines, runs in milliseconds, and converts the next rename from a runtime failure into a failed check. Without it, this ADR's own execution plan is unguarded.
 
 ### Deliberately not renamed
 
@@ -411,8 +430,8 @@ Not a single find-and-replace. Six ordered PRs, each independently reviewable an
 | # | Scope | Why this order |
 |---|---|---|
 | 1 | **Labels** — `agent:review` → `agent:reviewing`, `agent:merged` → `agent:shipped` via `gh label edit`; `agent:implementing` kept (its stale *"(refine + develop)"* description corrected). Plus the `setup.ps1` provisioning list and the `Set-AgentState` / `Test-Readiness` constants. | State names are referenced by everything downstream, so later PRs get written against the final vocabulary. `edit` preserves issue associations; recreating would drop them. |
-| 2 | **Library** — `scripts/kanban/` → `scripts/pipeline/`, `Kanban.ps*` → `Pipeline.ps*`, `Get-KanbanContext` → `Get-PipelineContext`, `Architecture.ps1` → `Architect.ps1`, `Merge.ps1` → `Ship.ps1`, `tests/scripts/` → `tests/pipeline/`, the `Import-Module` absolute paths in both workflows — **and move `Invoke-Alignment` out of `Refine.ps1` into `Orchestrator.ps1` as `Invoke-Readiness`**. | The largest mechanical change, plus the one structural fix: sequencing belongs to the Orchestrator, stage files hold only their own stage. Callers to update: `tasks/align.ps1`, `align.yml`. |
-| 3 | **Structure + the missing guard** — create `scripts/engines/` and move `Claude.ps1` + `Gemini.ps1` into it; `scripts/ci/` → `scripts/checks/`; add `scripts/checks/check-script-paths.ps1` and wire it into `checks.yml`. | Pure moves, plus the guard that makes PR 4 safe. The guard must exist *before* the workflow and task renames, not after. |
+| 2 | **Library** — `.github/scripts/kanban/` → `.github/pipeline/` with `stages/`, `engines/`, `lib/`; `Kanban.ps*` → `Pipeline.ps*`; `Get-KanbanContext` → `Get-PipelineContext`; `Architecture.ps1` → `Architect.ps1`; `Merge.ps1` → `Ship.ps1`; `tests/scripts/` → `tests/pipeline/`; the `Import-Module` absolute paths in both workflows; the `ROOT/".github"/"scripts"` constant in `test_kanban_script_contract.py` — **and delete `Invoke-Alignment`, folding refine/architect/plan into `Invoke-Orchestration -From refine`**. | The largest mechanical change, plus the structural fix: one conductor, six stages, no intermediate wrapper. Callers to update: `tasks/align.ps1`, `align.yml`. |
+| 3 | **Structure + the missing guard** — create `pipeline/engines/` and move `Claude.ps1` + `Gemini.ps1` into it; `scripts/ci/` → `.github/checks/`; add `scripts/checks/check-script-paths.ps1` and wire it into `checks.yml`. | Pure moves, plus the guard that makes PR 4 safe. The guard must exist *before* the workflow and task renames, not after. |
 | 4 | **Workflows + tasks** — `ci.yml` → `checks.yml`; **merge `align.yml` into `orchestrator.yml` → `afk.yml`** with `stage: [refine, implement, ship]`; `tasks/{align,runner,start}.ps1` → `{refine,afk,hitl}.ps1`; `sync-issues.ps1` → `sync.ps1`; `setup-branch-protection.ps1` → `tasks/protect.ps1`; `Taskfile.yml` targets aligned 1:1 with filenames. | Depends on PRs 2–3. Now guarded: a stale path fails a check instead of a runner. The workflow merge is the riskiest step here — it changes triggers, so verify each of the three entry paths (issue opened, dispatch per stage, `agent:reviewing` label) fires once and only once. |
 | 5 | **Execution modes** — retire the `AFK` / `HITL` labels; add `human:approval` and `human:decision`; drop the `HITL and not AFK` condition in the gate and rewrite the hold gate's label check; record `failed_at` / `failed_reason` in the carrier and teach `task retry` to resume from it. | The only behavioural change in the sequence. It deserves its own review rather than being buried in a rename, and it supersedes the merge-hold mechanism from #195 — which was never exercised end-to-end, so there is no working behaviour to regress. |
 | 6 | **Skill tree** — rename `architecture/` → `architect/` and `tdd/` → `implement/`; retire `harness/` (content to `docs/HARNESS.md`, `verify-settings.ps1` to `scripts/checks/`); fix the **"Interfaces with" cross-references in all 27 skill files** that name a renamed or retired skill; rename `tests/scripts/test_grill_harness.py`. | Touches the Copier-propagated skill tree, so it lands once the pipeline is stable. The cross-references are the hidden bulk — every `SKILL.md` declares what it interfaces with by name, so a rename that stops at directory level leaves 27 files lying. |
