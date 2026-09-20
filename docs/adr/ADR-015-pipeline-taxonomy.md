@@ -8,7 +8,7 @@ applies_to: all
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
