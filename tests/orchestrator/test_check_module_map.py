@@ -9,8 +9,7 @@ import pytest
 SCRIPT = (
     Path(__file__).parent.parent.parent
     / ".github"
-    / "scripts"
-    / "ci"
+    / "checks"
     / "check-module-map.ps1"
 )
 PWSH = shutil.which("pwsh") or "pwsh"
