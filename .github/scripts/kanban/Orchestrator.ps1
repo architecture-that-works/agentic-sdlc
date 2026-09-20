@@ -104,8 +104,17 @@ function Invoke-Orchestration {
 
         # ── review → merged ───────────────────────────────────────────────────
         Clear-IssueReviewCount -IssueNumber $IssueNumber
-        Invoke-Merge -IssueNumber $IssueNumber -PRNumber $prNum -Approved
-        Write-Log "🎉 Issue #$IssueNumber complete." -Color Green
+        $merged = Invoke-Merge -IssueNumber $IssueNumber -PRNumber $prNum -Approved
+
+        # Invoke-Merge returns $false when it holds a HITL issue at agent:review rather
+        # than merging. Report that honestly — claiming "complete" for work still
+        # awaiting a human merge is the same class of false signal as a drain run
+        # exiting 0 while the issue it processed ended agent:failed.
+        if ($false -eq $merged) {
+            Write-Log "⏸ Issue #$IssueNumber implemented and held at review — merge PR #$prNum to complete." -Color Yellow
+        } else {
+            Write-Log "🎉 Issue #$IssueNumber complete." -Color Green
+        }
 
     } catch {
         # ── any error → failed ────────────────────────────────────────────────

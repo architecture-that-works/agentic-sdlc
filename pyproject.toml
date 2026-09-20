@@ -3,10 +3,10 @@ name = "my-template-repo"
 version = "0.1.1"
 requires-python = "==3.13.*"
 dependencies = [
-    "anthropic>=0.116.0",
-    "msgpack>=1.2.1",
+    "anthropic>=0.121.0",
+    "msgpack>=1.2.2",
     "pip>=26.2.1",
-    "pydantic-settings>=2.14.2",
+    "pydantic-settings>=2.15.0",
 ]
 
 [project.scripts]
@@ -16,12 +16,13 @@ codebase-map = "src.tools.codebase_map:main"
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
-    "pyright>=1.1.411",
-    "ruff>=0.16.0",
+    "pyright>=1.1.414",
+    "ruff>=0.16.8",
     "pytest-cov>=7.1.0",
     "pip-audit>=2.10.1",
-    "copier>=9.17.0",
-    "pre-commit>=4.6.1",
+    "copier>=9.18.2",
+    "pre-commit>=4.6.2",
+    "hypothesis>=6.163.0",
 ]
 
 [build-system]
