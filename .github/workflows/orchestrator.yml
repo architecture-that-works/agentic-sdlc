@@ -65,7 +65,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      MY_TEMPLATE_REPO_GCLOUD_JSON: ${{ secrets.MY_TEMPLATE_REPO_GCLOUD_JSON }}
+      AGY_OAUTH_TOKEN: ${{ secrets.AGY_OAUTH_TOKEN }}
       KANBAN_ENGINE: ${{ vars.KANBAN_ENGINE || 'claude' }}
       # Default branch from the event payload — lets Config.ps1 resolve it with
       # zero API cost (no `gh repo view`, which is GraphQL-bound). See memory
@@ -92,17 +92,6 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GH_TOKEN }}
-
-      - name: Setup Google ADC
-        if: env.MY_TEMPLATE_REPO_GCLOUD_JSON != ''
-        shell: bash
-        run: |
-          printf "%s" "$MY_TEMPLATE_REPO_GCLOUD_JSON" > $HOME/adc.json
-          sed -i '1s/^\xef\xbb\xbf//' $HOME/adc.json
-          jq . $HOME/adc.json > /dev/null
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$HOME/adc.json" >> $GITHUB_ENV
-          AGY_TOKEN=$(gcloud auth application-default print-access-token || echo "")
-          if [ -n "$AGY_TOKEN" ]; then echo "AGY_OAUTH_TOKEN=$AGY_TOKEN" >> $GITHUB_ENV; fi
 
       - name: Install tooling (hosted runner)
         if: vars.KANBAN_RUNNER_PROFILE != 'self-hosted'
@@ -213,7 +202,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      MY_TEMPLATE_REPO_GCLOUD_JSON: ${{ secrets.MY_TEMPLATE_REPO_GCLOUD_JSON }}
+      AGY_OAUTH_TOKEN: ${{ secrets.AGY_OAUTH_TOKEN }}
       GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
       # Invoke-Merge → Set-AgentState/Move-ToLane needs the board vars (as env).
@@ -231,17 +220,6 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GH_TOKEN }}
 
-      - name: Setup Google ADC
-        if: env.MY_TEMPLATE_REPO_GCLOUD_JSON != ''
-        shell: bash
-        run: |
-          printf "%s" "$MY_TEMPLATE_REPO_GCLOUD_JSON" > $HOME/adc.json
-          sed -i '1s/^\xef\xbb\xbf//' $HOME/adc.json
-          jq . $HOME/adc.json > /dev/null
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$HOME/adc.json" >> $GITHUB_ENV
-          AGY_TOKEN=$(gcloud auth application-default print-access-token || echo "")
-          if [ -n "$AGY_TOKEN" ]; then echo "AGY_OAUTH_TOKEN=$AGY_TOKEN" >> $GITHUB_ENV; fi
-
       - name: Tooling (git identity + Claude/Gemini for the CONTEXT.md update)
         shell: bash
         run: |
@@ -252,12 +230,12 @@ jobs:
           if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
             sudo npm install -g @anthropic-ai/claude-code
           fi
-          if [ -n "$MY_TEMPLATE_REPO_GCLOUD_JSON" ]; then
+          if [ -n "$AGY_OAUTH_TOKEN" ]; then
             curl -fsSL https://antigravity.google/cli/install.sh | bash
             echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
           fi
-          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -z "$MY_TEMPLATE_REPO_GCLOUD_JSON" ]; then
-            echo "::notice::Neither CLAUDE_CODE_OAUTH_TOKEN nor MY_TEMPLATE_REPO_GCLOUD_JSON set — engines not installed; post-merge CONTEXT.md update will be skipped."
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -z "$AGY_OAUTH_TOKEN" ]; then
+            echo "::notice::Neither CLAUDE_CODE_OAUTH_TOKEN nor AGY_OAUTH_TOKEN set — engines not installed; post-merge CONTEXT.md update will be skipped."
           fi
 
       - name: Merge approved PR via the Kanban library
