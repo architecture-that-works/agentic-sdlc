@@ -222,7 +222,19 @@ function Invoke-CommitAndPR {
     # turned every push failure into a useless generic "git push failed" —
     # observed when issue #42 modified .github/workflows/ci.yml and the PAT
     # lacked the `workflow` scope; the real GitHub error never made it to logs.
-    $pushOut = git push --quiet origin HEAD 2>&1 | Out-String
+    #
+    # When origin already has this branch, push under a lease. A resumed retry or an
+    # implement-time rebase (see Invoke-Implement) both leave HEAD unable to
+    # fast-forward, which is what rejected issue #154's push outright. The lease still
+    # refuses to overwrite commits this clone has not seen, so it is not a blind
+    # --force; Merge.ps1 has used the same guard on its post-rebase push all along.
+    # A brand-new branch has no remote-tracking ref for a lease to compare against,
+    # so it takes the plain push.
+    if (Test-RemoteBranch -Branch $Branch) {
+        $pushOut = git push --force-with-lease --quiet origin "HEAD:refs/heads/$Branch" 2>&1 | Out-String
+    } else {
+        $pushOut = git push --quiet origin "HEAD:refs/heads/$Branch" 2>&1 | Out-String
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "git push failed for branch ${Branch}:`n$($pushOut.Trim())"
     }
@@ -288,6 +300,31 @@ function Invoke-Implement {
         Write-Log "  Creating feature branch for issue #$IssueNumber..." -Color DarkGray
         Add-Comment -Number $IssueNumber -Body "· picked up — branch ``$expectedBranch``"
         $branch = New-FeatureBranch -Number $IssueNumber -Title $meta.title
+    }
+
+    # Reconcile with the default branch BEFORE writing code, not only at merge time.
+    # Invoke-Merge rebases too (Merge.ps1), but by then the agent has finished and a
+    # conflict lands on a human — PR #175 sat seven weeks and acquired a pyproject.toml
+    # conflict that had to be resolved by hand. Rebasing here means drift surfaces
+    # while the agent is still in the loop, and the implementation is written against
+    # current main rather than a stale snapshot.
+    #
+    # A freshly-created branch is already at origin/<default>, so the rebase
+    # short-circuits on the merge-base check and costs nothing. Only resumed branches
+    # do real work here.
+    #
+    # The dirty-tree check matters for local runs: when the caller is ALREADY on the
+    # feature branch, New-FeatureBranch (and its auto-stash) never ran, so `task start`
+    # from a branch with uncommitted work would otherwise hit a hard
+    # "cannot rebase: You have unstaged changes". Skipping is safe — Invoke-Merge still
+    # rebases before merging, so this is an earlier opportunity, not the only one.
+    if (Test-RemoteBranch -Branch $branch) {
+        $dirtyTree = git status --porcelain 2>$null
+        if ($dirtyTree) {
+            Write-Log "  Working tree has uncommitted changes — skipping implement-time rebase (merge will still rebase)." -Color Yellow
+        } else {
+            Invoke-RebaseOnMaster -IssueNumber $IssueNumber -Branch $branch
+        }
     }
 
     if (-not $Force) {

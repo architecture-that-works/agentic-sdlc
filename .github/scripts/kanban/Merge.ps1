@@ -208,6 +208,36 @@ function Invoke-Merge {
 
     Write-Log "▶ Merge — issue #$IssueNumber / PR #$PRNumber" -Color Cyan
 
+    # ── Human-approval hold ───────────────────────────────────────────────────
+    # An issue carrying HITL is implemented autonomously but never auto-merged: it
+    # stops here at agent:review so a human merges the PR deliberately. Governance
+    # files (CONTEXT.md, CODEOWNERS, SECURITY.md) land this way — the agent's own
+    # self-review cannot be the last word on the rules it will subsequently be bound
+    # by, and branch protection is not available on this repository to enforce it.
+    #
+    # This gate lives in Invoke-Merge rather than in Invoke-Orchestration on purpose:
+    # orchestrator.yml's label-triggered `merge` job calls Invoke-Merge directly on
+    # agent:review, so a gate placed only in the orchestrator would be bypassed by
+    # the very label this sets. -Force overrides, for a deliberate manual merge.
+    if (-not $Force) {
+        $hitlMeta   = gh issue view $IssueNumber --repo $KanbanRepo --json labels | ConvertFrom-Json
+        $hitlLabels = @($hitlMeta.labels.name)
+        if ($hitlLabels -contains 'HITL') {
+            # Idempotent: setting agent:review fires an `issues: labeled` event, which
+            # triggers orchestrator.yml's merge job, which calls straight back into this
+            # function. Without this check that second pass posts a duplicate hold
+            # comment on every issue. Re-entry is harmless — it just has nothing to do.
+            if ($hitlLabels -contains 'agent:review') {
+                Write-Log "⏸ Issue #$IssueNumber already held at agent:review — nothing to do." -Color DarkGray
+                return $false
+            }
+            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:review'
+            Add-Comment -Number $IssueNumber -Body "🤖⏸ Held for human approval`n`nPR #$PRNumber is implemented and self-reviewed, but this issue is labelled ``HITL`` — it is not auto-merged. Review the diff and merge PR #$PRNumber yourself, or re-run merge with ``-Force`` to override."
+            Write-Log "⏸ Issue #$IssueNumber is HITL — held at agent:review. PR #$PRNumber awaits human merge." -Color Yellow
+            return $false
+        }
+    }
+
     # The orchestrator passes -Approved after its own review stage approves
     # (run.ps1 "merges on first approval"); only re-derive approval from GitHub
     # state for standalone/manual merges that did not go through that review.
@@ -318,21 +348,24 @@ function Invoke-Merge {
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:merged'
     Add-Comment -Number $IssueNumber -Body "🤖✅ Merged`n`nPR #$PRNumber squash-merged. Issue closed."
 
+    # From here the merge has already happened, so every exit returns $true — the
+    # CONTEXT.md update is best-effort and its failure must not read as "not merged".
     $default = $KanbanDefaultBranch
     git checkout --quiet $default
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Could not switch to $default after merge — context update skipped." -Color Yellow
-        return
+        return $true
     }
     git fetch --quiet origin $default 2>$null
     git reset --hard --quiet "origin/$default" 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Could not sync $default with origin — context update skipped." -Color Yellow
-        return
+        return $true
     }
 
     Invoke-ContextUpdate -IssueNumber $IssueNumber
 
     Write-Log "✅ Merged PR #$PRNumber — issue #$IssueNumber complete." -Color Green
+    return $true
 }
 
