@@ -11,6 +11,12 @@ Prevents trial-and-error debugging by enforcing a structured fault-isolation pro
 
 **Primary artifact:** A written root-cause statement with supporting evidence, ready to hand off to `tdd` for the fix.
 
+See [REFERENCE.md](REFERENCE.md) for mechanism-level guidance on each of the six Core Pattern
+steps — full-trace capture, symptom-vs-root-cause heuristics, hypothesis ranking algorithm,
+minimal-reproduction narrowing commands, and the root-cause statement template. See
+[EXAMPLES.md](EXAMPLES.md) for two worked diagnoses running all six steps to a root-cause
+statement (a test failure and a CI/workflow failure).
+
 ## Scope
 
 **Owns:** Structured fault-isolation protocol, hypothesis-driven debugging, error-reading discipline, minimal reproduction procedure, symptom-vs-root-cause distinction.

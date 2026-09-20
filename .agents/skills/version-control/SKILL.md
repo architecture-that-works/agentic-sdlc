@@ -11,6 +11,11 @@ Enforces consistent branch, commit, and PR conventions so that every piece of wo
 
 **Primary artifact:** Linked branch → commit(s) → PR tied to a GitHub Issue.
 
+See [REFERENCE.md](REFERENCE.md) for the branch-naming grammar, conventional-commit format
+specification, PR creation flag reference, and worktree lifecycle detail. See
+[EXAMPLES.md](EXAMPLES.md) for worked end-to-end patterns (feature branch from issue to
+squash-merge, a conventional-commit series, and a worktree-isolated fix branch).
+
 ## Scope
 
 **Owns:** Branch naming convention, commit message format, PR creation with issue auto-close (`Closes #N`), GitHub CLI (`gh`) command patterns, agent-driven automation of the branch → commit → PR flow, worktree creation for isolated fix branches.
