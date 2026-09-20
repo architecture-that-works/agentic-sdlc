@@ -42,6 +42,36 @@ Separately, the `HITL` label is overloaded across three unrelated concerns: the 
 
 Chosen: **Option B.**
 
+### Definitions
+
+| Term | Definition |
+|---|---|
+| **Stage** | One of the six units of work an issue passes through: `refine`, `architect`, `plan`, `implement`, `review`, `ship`. Each stage has one skill and one library script of the same name. Three carry a label. |
+| **Lane** | A column on the GitHub Project board. There are four: Backlog, Implementing, Review, Shipped. A lane holds work; a stage does work. |
+| **Method** | How a stage is carried out. TDD is the method of `implement`. A stage may change method without changing its name. |
+| **Pipeline** | The PowerShell module at `.github/scripts/pipeline/`. It runs the stages. Imported as `Pipeline`; run context comes from `Get-PipelineContext`. |
+| **Engine** | An LLM provider adapter in `.github/scripts/engines/`. One file per provider: `Claude.ps1`, `Gemini.ps1`. Selected by the `KANBAN_ENGINE` variable. |
+| **Check** | A validator in `.github/scripts/checks/`, run by `checks.yml`. Named `check-<thing>.ps1`. |
+| **Task** | A command in `Taskfile.yml`. Each target `X` is backed by `.github/scripts/tasks/X.ps1`, named identically. |
+| **Skill** | A constraint document at `.agents/skills/<name>/SKILL.md`, with optional `REFERENCE.md`, `EXAMPLES.md` and `scripts/`. |
+| **Library** | A PowerShell file dot-sourced by the module loader. PascalCase. Declares no top-level `param()`. |
+| **Runnable** | A PowerShell file invoked directly. lowercase. Owns its `param()`. |
+| **Carrier** | The GitHub issue body. Holds the AGENT-STATE block, `open_questions[]`, `decided_questions[]`, `failed_at`, and the Architecture Impact, Implementation Plan and Agent Brief sections. |
+| **AFK** | Execution mode: unattended, on GitHub Actions. Entry point `task afk`, workflow `afk.yml`. The default. |
+| **HITL** | Execution mode: interactive, on the local machine. Entry point `task hitl`. Has no workflow. |
+| **`agent:`** | Label prefix. The agent holds the ball. Exactly one `agent:` label at a time. |
+| **`human:`** | Label prefix. A human holds the ball; nothing advances until they act. |
+
+### Terms not used
+
+| Term | Status |
+|---|---|
+| **Step** | Not used for pipeline units. GitHub Actions defines `steps:` in every workflow file. |
+| **Phase** | Not used. Superseded by *stage*. |
+| **Alignment** | Not used. The pre-backlog gate is the `refine` stage. |
+| **Kanban** | Not used as a module or directory name. Retained only in `Kanban lane` and the `KANBAN_*` variables. |
+| **Orchestrator** | Retained for `Orchestrator.ps1`, which conducts the stages. Not a synonym for the pipeline. |
+
 ### One word for the unit: *stage*
 
 The repo currently uses three words for the same thing — `phase` (11 occurrences), `step` (8) and `stage` (8). This ADR standardises on **stage**, for three reasons: `orchestrator.yml` already exposes it as a machine-readable `stage:` input; "stage gate" is the established term for a checkpoint in an engineering process; and **`step` is disqualified outright** because GitHub Actions uses `steps:` natively in every workflow file, so reusing it for our concept would be ambiguous exactly where people read YAML.
