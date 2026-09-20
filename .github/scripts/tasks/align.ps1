@@ -29,8 +29,8 @@
 param([int]$Issue = 0)
 
 $ErrorActionPreference = 'Stop'
-Import-Module "$PSScriptRoot\..\kanban\Kanban.psd1" -Force
-$KanbanRepo = (Get-KanbanContext).Repo
+Import-Module "$PSScriptRoot\..\..\orchestrator\Orchestrator.psd1" -Force
+$KanbanRepo = (Get-OrchestratorContext).Repo
 
 if ($Issue -gt 0) {
     Invoke-Alignment -IssueNumber $Issue

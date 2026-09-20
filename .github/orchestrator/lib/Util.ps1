@@ -128,7 +128,7 @@ function Format-ErrorBlock {
 # ── Engine Readiness Validation ───────────────────────────────────────────────
 
 function Assert-EngineReady {
-    $ctx = Get-KanbanContext
+    $ctx = Get-OrchestratorContext
     if ($ctx.Engine -eq 'gemini') {
         Write-Log "  Verifying Gemini (agy) authentication..." -Color DarkGray
         $out = "ping" | agy --model gemini-3.5-flash 2>&1 | Out-String

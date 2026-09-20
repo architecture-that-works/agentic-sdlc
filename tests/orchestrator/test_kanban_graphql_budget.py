@@ -1,4 +1,4 @@
-"""Regression guards for the kanban orchestrator's GraphQL budget.
+"""Regression guards for the orchestrator's GraphQL budget.
 
 The orchestrator is GraphQL-bound: `gh issue/pr/project/repo` calls hit GitHub's
 GraphQL API (5000 pts/hr), which throttles separately from REST (also 5000/hr,
@@ -14,17 +14,22 @@ pwsh/gh needed) so they run on every CI runner.
 import re
 from pathlib import Path
 
-KANBAN = Path(__file__).parents[2] / ".github" / "scripts" / "kanban"
+MODULE = Path(__file__).parents[2] / ".github" / "orchestrator"
 CONFIG = (
-    KANBAN / "Config.ps1"
+    MODULE / "lib" / "Config.ps1"
 )  # repo slug + default branch resolution (the fallback site)
-GITHUB = KANBAN / "GitHub.ps1"  # labels, agent state, board
+GITHUB = MODULE / "lib" / "GitHub.ps1"  # labels, agent state, board
 WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "orchestrator.yml"
 
 # Library scripts that run inside a drain and must never resolve the default
 # branch via GraphQL. Config.ps1 is the one place a guarded last-resort fallback
 # is allowed (see test_config_gh_repo_view_only_guarded_fallback).
-STAGE_SCRIPTS = [p for p in KANBAN.glob("*.ps1") if p.name != "Config.ps1"]
+STAGE_SCRIPTS = [
+    p
+    for p in list((MODULE / "stages").glob("*.ps1"))
+    + list((MODULE / "lib").glob("*.ps1"))
+    if p.name != "Config.ps1"
+]
 
 
 def _code_lines(path: Path) -> list[str]:
@@ -46,7 +51,7 @@ def _code(path: Path) -> str:
 
 
 def test_no_gh_repo_view_in_stage_scripts() -> None:
-    assert STAGE_SCRIPTS, "no kanban library scripts found — wrong path?"
+    assert STAGE_SCRIPTS, "no orchestrator library scripts found — wrong path?"
     offenders = {
         p.name: [ln for ln in _code_lines(p) if "gh repo view" in ln]
         for p in STAGE_SCRIPTS
@@ -97,8 +102,8 @@ def test_scripts_reference_cached_default_branch() -> None:
     """The scripts that previously called `gh repo view` now read the cached
     default branch — the `$KanbanDefaultBranch` constant (phases) or the run
     context (`$ctx.DefaultBranch`, Orchestrator.ps1; see ADR-013)."""
-    for name in ("Implement.ps1", "Merge.ps1", "Orchestrator.ps1"):
-        code = _code(KANBAN / name)
+    for name in ("stages/Implement.ps1", "stages/Ship.ps1", "Orchestrator.psm1"):
+        code = _code(MODULE / name)
         assert "DefaultBranch" in code, (
             f"{name} should resolve the default branch from the cache "
             f"($KanbanDefaultBranch or $ctx.DefaultBranch), not `gh repo view`"

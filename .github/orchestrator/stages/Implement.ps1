@@ -312,7 +312,7 @@ function Invoke-Implement {
     }
 
     # Reconcile with the default branch BEFORE writing code, not only at merge time.
-    # Invoke-Merge rebases too (Merge.ps1), but by then the agent has finished and a
+    # Invoke-Ship rebases too (Merge.ps1), but by then the agent has finished and a
     # conflict lands on a human — PR #175 sat seven weeks and acquired a pyproject.toml
     # conflict that had to be resolved by hand. Rebasing here means drift surfaces
     # while the agent is still in the loop, and the implementation is written against
@@ -325,7 +325,7 @@ function Invoke-Implement {
     # The dirty-tree check matters for local runs: when the caller is ALREADY on the
     # feature branch, New-FeatureBranch (and its auto-stash) never ran, so `task start`
     # from a branch with uncommitted work would otherwise hit a hard
-    # "cannot rebase: You have unstaged changes". Skipping is safe — Invoke-Merge still
+    # "cannot rebase: You have unstaged changes". Skipping is safe — Invoke-Ship still
     # rebases before merging, so this is an earlier opportunity, not the only one.
     if (Test-RemoteBranch -Branch $branch) {
         $dirtyTree = git status --porcelain 2>$null

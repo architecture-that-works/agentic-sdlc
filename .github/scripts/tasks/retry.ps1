@@ -20,7 +20,7 @@
 param([int]$Issue = 0)
 
 $ErrorActionPreference = 'Stop'
-Import-Module "$PSScriptRoot\..\kanban\Kanban.psd1" -Force
+Import-Module "$PSScriptRoot\..\..\orchestrator\Orchestrator.psd1" -Force
 
 if ($Issue -eq 0) { throw "ISSUE is required. Usage: task retry ISSUE=N" }
 

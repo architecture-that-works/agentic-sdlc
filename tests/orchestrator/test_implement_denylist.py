@@ -1,4 +1,4 @@
-"""Tests for the denylist guard in .github/scripts/kanban/implement.ps1.
+"""Tests for the denylist guard in .github/orchestrator/implement.ps1.
 
 The denylist blocks sensitive file names (*.key, *.pem, *.pfx, *secret*,
 *credential*) from being staged, but exempts all paths under docs/adr/ so that

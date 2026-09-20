@@ -445,6 +445,33 @@ TDD loses no prominence: it remains the sanctioned way code is written, stated i
 * **Copier template parity.** Any path reference inside `.jinja2` files or `copier.yml` must be updated; the parity guard from #192 covers dependencies, not paths.
 * A find-and-replace across the repo is **not** sufficient on its own: directory moves, label edits via API, and the ADR exemption all need doing deliberately.
 
+## Implementation status
+
+Living checklist. Update as each PR lands — this is the durable record of where the refactor stands.
+
+- [x] **PR 0** — ADR-015 (#198). Status Accepted.
+- [x] **PR 1** — Labels (#199). `agent:review`→`agent:reviewing`, `agent:merged`→`agent:shipped`, `human:approval`/`human:decision` provisioned, two stale descriptions corrected. Live renames applied with `gh label edit --name`; all 60 issue associations verified preserved, zero orphaned names.
+- [ ] **PR 2** — Library → `.github/orchestrator/`
+- [ ] **PR 3** — `checks/` + `check-script-paths.ps1` + `check-module-api.ps1`
+- [ ] **PR 4** — Workflows → `afk.yml`, `checks.yml`; `tasks/` 1:1 with Taskfile
+- [ ] **PR 5** — Execution modes: retire `AFK`/`HITL` labels, wire `human:*`, `failed_at`
+- [ ] **PR 6** — Skill tree: `architect/`, `implement/`, retire `harness/`
+- [ ] **PR 7** — Docs: README, `docs/SKILLS.md`, `AGENTS.md`, `CONTEXT.md` Glossary, `ISSUES.md`
+
+**Manual steps (live state no PR can carry)**
+
+- [ ] Rename the Project board column `Merged` → `Shipped`. `KANBAN_OPT_MERGED` keeps its option ID, so nothing breaks while this lags.
+
+**Open decisions**
+
+- PR 2: `_grill.ps1` is dot-sourced by *both* the module loader and the refine skill's own `grill.ps1`. Decide whether the skill imports the module instead, or the file stays dual-consumed — the export list and the skill's path both depend on it.
+
+**Carried threads, tracked separately from this refactor**
+
+- Orchestrator reliability: a drain run was cancelled mid-sequence despite `cancel-in-progress: false`; and a drain reported `conclusion=success` while its issue ended `agent:failed` (the drain step is `if: always()` and its guard only tests for `agent:backlog`).
+- Self-review approved two changes CI then rejected (#154, #192) — it reads the diff but never executes it.
+- Housekeeping: abandoned orchestrator auto-stashes; dependabot PRs #187, #188, and #166 (needs a `requires-python` decision, not a merge).
+
 ## Execution plan
 
 Not a single find-and-replace. Six ordered PRs, each independently reviewable and each leaving `main` green:

@@ -4,7 +4,7 @@ Two complementary surfaces are exercised:
 
 1. ``src/utils/m_planning.py`` — the pydantic contract for the on-issue JSON
    block. Asserts that the model round-trips to/from JSON without data loss.
-2. ``.github/scripts/kanban/_common.ps1`` § Test-StateTransition — the 4-lane
+2. ``.github/orchestrator/_common.ps1`` § Test-StateTransition — the 4-lane
    FSM guard. Asserts every allowed transition succeeds and every disallowed
    pair raises an error.
 
@@ -45,7 +45,7 @@ pytestmark_ps = pytest.mark.skipif(
     reason="pwsh not available",
 )
 
-# Mirrors the allowed-transitions table from .github/scripts/kanban/_common.ps1.
+# Mirrors the allowed-transitions table from .github/orchestrator/_common.ps1.
 # Keep this snippet in lock-step with the production table — both are the
 # 4-lane FSM contract and any divergence is a bug.
 _FSM_SNIPPET = """\

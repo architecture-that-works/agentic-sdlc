@@ -1,4 +1,4 @@
-"""Tests for the Plan step (.github/scripts/kanban/Plan.ps1).
+"""Tests for the Plan stage (.github/orchestrator/stages/Plan.ps1).
 
 Covers the four business rules that must not regress:
 
@@ -14,7 +14,7 @@ Covers the four business rules that must not regress:
 
 Plan.ps1 is a module-internal library (ADR-013) — it carries no top-level
 param() block and is not dot-sourced standalone. Each test group imports the
-Kanban module ONCE per pwsh spawn and exercises all scenarios for a given
+orchestrator module ONCE per pwsh spawn and exercises all scenarios for a given
 function family in that single process, cutting cold-start overhead from one
 import per assertion to one import per family (~6 total).
 """
@@ -27,7 +27,7 @@ import pytest
 
 PWSH = shutil.which("pwsh") or "pwsh"
 REPO_ROOT = Path(__file__).parent.parent.parent
-MODULE = REPO_ROOT / ".github" / "scripts" / "kanban" / "Kanban.psd1"
+MODULE = REPO_ROOT / ".github" / "orchestrator" / "Orchestrator.psd1"
 
 pytestmark = pytest.mark.skipif(
     not shutil.which("pwsh"),
@@ -49,15 +49,27 @@ def _ps(script: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str
 
 def _import_prelude() -> str:
     """Set GITHUB_REPOSITORY + GITHUB_DEFAULT_BRANCH so Config.ps1 resolves the
-    repo/default-branch without invoking gh/git, then import the Kanban module so
-    the exported Plan functions are callable."""
-    # -DisableNameChecking suppresses the benign "unapproved verbs" warning
-    # (Acquire-/Release- etc.) that would otherwise pollute captured stdout and
-    # break the exact-match assertions below.
+    repo/default-branch without invoking gh/git, then run the body inside the module's own session state.
+
+    The functions exercised below (Get-KeyTerms,
+    Format-PrdSection, …) are *internal* to the module: ADR-015 declares an
+    explicit FunctionsToExport listing only the ~17 functions called from outside,
+    so they are correctly private and not reachable via Import-Module. Widening
+    the public API to satisfy tests is how an export list decays back to '*'.
+
+    `& (Get-Module Orchestrator) { ... }` is PowerShell's documented way to execute
+    inside a module's session state, so the body sees both the private functions and
+    the module-scoped variables they read ($KanbanPrdBeginMarker and friends).
+    Dot-sourcing was tried and does not work: a .psm1 does not populate the caller's
+    scope, and sourcing Plan.ps1 alone resolves the functions but not their data.
+
+    Each call site closes the block by appending "}" (see `_ps(script + "}\n")`).
+    """
     return (
         f"$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
         f"$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
         f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        f"& (Get-Module Orchestrator) {{\n"
     )
 
 
@@ -107,7 +119,7 @@ def test_key_terms_batch() -> None:
         + "$r4 = Get-PlanKeyTerms -Title 'alpha beta gamma delta epsilon zeta eta theta' -Top 3\n"
         + 'Write-Output "__CASE__top_cap=$($r4.Count)"\n'
     )
-    result = _ps(script)
+    result = _ps(script + "}\n")
     assert result.returncode == 0, result.stderr
     cases = _parse_cases(result.stdout)
 
@@ -175,7 +187,7 @@ def test_out_of_scope_overlap_batch(tmp_path: Path) -> None:
         + " -KeyTerms @('plan')\n"
         + 'Write-Output "__CASE__word_boundary=$($h4.Count)"\n'
     )
-    result = _ps(script)
+    result = _ps(script + "}\n")
     assert result.returncode == 0, result.stderr
     cases = _parse_cases(result.stdout)
 
@@ -214,7 +226,7 @@ def test_narrow_blast_batch() -> None:
         + 'Write-Output "__CASE__at_risk_listing=$(Test-NarrowBlast -BlastText $t3)"\n'
         + "Write-Output \"__CASE__empty_blast=$(Test-NarrowBlast -BlastText '')\"\n"
     )
-    result = _ps(script)
+    result = _ps(script + "}\n")
     assert result.returncode == 0, result.stderr
     cases = _parse_cases(result.stdout)
 
@@ -248,7 +260,7 @@ def test_get_plan_label_batch() -> None:
         + 'Write-Output "__CASE__wide_open='
         + '$(Get-PlanLabel -NarrowBlast $false -OpenQuestionCount 5)"\n'
     )
-    result = _ps(script)
+    result = _ps(script + "}\n")
     assert result.returncode == 0, result.stderr
     cases = _parse_cases(result.stdout)
 
@@ -307,7 +319,7 @@ def test_format_child_issue_batch() -> None:
         + '$b4s = $b4 -join "`n"\n'
         + "Write-Output \"__CASE__no_estimate=$(($b4s -match 'ESTIMATE:'))\"\n"
     )
-    result = _ps(script)
+    result = _ps(script + "}\n")
     assert result.returncode == 0, result.stderr
     cases = _parse_cases(result.stdout)
 
@@ -365,7 +377,7 @@ def test_format_prd_section_batch() -> None:
         + "Format-PRDSection -Prd $prd\n"
         + "Write-Output '__END__prd'\n"
     )
-    result = _ps(script)
+    result = _ps(script + "}\n")
     assert result.returncode == 0, result.stderr
     cases = _parse_cases(result.stdout)
     body = cases.get("prd", "")

@@ -1,40 +1,77 @@
 #Requires -Version 7.0
 <#
-    Orchestrator.ps1 — drives ONE issue through the agent:* state machine.
+    Kanban — the AFK orchestrator library (ADR-013).
 
-    This is the conductor of the Kanban library. It sequences the pipeline phases
-    and records every lane transition, using the other library files as building
-    blocks:
+    Import-Module Kanban exposes the orchestration functions; the module's private
+    $Kanban* variables and any internal param() defaults stay in module scope and
+    never reach the caller, so the dot-source scope leak that once ran the pipeline
+    against issue #0 is impossible by construction.
 
-        STATE MACHINE (ADR-011 4-lane FSM)        LIBRARY CALLS
-        ─────────────────────────────────        ───────────────────────────────
-        backlog → implementing                    Set-AgentState (GitHub.ps1)
-          run implement phase                     Invoke-Implement (Implement.ps1)
-            ├─ develop → PR  (alignment already done pre-backlog)
-        implementing → review  (loop ≤ MaxRetries) Invoke-Review (Review.ps1)
-          rejected → re-implement                 Invoke-Implement
-          approved → merged                       Invoke-Merge (Merge.ps1)
-        any error / exhausted retries → failed    Set-AgentState 'agent:failed'
+    The thin trigger scripts in ../tasks/ (run/start/runner/retry) import this
+    module and call its functions — chiefly Get-OrchestratorContext and
+    Invoke-Orchestration.
 
-    Refine/Architect/Plan are NOT part of this conductor — they are the
-    pre-backlog alignment gate (Refine.ps1 / Invoke-Alignment) that grants
-    agent:backlog. This conductor processes issues that are already aligned.
+    Load order (dependencies first):
 
-    Cross-cutting helpers come from the rest of the library: the per-issue lock
-    and review counter (Util.ps1), branch + comment + lane helpers (GitHub.ps1),
-    and the run context (Config.ps1). Loaded LAST by Kanban.psm1 (after every
-    phase it calls) and exported as Invoke-Orchestration.
-
-    Processing is human-triggered: tasks/runner.ps1 dispatches orchestrator.yml
-    in the cloud (AFK drain), tasks/start.ps1 runs it locally (HITL). Both import
-    the module and call Invoke-Orchestration — they own *how* a run is triggered;
-    this file owns *what* a run does.
+        Config        settings, run context (Get-OrchestratorContext), model selection
+        Util          logging, runtime, lock, review counter, ISSUES.md reader
+        GitHub        labels, lanes, comments, board, branches, issue-body state
+        ../Claude     generic Claude helpers (Invoke-ClaudeStreaming, commit msg)
+        _grill        refine self-grill subagent (Invoke-Grill)
+        Refine        Backlog gate — Invoke-Refine + Invoke-Plan + Invoke-Alignment
+        Architecture  Backlog gate, Architect step — blast radius
+        Plan          Backlog gate, Plan decomposition — Lean PRD + child issues
+        Implement     Implementing lane — develop → PR
+        Review        Review lane — self-review loop
+        Merge         Merged lane — squash-merge → CONTEXT.md
+        Orchestrator  conducts the agent:* state machine across the lanes
 #>
+
+$ErrorActionPreference = 'Stop'
+
+# lib — settings, run context, logging, GitHub/board access
+. "$PSScriptRoot\lib\Config.ps1"
+. "$PSScriptRoot\lib\Util.ps1"
+. "$PSScriptRoot\lib\GitHub.ps1"
+
+# engines — LLM provider adapters, selected by KANBAN_ENGINE
+. "$PSScriptRoot\engines\Claude.ps1"
+. "$PSScriptRoot\engines\Gemini.ps1"
+
+# The refine stage's self-grill subagent still lives in the skill tree, so the
+# module reaches into it. That direction is wrong — the orchestrator should not
+# depend on .agents/ — but inverting it means the skill's grill.ps1 imports this
+# module instead, which is a behavioural change and belongs in its own PR. See
+# ADR-015 § Open decisions.
+. "$PSScriptRoot\..\..\.agents\skills\refine\scripts\_grill.ps1"
+
+# stages — one file per stage, in pipeline order
+. "$PSScriptRoot\stages\Refine.ps1"
+. "$PSScriptRoot\stages\Architect.ps1"
+. "$PSScriptRoot\stages\Plan.ps1"
+. "$PSScriptRoot\stages\Implement.ps1"
+. "$PSScriptRoot\stages\Review.ps1"
+. "$PSScriptRoot\stages\Ship.ps1"
+
+
+# -- The conductor ------------------------------------------------------------
+# Sequences the six stages for one issue and owns every lane transition. This is
+# the only component that decides what runs next (ADR-015).
+#
+#   -From refine     refine -> architect -> plan, stopping at agent:backlog
+#                    ("ready" is not "go" -- ADR-014)
+#   -From implement  implement -> review -> ship
+#
+# Any error, or exhausted review retries, lands the issue on agent:failed.
+#
+# There is no Export-ModuleMember call: the public surface is declared in
+# Orchestrator.psd1 FunctionsToExport, which is data rather than logic and lets
+# PowerShell resolve commands without loading the module (ADR-015).
 
 function Invoke-Orchestration {
     param([int]$IssueNumber, [int]$MaxRetries = -1, [switch]$Force)
 
-    $ctx = Get-KanbanContext               # run context: repo, default branch, retries
+    $ctx = Get-OrchestratorContext               # run context: repo, default branch, retries
     if ($MaxRetries -lt 0) { $MaxRetries = $ctx.MaxRetries }
 
     # Fail-fast engine validation
@@ -107,9 +144,9 @@ function Invoke-Orchestration {
 
         # ── review → merged ───────────────────────────────────────────────────
         Clear-IssueReviewCount -IssueNumber $IssueNumber
-        $merged = Invoke-Merge -IssueNumber $IssueNumber -PRNumber $prNum -Approved
+        $merged = Invoke-Ship -IssueNumber $IssueNumber -PRNumber $prNum -Approved
 
-        # Invoke-Merge returns $false when it holds a HITL issue at agent:reviewing rather
+        # Invoke-Ship returns $false when it holds a HITL issue at agent:reviewing rather
         # than merging. Report that honestly — claiming "complete" for work still
         # awaiting a human merge is the same class of false signal as a drain run
         # exiting 0 while the issue it processed ended agent:failed.
