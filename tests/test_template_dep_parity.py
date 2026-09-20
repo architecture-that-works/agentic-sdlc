@@ -18,6 +18,16 @@ TESTS_DIR = REPO_ROOT / "tests"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 PYPROJECT_JINJA = REPO_ROOT / "pyproject.toml.jinja2"
 
+# tests/ is copied verbatim into generated projects, which render pyproject.toml from
+# the template and so carry no pyproject.toml.jinja2. Parity is a property of the
+# template repo, not of a project produced from it — skip there rather than raising
+# FileNotFoundError and failing every generated project's suite. Absence of the
+# template file is the signal that we are running inside a generated project.
+pytestmark = pytest.mark.skipif(
+    not PYPROJECT_JINJA.exists(),
+    reason="template-only guard: generated projects have no pyproject.toml.jinja2",
+)
+
 # Maps import name -> distribution name where they differ (e.g. {"PIL": "Pillow"})
 _MODULE_TO_DIST: dict[str, str] = {}
 
