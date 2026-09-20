@@ -49,7 +49,8 @@ Chosen: **Option B.**
 | **Stage** | One of the six units of work an issue passes through: `refine`, `architect`, `plan`, `implement`, `review`, `ship`. Each stage has one skill and one library script of the same name. Three carry a label. |
 | **Lane** | A column on the GitHub Project board. There are four: Backlog, Implementing, Review, Shipped. A lane holds work; a stage does work. |
 | **Method** | How a stage is carried out. TDD is the method of `implement`. A stage may change method without changing its name. |
-| **Pipeline** | The PowerShell module at `.github/scripts/pipeline/`. It runs the stages. Imported as `Pipeline`; run context comes from `Get-PipelineContext`. |
+| **Pipeline** | The PowerShell module at `.github/scripts/pipeline/`. A library: one file per stage, plus shared helpers (`Config`, `Util`, `GitHub`). It sequences nothing. Imported as `Pipeline`; run context from `Get-PipelineContext`. |
+| **Orchestrator** | `Orchestrator.ps1`. Sequences stages for one issue and owns every lane transition. The only component that decides what runs next. |
 | **Engine** | An LLM provider adapter in `.github/scripts/engines/`. One file per provider: `Claude.ps1`, `Gemini.ps1`. Selected by the `KANBAN_ENGINE` variable. |
 | **Check** | A validator in `.github/scripts/checks/`, run by `checks.yml`. Named `check-<thing>.ps1`. |
 | **Task** | A command in `Taskfile.yml`. Each target `X` is backed by `.github/scripts/tasks/X.ps1`, named identically. |
@@ -70,7 +71,19 @@ Chosen: **Option B.**
 | **Phase** | Not used. Superseded by *stage*. |
 | **Alignment** | Not used. The pre-backlog gate is the `refine` stage. |
 | **Kanban** | Not used as a module or directory name. Retained only in `Kanban lane` and the `KANBAN_*` variables. |
-| **Orchestrator** | Retained for `Orchestrator.ps1`, which conducts the stages. Not a synonym for the pipeline. |
+
+### One conductor
+
+Sequencing lives in `Orchestrator.ps1`. A stage file contains its own stage and nothing else.
+
+This is violated today. `Invoke-Alignment` sequences `refine → architect → plan` from inside `Refine.ps1`, so the Orchestrator conducts only three of the six stages — the same defect this ADR opens with, one level down.
+
+`Invoke-Alignment` is renamed and moved to `Orchestrator.ps1` in PR 2. `Refine.ps1` keeps `Invoke-Refine` only. The two sequences it then holds are:
+
+| Function | Sequences | Produces |
+|---|---|---|
+| `Invoke-Readiness` | `refine → architect → plan` | `agent:backlog`, or `agent:failed` with `failed_at` |
+| `Invoke-Orchestration` | `implement → review → ship` | `agent:shipped`, or a hold at `agent:reviewing` |
 
 ### One word for the unit: *stage*
 
@@ -398,7 +411,7 @@ Not a single find-and-replace. Six ordered PRs, each independently reviewable an
 | # | Scope | Why this order |
 |---|---|---|
 | 1 | **Labels** — `agent:review` → `agent:reviewing`, `agent:merged` → `agent:shipped` via `gh label edit`; `agent:implementing` kept (its stale *"(refine + develop)"* description corrected). Plus the `setup.ps1` provisioning list and the `Set-AgentState` / `Test-Readiness` constants. | State names are referenced by everything downstream, so later PRs get written against the final vocabulary. `edit` preserves issue associations; recreating would drop them. |
-| 2 | **Library** — `scripts/kanban/` → `scripts/pipeline/`, `Kanban.ps*` → `Pipeline.ps*`, `Get-KanbanContext` → `Get-PipelineContext`, `Architecture.ps1` → `Architect.ps1`, `Merge.ps1` → `Ship.ps1`, `tests/scripts/` → `tests/pipeline/`, and the `Import-Module` absolute paths in both workflows. | The largest mechanical change. `test_kanban_script_contract.py` asserts script paths, so it fails loudly on any missed reference — it is the safety net and must move in this same PR. |
+| 2 | **Library** — `scripts/kanban/` → `scripts/pipeline/`, `Kanban.ps*` → `Pipeline.ps*`, `Get-KanbanContext` → `Get-PipelineContext`, `Architecture.ps1` → `Architect.ps1`, `Merge.ps1` → `Ship.ps1`, `tests/scripts/` → `tests/pipeline/`, the `Import-Module` absolute paths in both workflows — **and move `Invoke-Alignment` out of `Refine.ps1` into `Orchestrator.ps1` as `Invoke-Readiness`**. | The largest mechanical change, plus the one structural fix: sequencing belongs to the Orchestrator, stage files hold only their own stage. Callers to update: `tasks/align.ps1`, `align.yml`. |
 | 3 | **Structure + the missing guard** — create `scripts/engines/` and move `Claude.ps1` + `Gemini.ps1` into it; `scripts/ci/` → `scripts/checks/`; add `scripts/checks/check-script-paths.ps1` and wire it into `checks.yml`. | Pure moves, plus the guard that makes PR 4 safe. The guard must exist *before* the workflow and task renames, not after. |
 | 4 | **Workflows + tasks** — `ci.yml` → `checks.yml`; **merge `align.yml` into `orchestrator.yml` → `afk.yml`** with `stage: [refine, implement, ship]`; `tasks/{align,runner,start}.ps1` → `{refine,afk,hitl}.ps1`; `sync-issues.ps1` → `sync.ps1`; `setup-branch-protection.ps1` → `tasks/protect.ps1`; `Taskfile.yml` targets aligned 1:1 with filenames. | Depends on PRs 2–3. Now guarded: a stale path fails a check instead of a runner. The workflow merge is the riskiest step here — it changes triggers, so verify each of the three entry paths (issue opened, dispatch per stage, `agent:reviewing` label) fires once and only once. |
 | 5 | **Execution modes** — retire the `AFK` / `HITL` labels; add `human:approval` and `human:decision`; drop the `HITL and not AFK` condition in the gate and rewrite the hold gate's label check; record `failed_at` / `failed_reason` in the carrier and teach `task retry` to resume from it. | The only behavioural change in the sequence. It deserves its own review rather than being buried in a rename, and it supersedes the merge-hold mechanism from #195 — which was never exercised end-to-end, so there is no working behaviour to regress. |
