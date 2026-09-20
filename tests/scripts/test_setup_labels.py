@@ -38,9 +38,11 @@ REQUIRED_LABELS = {
     "bug",
     "agent:backlog",
     "agent:implementing",
-    "agent:review",
-    "agent:merged",
+    "agent:reviewing",
+    "agent:shipped",
     "agent:failed",
+    "human:approval",
+    "human:decision",
 }
 
 # Oracle — replicated from setup.ps1 $BaseLabels.
@@ -53,11 +55,15 @@ _BASE_LABELS_SNIPPET = textwrap.dedent("""\
         @{ Name = 'planning';           Color = 'c5def5'; Description = 'Planning artifact — PRD or Agent Brief' }
         @{ Name = 'enhancement';        Color = 'a2eeef'; Description = 'New feature or request' }
         @{ Name = 'bug';                Color = 'd73a4a'; Description = 'Something is not working' }
-        @{ Name = 'agent:backlog';      Color = '0075ca'; Description = 'Queued in Backlog for orchestrator pickup' }
-        @{ Name = 'agent:implementing'; Color = 'e4e669'; Description = 'Agent is actively implementing (refine + develop)' }
-        @{ Name = 'agent:review';       Color = '969696'; Description = 'Agent self-review passed — awaiting human approval' }
-        @{ Name = 'agent:merged';       Color = '0e8a16'; Description = 'Merged and closed by orchestrator' }
-        @{ Name = 'agent:failed';       Color = 'd73a4a'; Description = 'Agent error — see issue comments' }
+        # agent:* — the agent holds the ball. Exactly one at a time (ADR-015).
+        @{ Name = 'agent:backlog';      Color = '0075ca'; Description = 'Refined, architected, planned — ready to implement' }
+        @{ Name = 'agent:implementing'; Color = 'e4e669'; Description = 'Implement stage in progress' }
+        @{ Name = 'agent:reviewing';    Color = '969696'; Description = 'Review stage in progress' }
+        @{ Name = 'agent:shipped';      Color = '0e8a16'; Description = 'Shipped — PR merged and issue closed' }
+        @{ Name = 'agent:failed';       Color = 'd73a4a'; Description = 'A stage errored unrecoverably — see failed_at in the issue body' }
+        # human:* — a human holds the ball; nothing advances until they act (ADR-015).
+        @{ Name = 'human:approval';     Color = 'd4c5f9'; Description = 'Implemented and self-reviewed — a human must merge the PR' }
+        @{ Name = 'human:decision';     Color = 'd4c5f9'; Description = 'A question for a human — not a work item; never enters the pipeline' }
     )
 """)
 

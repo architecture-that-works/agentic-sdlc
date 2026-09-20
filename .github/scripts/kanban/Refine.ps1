@@ -309,7 +309,7 @@ function Invoke-Alignment {
     # HITL + AFK is a different animal: a real work item that CAN be implemented
     # autonomously but must not be merged without human approval — governance files
     # such as CONTEXT.md, CODEOWNERS or SECURITY.md (issues #147, #151, #152). Those
-    # align and implement normally; Invoke-Merge holds them at agent:review instead of
+    # align and implement normally; Invoke-Merge holds them at agent:reviewing instead of
     # squash-merging. Before this distinction existed the label pair was unreachable:
     # the pipeline could not touch them at all, so governance work had no route in.
     if (($labels -contains 'HITL') -and ($labels -notcontains 'AFK')) {

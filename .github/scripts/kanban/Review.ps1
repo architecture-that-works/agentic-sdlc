@@ -10,7 +10,7 @@
     Claude Code to review the implementation, and posts the verdict as a
     comment on both the PR and the issue.
 
-    APPROVED → label agent:review; item stays in Review lane.
+    APPROVED → label agent:reviewing; item stays in Review lane.
     REJECTED → post feedback; label agent:implementing; move item back to Implementing for re-pickup.
 #>
 
@@ -49,7 +49,7 @@ function Invoke-Review {
     $sp          = Get-IssueEstimate -IssueNumber $IssueNumber
     $reviewModel = Get-PhaseModel -Estimate $sp -Phase 'review'
     Write-Log "▶ Review — issue #$IssueNumber / PR #$PRNumber  model=$reviewModel  SP=$sp" -Color Cyan
-    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:review'
+    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:reviewing'
     Add-Comment -Number $IssueNumber -Body "· reviewing PR #$PRNumber"
 
     $issue = gh issue view $IssueNumber --repo $KanbanRepo --json title,body | ConvertFrom-Json

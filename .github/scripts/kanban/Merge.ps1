@@ -7,7 +7,7 @@
     Kanban library — loaded by Kanban.psm1; Invoke-Merge is called by Orchestrator.ps1.
 
     Unless called with -Approved (the orchestrator's review stage already
-    approved) or -Force, confirms an approval signal exists (agent:review label
+    approved) or -Force, confirms an approval signal exists (agent:reviewing label
     on the issue OR a human-approved PR review). Then waits for CI to pass,
     squash-merges, and deletes the remote branch. Updates CONTEXT.md post-merge.
 #>
@@ -21,7 +21,7 @@ function Test-HasApproval {
 
     $labels = gh issue view $IssueNumber --repo $KanbanRepo --json labels --jq '[.labels[].name]' |
         ConvertFrom-Json -ErrorAction SilentlyContinue
-    if ($labels -contains 'agent:review') { return $true }
+    if ($labels -contains 'agent:reviewing') { return $true }
 
     $reviews = gh pr view $PRNumber --json reviews --jq '[.reviews[] | select(.state=="APPROVED")]' |
         ConvertFrom-Json -ErrorAction SilentlyContinue
@@ -214,30 +214,30 @@ function Invoke-Merge {
 
     # ── Human-approval hold ───────────────────────────────────────────────────
     # An issue carrying HITL is implemented autonomously but never auto-merged: it
-    # stops here at agent:review so a human merges the PR deliberately. Governance
+    # stops here at agent:reviewing so a human merges the PR deliberately. Governance
     # files (CONTEXT.md, CODEOWNERS, SECURITY.md) land this way — the agent's own
     # self-review cannot be the last word on the rules it will subsequently be bound
     # by, and branch protection is not available on this repository to enforce it.
     #
     # This gate lives in Invoke-Merge rather than in Invoke-Orchestration on purpose:
     # orchestrator.yml's label-triggered `merge` job calls Invoke-Merge directly on
-    # agent:review, so a gate placed only in the orchestrator would be bypassed by
+    # agent:reviewing, so a gate placed only in the orchestrator would be bypassed by
     # the very label this sets. -Force overrides, for a deliberate manual merge.
     if (-not $Force) {
         $hitlMeta   = gh issue view $IssueNumber --repo $KanbanRepo --json labels | ConvertFrom-Json
         $hitlLabels = @($hitlMeta.labels.name)
         if ($hitlLabels -contains 'HITL') {
-            # Idempotent: setting agent:review fires an `issues: labeled` event, which
+            # Idempotent: setting agent:reviewing fires an `issues: labeled` event, which
             # triggers orchestrator.yml's merge job, which calls straight back into this
             # function. Without this check that second pass posts a duplicate hold
             # comment on every issue. Re-entry is harmless — it just has nothing to do.
-            if ($hitlLabels -contains 'agent:review') {
-                Write-Log "⏸ Issue #$IssueNumber already held at agent:review — nothing to do." -Color DarkGray
+            if ($hitlLabels -contains 'agent:reviewing') {
+                Write-Log "⏸ Issue #$IssueNumber already held at agent:reviewing — nothing to do." -Color DarkGray
                 return $false
             }
-            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:review'
+            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:reviewing'
             Add-Comment -Number $IssueNumber -Body "🤖⏸ Held for human approval`n`nPR #$PRNumber is implemented and self-reviewed, but this issue is labelled ``HITL`` — it is not auto-merged. Review the diff and merge PR #$PRNumber yourself, or re-run merge with ``-Force`` to override."
-            Write-Log "⏸ Issue #$IssueNumber is HITL — held at agent:review. PR #$PRNumber awaits human merge." -Color Yellow
+            Write-Log "⏸ Issue #$IssueNumber is HITL — held at agent:reviewing. PR #$PRNumber awaits human merge." -Color Yellow
             return $false
         }
     }
@@ -349,7 +349,7 @@ function Invoke-Merge {
     gh pr merge $PRNumber --squash --delete-branch 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "gh pr merge failed for PR #$PRNumber" }
 
-    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:merged'
+    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:shipped'
     Add-Comment -Number $IssueNumber -Body "🤖✅ Merged`n`nPR #$PRNumber squash-merged. Issue closed."
 
     # From here the merge has already happened, so every exit returns $true — the

@@ -84,8 +84,8 @@ function Get-LaneFromLabel {
     switch ($Label) {
         'agent:backlog'      { 'backlog'      }
         'agent:implementing' { 'implementing' }
-        'agent:review'       { 'review'       }
-        'agent:merged'       { 'merged'       }
+        'agent:reviewing'    { 'review'       }
+        'agent:shipped'      { 'shipped'      }
         'agent:failed'       { 'backlog'      }
         default              { ''             }
     }
@@ -452,16 +452,16 @@ function Set-AgentState {
     $laneId   = switch ($Label) {
         'agent:backlog'      { $KanbanOpt_Backlog      }
         'agent:implementing' { $KanbanOpt_Implementing }
-        'agent:review'       { $KanbanOpt_Review       }
-        'agent:merged'       { $KanbanOpt_Merged       }
+        'agent:reviewing'    { $KanbanOpt_Review       }
+        'agent:shipped'      { $KanbanOpt_Merged       }
         'agent:failed'       { $KanbanOpt_Backlog      }
         default              { ''                      }
     }
     $laneName = switch ($Label) {
         'agent:backlog'      { 'Backlog'      }
         'agent:implementing' { 'Implementing' }
-        'agent:review'       { 'Review'       }
-        'agent:merged'       { 'Merged'       }
+        'agent:reviewing'    { 'Review'       }
+        'agent:shipped'      { 'Shipped'      }
         'agent:failed'       { 'Backlog'      }
         default              { ''             }
     }

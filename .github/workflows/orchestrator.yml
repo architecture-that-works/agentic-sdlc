@@ -10,7 +10,7 @@ name: Orchestrator
 # Trigger summary:
 #   workflow_dispatch (stage=implement) → drain the agent:backlog queue (task runner)
 #   workflow_dispatch (stage=merge)     → merge one approved PR
-#   agent:review label                  → merge job (resilient handoff for the
+#   agent:reviewing label                  → merge job (resilient handoff for the
 #                                         review→merge step within a run)
 #
 # Queue behaviour:
@@ -187,7 +187,7 @@ jobs:
     name: Merge approved PR and update CONTEXT.md
     if: >-
       (github.event_name == 'issues' &&
-       github.event.label.name == 'agent:review') ||
+       github.event.label.name == 'agent:reviewing') ||
       (github.event_name == 'workflow_dispatch' &&
        inputs.stage == 'merge')
     runs-on: ubuntu-latest
@@ -235,17 +235,17 @@ jobs:
         shell: pwsh
         run: |
           # Label-triggered / manual merges reuse the SAME merge as the AFK pipeline
-          # (Invoke-Merge): CI gate → squash-merge → agent:merged → CONTEXT.md update.
+          # (Invoke-Merge): CI gate → squash-merge → agent:shipped → CONTEXT.md update.
           # Single source of truth — no bash re-implementation (ADR-013).
           Import-Module "$env:GITHUB_WORKSPACE/.github/scripts/kanban/Kanban.psd1" -Force
           $issue = [int]$env:ISSUE_NUMBER
           if ($issue -le 0) { throw "ISSUE_NUMBER did not resolve to a positive issue." }
 
-          # The agent:review label that triggered this also queues the job behind a
+          # The agent:reviewing label that triggered this also queues the job behind a
           # running implement pipeline (same concurrency group). If that pipeline
           # already merged, skip — Invoke-Merge would otherwise find no open PR.
           $merged = gh api "repos/$env:GITHUB_REPOSITORY/issues/$issue/labels" `
-            --jq 'any(.[]; .name == "agent:merged")' 2>$null
+            --jq 'any(.[]; .name == "agent:shipped")' 2>$null
           if ($merged -eq 'true') {
             Write-Host "Issue #$issue already merged by the pipeline — skipping."
             exit 0
