@@ -85,6 +85,9 @@ Invariants that must not be violated in any implementation.
 - **Module Map is the source of truth** (ADR-009) — every new top-level `src/<domain>/` directory MUST add a row to the Module Map in the same PR. Enforced by the `ship` skill.
 - **Skills travel with generated projects** (ADR-009) — every skill referenced in `AGENTS.md` MUST be physically present under `.agents/skills/` in every generated project. Skill files local to `~/.claude/skills/` alone do not satisfy this constraint.
 - **Context Protocol is mandatory** (ADR-009) — agents MUST follow `AGENTS.md` §Session Initialisation → Context Protocol before reading any source file.
+- **KISS (Keep It Simple, Stupid)** — Avoid premature abstractions, heavy frameworks, or complex architectures when simpler standard-library implementations suffice. Example: `src/main.py` uses `http.server` instead of pulling in a web framework for a minimal healthcheck.
+- **Dependency Inversion** — External I/O (HTTP, filesystem, subprocess) MUST be hidden behind an interface declared in `src/`. Exception: `src/tools/` is explicitly exempt to allow thin CLI utilities (e.g. `src/tools/commit.py` calls `subprocess.run` directly).
+- **DRY (Rule of Three)** — Code must be duplicated three times before extraction to `src/utils/` is permitted to avoid premature abstraction. The `architecture` phase should identify if functionality is duplicated and propose leveraging or generalizing an existing module if the threshold is met.
 
 ## Out of Scope
 
