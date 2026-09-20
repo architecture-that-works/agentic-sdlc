@@ -97,8 +97,12 @@ jobs:
         if: env.MY_TEMPLATE_REPO_GCLOUD_JSON != ''
         shell: bash
         run: |
-          echo "$MY_TEMPLATE_REPO_GCLOUD_JSON" > $HOME/adc.json
+          printf "%s" "$MY_TEMPLATE_REPO_GCLOUD_JSON" > $HOME/adc.json
+          sed -i '1s/^\xef\xbb\xbf//' $HOME/adc.json
+          jq . $HOME/adc.json > /dev/null
           echo "GOOGLE_APPLICATION_CREDENTIALS=$HOME/adc.json" >> $GITHUB_ENV
+          AGY_TOKEN=$(gcloud auth application-default print-access-token || echo "")
+          if [ -n "$AGY_TOKEN" ]; then echo "AGY_OAUTH_TOKEN=$AGY_TOKEN" >> $GITHUB_ENV; fi
 
       - name: Install tooling (hosted runner)
         if: vars.KANBAN_RUNNER_PROFILE != 'self-hosted'
@@ -231,8 +235,12 @@ jobs:
         if: env.MY_TEMPLATE_REPO_GCLOUD_JSON != ''
         shell: bash
         run: |
-          echo "$MY_TEMPLATE_REPO_GCLOUD_JSON" > $HOME/adc.json
+          printf "%s" "$MY_TEMPLATE_REPO_GCLOUD_JSON" > $HOME/adc.json
+          sed -i '1s/^\xef\xbb\xbf//' $HOME/adc.json
+          jq . $HOME/adc.json > /dev/null
           echo "GOOGLE_APPLICATION_CREDENTIALS=$HOME/adc.json" >> $GITHUB_ENV
+          AGY_TOKEN=$(gcloud auth application-default print-access-token || echo "")
+          if [ -n "$AGY_TOKEN" ]; then echo "AGY_OAUTH_TOKEN=$AGY_TOKEN" >> $GITHUB_ENV; fi
 
       - name: Tooling (git identity + Claude/Gemini for the CONTEXT.md update)
         shell: bash
@@ -278,4 +286,7 @@ jobs:
 
           $pr = Resolve-PR -IssueNumber $issue
           Invoke-Merge -IssueNumber $issue -PRNumber $pr
+
+
+
 

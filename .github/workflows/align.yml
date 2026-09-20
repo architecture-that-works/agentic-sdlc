@@ -87,6 +87,8 @@ jobs:
           sed -i '1s/^\xef\xbb\xbf//' $HOME/adc.json
           jq . $HOME/adc.json > /dev/null
           echo "GOOGLE_APPLICATION_CREDENTIALS=$HOME/adc.json" >> $GITHUB_ENV
+          AGY_TOKEN=$(gcloud auth application-default print-access-token || echo "")
+          if [ -n "$AGY_TOKEN" ]; then echo "AGY_OAUTH_TOKEN=$AGY_TOKEN" >> $GITHUB_ENV; fi
 
       - name: Install tooling (hosted runner)
         if: vars.KANBAN_RUNNER_PROFILE != 'self-hosted'
@@ -110,3 +112,5 @@ jobs:
             throw "KANBAN_ISSUE='$($ctx.IssueNumber)' did not resolve to a positive issue number — refusing to align #0."
           }
           Invoke-Alignment -IssueNumber $ctx.IssueNumber
+
+
