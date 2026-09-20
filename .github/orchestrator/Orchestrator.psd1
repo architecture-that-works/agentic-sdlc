@@ -27,7 +27,6 @@
 
         # Stages invoked directly (by tasks/ and the workflows)
         'Invoke-Refine'
-        'Invoke-Alignment'
         'Invoke-Ship'
 
         # Issue + board state

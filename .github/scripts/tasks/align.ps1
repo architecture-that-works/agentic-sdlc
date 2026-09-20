@@ -33,7 +33,7 @@ Import-Module "$PSScriptRoot\..\..\orchestrator\Orchestrator.psd1" -Force
 $KanbanRepo = (Get-OrchestratorContext).Repo
 
 if ($Issue -gt 0) {
-    Invoke-Alignment -IssueNumber $Issue
+    Invoke-Orchestration -From refine -IssueNumber $Issue
     exit 0
 }
 
@@ -61,7 +61,7 @@ Write-Host "  $('─' * 60)" -ForegroundColor DarkGray
 $granted = 0
 $held    = 0
 foreach ($item in $unaligned) {
-    $ok = Invoke-Alignment -IssueNumber $item.number
+    $ok = Invoke-Orchestration -From refine -IssueNumber $item.number
     if ($ok) { $granted++ } else { $held++ }
 }
 

@@ -126,16 +126,16 @@ def _stage(name: str) -> str:
 
 
 def test_alignment_conductor_exists() -> None:
-    """Refine.ps1 owns the Backlog gate: Invoke-Alignment conducts
+    """Orchestrator.psm1 owns the Backlog gate: Invoke-Orchestration -From refine conducts
     refine → architect → plan and grants agent:backlog."""
-    refine = _stage("Refine.ps1")
-    assert "function Invoke-Alignment" in refine, (
-        "Refine.ps1 must define Invoke-Alignment (the agent:backlog toll-gate)"
+    conductor = (MODULE / "Orchestrator.psm1").read_text(encoding="utf-8")
+    assert "function Invoke-Orchestration" in conductor, (
+        "Orchestrator.psm1 must define Invoke-Orchestration"
     )
     for step in ("Invoke-Refine", "Invoke-Architect", "Invoke-Plan"):
-        assert step in refine, f"Invoke-Alignment must run {step}"
-    assert "agent:backlog" in refine, (
-        "Invoke-Alignment must grant agent:backlog when the readiness gate clears"
+        assert step in conductor, f"Invoke-Orchestration must run {step}"
+    assert "agent:backlog" in conductor, (
+        "Invoke-Orchestration must grant agent:backlog when the readiness gate clears"
     )
 
 
