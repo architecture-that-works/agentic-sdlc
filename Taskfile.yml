@@ -23,12 +23,12 @@ tasks:
       - pwsh -NoProfile -File .github/tasks/align.ps1 -Issue {{.ISSUE}}
 
   start:
-    desc: "HITL — interactive Backlog picker; runs full orchestration in this terminal (ISSUE=N to skip picker)"
+    desc: "Local — interactive Backlog picker; runs full orchestration in this terminal (ISSUE=N to skip picker)"
     cmds:
       - pwsh -NoProfile -File .github/tasks/start.ps1 -Issue {{.ISSUE}} -MaxRetries {{.RETRIES}}
 
   runner:
-    desc: "AFK — dispatch GHA to drain the whole agent:backlog queue in the cloud (laptop can be closed)"
+    desc: "Cloud runner — dispatch GHA to drain the whole agent:backlog queue (laptop can be closed)"
     cmds:
       - pwsh -NoProfile -File .github/tasks/runner.ps1 {{.CLI_ARGS}}
 

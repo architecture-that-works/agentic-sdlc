@@ -48,7 +48,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.stage == 'refine') ||
       (github.event_name == 'issues' && github.event.action == 'opened' &&
-       !contains(github.event.issue.labels.*.name, 'HITL') &&
+       !contains(github.event.issue.labels.*.name, 'human:decision') &&
        !contains(github.event.issue.labels.*.name, 'agent:backlog'))
     runs-on: ${{ vars.KANBAN_RUNNER_PROFILE == 'self-hosted' && fromJSON('["self-hosted","gha-project"]') || 'ubuntu-latest' }}
     concurrency:

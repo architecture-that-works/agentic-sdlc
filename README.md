@@ -24,8 +24,8 @@ Copier-based Python project scaffold. Generates a production-ready structure wit
 
 - [SDLC Maturity](#sdlc-maturity)
 - [Quickstart](#quickstart)
-  - [5-Minute AFK Setup](#5-minute-afk-setup)
-  - [AFK Label → PR Flow](#afk-label--pr-flow)
+  - [5-Minute Cloud Runner Setup](#5-minute-cloud-runner-setup)
+  - [Orchestration Issue → PR Flow](#orchestration-issue--pr-flow)
   - [Generate a new project](#generate-a-new-project)
 - [Validate the harness end-to-end](#validate-the-harness-end-to-end)
 - [Repository Structure](#repository-structure)
@@ -37,7 +37,7 @@ Copier-based Python project scaffold. Generates a production-ready structure wit
 
 ## Quickstart
 
-### 5-Minute AFK Setup
+### 5-Minute Cloud Runner Setup
 
 The fastest path from zero to autonomous AI development:
 
@@ -62,7 +62,7 @@ task setup
 
 > **`GH_TOKEN` scope requirement:** Must be a **classic PAT** with all five scopes: `project`, `read:org`, `repo`, `user`, `workflow`. Fine-grained PATs do not support GitHub Projects v2. Missing scopes cause silent failures at runtime — `project` breaks kanban board mutations, `workflow` blocks any PR that touches `.github/workflows/*.yml`, `read:org` is required for org-owned projects, `user` for identity calls, and `repo` for issue/PR/commit operations.
 
-### AFK Issue → PR Flow
+### Orchestration Issue → PR Flow
 
 ```mermaid
 flowchart LR
@@ -155,7 +155,7 @@ my_template_repo/
 ├── tests/                        Pytest suite, mirrors src/ hierarchy
 ├── .agents/skills/               Skill system — AI workflow for every generated project
 ├── .github/
-│   ├── workflows/                CI (ci.yml) + alignment gate (align.yml) + AFK orchestrator (orchestrator.yml)
+│   ├── workflows/                CI (checks.yml) + alignment gate (align.yml) + Cloud orchestrator (afk.yml)
 │   └── scripts/
 │       ├── kanban/               Orchestrator library — the Kanban PowerShell module (Import-Module)
 │       ├── tasks/                Thin Taskfile commands: align, start, runner, retry, setup, sync-issues
@@ -266,7 +266,7 @@ Refine, architect, and plan are readiness flags in the issue-carried state, not 
 |---|---|
 | `task sync` | issue created → Backlog, **un-aligned** (no `agent:*` label) |
 | `align.yml` (on issue created) or `task align` | runs refine → architect → plan → grants `agent:backlog` when ready |
-| Open questions remain | `agent:backlog` withheld; HITL child issue raised — resolve, then re-run align |
+| Open questions remain | `agent:backlog` withheld; human:decision child issue raised — resolve, then re-run align |
 | `task runner` (cloud) / `task start` (local) | `agent:backlog` → `agent:implementing` |
 | PR opened, review begins | `agent:implementing` → `agent:review` (lane moves immediately) |
 | Review passes | stays `agent:review` until orchestrator merges |
@@ -281,13 +281,13 @@ Refine, architect, and plan are readiness flags in the issue-carried state, not 
 task sync                   # parse ISSUES.md and push pending blocks to GitHub Issues (un-aligned)
 task align                  # Backlog gate — align every un-aligned issue (grants agent:backlog when ready)
 task align ISSUE=13         # align just issue #13
-task start                  # HITL — interactive Backlog picker; runs full orchestration here
-task start ISSUE=13         # HITL orchestration for issue #13, skipping the picker
-task runner                 # AFK — dispatch GHA to drain the whole agent:backlog queue (laptop can be closed)
+task start                  # Local — interactive Backlog picker; runs full orchestration here
+task start ISSUE=13         # Local orchestration for issue #13, skipping the picker
+task runner                 # Cloud runner — dispatch GHA to drain the whole agent:backlog queue (laptop can be closed)
 task retry ISSUE=13         # reset a stuck or failed issue back to agent:backlog
 ```
 
-`task runner` drains the `agent:backlog` queue **lowest issue number first**. HITL runs use the interactive picker.
+`task runner` drains the `agent:backlog` queue **lowest issue number first**. Local runs use the interactive picker.
 
 #### Issue body template
 

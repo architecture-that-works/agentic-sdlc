@@ -311,7 +311,9 @@ def test_agent_brief_holds_only_interface_terms() -> None:
 
 
 def test_glossary_diff_defaults_to_add_action() -> None:
-    diff = GlossaryDiff(term="HITL child issue", definition="Decision needed.")
+    diff = GlossaryDiff(
+        term="human:decision child issue", definition="Decision needed."
+    )
     assert diff.action == "add"
 
 

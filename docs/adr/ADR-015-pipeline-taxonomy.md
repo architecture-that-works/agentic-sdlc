@@ -452,12 +452,12 @@ Living checklist and the handoff point. **An agent resuming this refactor from `
 - [x] **PR 0** — ADR-015 (#198). Status Accepted.
 - [x] **PR 1** — Labels (#199). `agent:review`→`agent:reviewing`, `agent:merged`→`agent:shipped`, `human:approval`/`human:decision` provisioned, two stale descriptions corrected. Live renames applied with `gh label edit --name`; all 60 issue associations verified preserved, zero orphaned names.
 - [x] **PR 2** — Library → `.github/orchestrator/` (#200). Module moved with `stages/`, `engines/`, `lib/`; loader and conductor merged into `Orchestrator.psm1` (the old `Orchestrator.ps1` is gone); `Get-KanbanContext`→`Get-OrchestratorContext`, `Invoke-Architecture`→`Invoke-Architect`, `Invoke-Merge`→`Invoke-Ship`; `tests/scripts/`→`tests/orchestrator/`; explicit `FunctionsToExport` (17, was 78 via wildcard).
-- [ ] **PR 2b** — Delete `Invoke-Alignment`; fold refine→architect→plan into `Invoke-Orchestration -From refine|implement`. Split out of PR 2: it changes behaviour and callers, which does not belong inside a 34-file move.
-- [ ] **PR 3** — `checks/` + `check-script-paths.ps1` + `check-module-api.ps1`
-- [ ] **PR 4** — Workflows → `afk.yml`, `checks.yml`; `tasks/` 1:1 with Taskfile
-- [ ] **PR 5** — Execution modes: retire `AFK`/`HITL` labels, wire `human:*`, `failed_at`
+- [x] **PR 2b** — Delete `Invoke-Alignment`; fold refine→architect→plan into `Invoke-Orchestration -From refine|implement`. Split out of PR 2: it changes behaviour and callers, which does not belong inside a 34-file move.
+- [x] **PR 3** — `checks/` + `check-script-paths.ps1` + `check-module-api.ps1`
+- [x] **PR 4** — Workflows → `afk.yml`, `checks.yml`; `tasks/` 1:1 with Taskfile
+- [x] **PR 5** — Execution modes: retire `AFK` / `HITL` labels, wire `human:*`, `failed_at`
 - [ ] **PR 6** — Skill tree: `architect/`, `implement/`, retire `harness/`
-- [ ] **PR 7** — Docs: README, `docs/SKILLS.md`, `AGENTS.md`, `CONTEXT.md` Glossary, `ISSUES.md`
+- [ ] **PR 7** — Docs: README, `docs/SKILLS.md`, `AGENTS.md`, `CONTEXT.md` Glossary, `ISSUES.md`, `ASSESSMENT_PROMPT.md`
 
 **Manual steps (live state no PR can carry)**
 

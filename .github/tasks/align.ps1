@@ -13,11 +13,11 @@
 
     Two modes (mirrors start = single, runner = drain):
       ISSUE=N   align that one issue.
-      (no arg)  align every open, un-aligned issue (no agent:* label, not HITL).
+    (no arg)  align every open, un-aligned issue (no agent:* label, not human:decision).
 
     align.yml runs Invoke-Alignment automatically on issue creation in the cloud;
     this command is the local / backfill counterpart. Open questions are surfaced
-    as HITL child issues — resolve those, then re-run to grant agent:backlog.
+    as human:decision child issues — resolve those, then re-run to grant agent:backlog.
 
 .PARAMETER Issue
     Issue number to align directly. 0 (default) aligns the whole un-aligned backlog.
@@ -37,7 +37,7 @@ if ($Issue -gt 0) {
     exit 0
 }
 
-# ── Batch: every open issue that is not yet aligned and not a HITL decision ────
+# ── Batch: every open issue that is not yet aligned and not a human:decision ────
 $raw = gh issue list --repo $KanbanRepo --state open `
     --json number,labels --limit 200 2>&1
 if ($LASTEXITCODE -ne 0) {
@@ -45,7 +45,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 $unaligned = $raw | ConvertFrom-Json | Where-Object {
     $names = @($_.labels.name)
-    -not ($names | Where-Object { $_ -like 'agent:*' }) -and ($names -notcontains 'HITL')
+    -not ($names | Where-Object { $_ -like 'agent:*' }) -and ($names -notcontains 'human:decision')
 } | Sort-Object number
 
 $count = @($unaligned).Count
@@ -68,5 +68,5 @@ foreach ($item in $unaligned) {
 Write-Host ""
 Write-Log "✅ Alignment pass complete — $granted granted agent:backlog, $held held for decisions." -Color Green
 if ($held -gt 0) {
-    Write-Log "   Resolve the linked HITL child issue(s), then re-run 'task align'." -Color DarkGray
+    Write-Log "   Resolve the linked human:decision child issue(s), then re-run 'task align'." -Color DarkGray
 }

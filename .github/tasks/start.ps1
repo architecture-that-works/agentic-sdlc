@@ -5,9 +5,9 @@
 
 .DESCRIPTION
     Presents an interactive picker of Backlog issues (or accepts -Issue N directly).
-    Adds the HITL label so GHA cannot claim the issue while the terminal is working.
+    Adds the agent:locked label so GHA cannot claim the issue while the terminal is working.
     Runs implement → review loop → merge directly in this session.
-    Removes HITL on completion or error.
+    Removes agent:locked on completion or error.
 
     agent:backlog is never set — no GHA trigger fires.
 
@@ -95,19 +95,19 @@ $url = $selected.content.url
 
 Write-Host ""
 Write-Host "  Issue   : $url" -ForegroundColor Cyan
-Write-Host "  Mode    : HITL — running in terminal, GHA suppressed" -ForegroundColor Green
+Write-Host "  Mode    : Local — running in terminal, GHA suppressed" -ForegroundColor Green
 Write-Host ""
 
-# ── Guard with HITL, then run the full orchestration ─────────────────────────
+# ── Guard with agent:locked, then run the full orchestration ─────────────────────────
 
-gh issue edit $num --repo $KanbanRepo --add-label 'HITL' 2>&1 | Out-Null
-Write-Log "  HITL label added to #$num — GHA will not pick this up." -Color DarkGray
+gh issue edit $num --repo $KanbanRepo --add-label 'agent:locked' 2>&1 | Out-Null
+Write-Log "  agent:locked label added to #$num — GHA will not pick this up." -Color DarkGray
 
 try {
-    # Run the orchestrator locally (HITL). IssueNumber + MaxRetries are passed
+    # Run the orchestrator locally. IssueNumber + MaxRetries are passed
     # explicitly — the module is already imported above.
     Invoke-Orchestration -IssueNumber $num -MaxRetries $MaxRetries
 } finally {
-    gh issue edit $num --repo $KanbanRepo --remove-label 'HITL' 2>&1 | Out-Null
-    Write-Log "  HITL label removed from #$num." -Color DarkGray
+    gh issue edit $num --repo $KanbanRepo --remove-label 'agent:locked' 2>&1 | Out-Null
+    Write-Log "  agent:locked label removed from #$num." -Color DarkGray
 }

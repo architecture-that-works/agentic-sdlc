@@ -84,6 +84,7 @@ function Invoke-Orchestration {
     }
 
     $stashed = $false
+    $currentStage = $From
 
     try {
         $meta = gh issue view $IssueNumber --repo $ctx.Repo --json title,labels,state | ConvertFrom-Json
@@ -99,16 +100,20 @@ function Invoke-Orchestration {
                 Write-Log "  Issue #$IssueNumber already agent:backlog — alignment already granted." -Color DarkGray
                 return $true
             }
-            if (($labels -contains 'HITL') -and ($labels -notcontains 'AFK')) {
-                Write-Log "  Issue #$IssueNumber is a HITL decision — skipping alignment." -Color DarkGray
+            if ($labels -contains 'human:decision') {
+                Write-Log "  Issue #$IssueNumber is a human decision — skipping alignment." -Color DarkGray
                 return $false
             }
 
             try {
+                $currentStage = 'refine'
                 Invoke-Refine    -Number      $IssueNumber
+                $currentStage = 'architect'
                 Invoke-Architect -IssueNumber $IssueNumber
+                $currentStage = 'plan'
                 Invoke-Plan      -Number      $IssueNumber
             } catch {
+                Set-AgentFailedState -IssueNumber $IssueNumber -FailedAt $currentStage -Reason $_.Exception.Message
                 Add-Comment -Number $IssueNumber -Body "🤖❌ Alignment Failed`n``````text`n`$_`n``````"
                 Write-Log "❌ Alignment error for issue #$IssueNumber : `$_" -Color Red
                 return $false
@@ -123,7 +128,7 @@ function Invoke-Orchestration {
             }
 
             $open = if ($state -and $state.open_questions) { @($state.open_questions).Count } else { 0 }
-            Add-Comment -Number $IssueNumber -Body "🤖⏸ Alignment incomplete — $open open question(s) need a human decision before this issue can enter the backlog. Resolve the linked HITL issue(s), record the answer in ``decided_questions[]``, then re-run ``task align ISSUE=$IssueNumber``."
+            Add-Comment -Number $IssueNumber -Body "🤖⏸ Alignment incomplete — $open open question(s) need a human decision before this issue can enter the backlog. Resolve the linked human:decision issue(s), record the answer in ``decided_questions[]``, then re-run ``task align ISSUE=$IssueNumber``."
             Write-Log "⏸ Issue #$IssueNumber NOT aligned — readiness gate unmet (open questions=$open). agent:backlog withheld." -Color Yellow
             return $false
         }
@@ -136,6 +141,7 @@ function Invoke-Orchestration {
         $stashOut = git stash 2>&1
         $stashed  = $stashOut -notmatch 'No local changes'
 
+        $currentStage = 'implement'
         $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:$Force
 
         if ($null -eq $implementResult) {
@@ -162,6 +168,7 @@ function Invoke-Orchestration {
 
         while ($cyclesDone -lt $MaxRetries) {
             Write-Log "  Review cycle $($cyclesDone + 1) / $MaxRetries" -Color DarkGray
+            $currentStage = 'review'
             $approved = Invoke-Review -IssueNumber $IssueNumber -PRNumber $prNum
             $cyclesDone++
             Set-IssueReviewCount -IssueNumber $IssueNumber -Count $cyclesDone
@@ -177,7 +184,7 @@ function Invoke-Orchestration {
         # ── exhausted retries → failed ────────────────────────────────────────
         if (-not $approved) {
             Clear-IssueReviewCount -IssueNumber $IssueNumber
-            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
+            Set-AgentFailedState -IssueNumber $IssueNumber -FailedAt $currentStage -Reason "Max retries reached ($cyclesDone/$MaxRetries review cycles)"
             Add-Comment -Number $IssueNumber -Body "🤖❌ Orchestrator Error`n`nMax retries reached ($cyclesDone/$MaxRetries review cycles). Manual intervention required."
             Write-Log "⛔ Gave up after $cyclesDone cycles for issue #$IssueNumber." -Color Red
             return
@@ -185,6 +192,7 @@ function Invoke-Orchestration {
 
         # ── review → merged ───────────────────────────────────────────────────
         Clear-IssueReviewCount -IssueNumber $IssueNumber
+        $currentStage = 'ship'
         $merged = Invoke-Ship -IssueNumber $IssueNumber -PRNumber $prNum -Approved
 
         # Invoke-Ship returns $false when it holds a HITL issue at agent:reviewing rather
@@ -200,7 +208,7 @@ function Invoke-Orchestration {
     } catch {
         # ── any error → failed ────────────────────────────────────────────────
         Clear-IssueReviewCount -IssueNumber $IssueNumber
-        Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
+        Set-AgentFailedState -IssueNumber $IssueNumber -FailedAt $currentStage -Reason $_.Exception.Message
         $errBlock = Format-ErrorBlock -Raw "$_"
         Add-Comment -Number $IssueNumber -Body "🤖❌ Orchestrator Error`n`n$errBlock"
         Write-Log "❌ Orchestrator error for issue #$IssueNumber : $_" -Color Red

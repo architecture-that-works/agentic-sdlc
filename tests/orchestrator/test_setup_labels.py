@@ -20,12 +20,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = (
-    Path(__file__).parent.parent.parent
-    / ".github"
-    / "tasks"
-    / "setup.ps1"
-)
+SCRIPT = Path(__file__).parent.parent.parent / ".github" / "tasks" / "setup.ps1"
 PWSH = shutil.which("pwsh") or "pwsh"
 
 pytestmark = pytest.mark.skipif(
@@ -34,8 +29,6 @@ pytestmark = pytest.mark.skipif(
 )
 
 REQUIRED_LABELS = {
-    "AFK",
-    "HITL",
     "planning",
     "enhancement",
     "bug",
@@ -53,8 +46,6 @@ REQUIRED_LABELS = {
 # Tests 1-2 verify setup.ps1 implements the Oracle.
 _BASE_LABELS_SNIPPET = textwrap.dedent("""\
     $BaseLabels = @(
-        @{ Name = 'AFK';                Color = '0075ca'; Description = 'Agent executes start-to-finish without interruption' }
-        @{ Name = 'HITL';               Color = 'e4e669'; Description = 'Requires human decision or approval before closing' }
         @{ Name = 'planning';           Color = 'c5def5'; Description = 'Planning artifact — PRD or Agent Brief' }
         @{ Name = 'enhancement';        Color = 'a2eeef'; Description = 'New feature or request' }
         @{ Name = 'bug';                Color = 'd73a4a'; Description = 'Something is not working' }

@@ -226,7 +226,7 @@ function Invoke-Ship {
     if (-not $Force) {
         $hitlMeta   = gh issue view $IssueNumber --repo $KanbanRepo --json labels | ConvertFrom-Json
         $hitlLabels = @($hitlMeta.labels.name)
-        if ($hitlLabels -contains 'HITL') {
+        if ($hitlLabels -contains 'human:approval') {
             # Idempotent: setting agent:reviewing fires an `issues: labeled` event, which
             # triggers orchestrator.yml's merge job, which calls straight back into this
             # function. Without this check that second pass posts a duplicate hold
@@ -236,8 +236,8 @@ function Invoke-Ship {
                 return $false
             }
             Set-AgentState -IssueNumber $IssueNumber -Label 'agent:reviewing'
-            Add-Comment -Number $IssueNumber -Body "🤖⏸ Held for human approval`n`nPR #$PRNumber is implemented and self-reviewed, but this issue is labelled ``HITL`` — it is not auto-merged. Review the diff and merge PR #$PRNumber yourself, or re-run merge with ``-Force`` to override."
-            Write-Log "⏸ Issue #$IssueNumber is HITL — held at agent:reviewing. PR #$PRNumber awaits human merge." -Color Yellow
+            Add-Comment -Number $IssueNumber -Body "🤖⏸ Held for human approval`n`nPR #$PRNumber is implemented and self-reviewed, but this issue is labelled ``human:approval`` — it is not auto-merged. Review the diff and merge PR #$PRNumber yourself, or re-run merge with ``-Force`` to override."
+            Write-Log "⏸ Issue #$IssueNumber requires human approval — held at agent:reviewing. PR #$PRNumber awaits human merge." -Color Yellow
             return $false
         }
     }
