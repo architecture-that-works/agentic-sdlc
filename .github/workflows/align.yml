@@ -50,7 +50,6 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      AGY_OAUTH_TOKEN: ${{ secrets.AGY_OAUTH_TOKEN }}
       KANBAN_ENGINE: ${{ vars.KANBAN_ENGINE || 'claude' }}
       # Default branch from the event payload — zero-cost resolution in Config.ps1
       # (no gh repo view, which is GraphQL-bound). See memory project_graphql_budget.
@@ -84,8 +83,6 @@ jobs:
         shell: bash
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
-          curl -fsSL https://antigravity.google/cli/install.sh | bash
-          echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
           sudo npm install -g @anthropic-ai/claude-code
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
