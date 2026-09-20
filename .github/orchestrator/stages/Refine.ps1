@@ -14,7 +14,7 @@
 
         Refine       Invoke-Refine        structure body, estimate, priority,
                                            self-grill Agent Brief + open questions
-        Architect    Invoke-Architecture  blast-radius impact into the body
+        Architect    Invoke-Architect  blast-radius impact into the body
                                            (Architecture.ps1)
         Plan         Invoke-Plan          implementation plan into the body
         ── gate ──   Test-Readiness       refined + architected + planned and
@@ -286,7 +286,7 @@ function Invoke-Alignment {
     param([int]$IssueNumber)
 
     if ($IssueNumber -le 0) { throw "Invoke-Alignment requires a positive IssueNumber." }
-    $ctx  = Get-KanbanContext
+    $ctx  = Get-OrchestratorContext
     $meta = gh issue view $IssueNumber --repo $ctx.Repo --json title,labels,state | ConvertFrom-Json
     Write-Log "━━━ Alignment (Backlog gate): issue #$IssueNumber — $($meta.title)" -Color Cyan
 
@@ -309,7 +309,7 @@ function Invoke-Alignment {
     # HITL + AFK is a different animal: a real work item that CAN be implemented
     # autonomously but must not be merged without human approval — governance files
     # such as CONTEXT.md, CODEOWNERS or SECURITY.md (issues #147, #151, #152). Those
-    # align and implement normally; Invoke-Merge holds them at agent:reviewing instead of
+    # align and implement normally; Invoke-Ship holds them at agent:reviewing instead of
     # squash-merging. Before this distinction existed the label pair was unreachable:
     # the pipeline could not touch them at all, so governance work had no route in.
     if (($labels -contains 'HITL') -and ($labels -notcontains 'AFK')) {
@@ -319,7 +319,7 @@ function Invoke-Alignment {
 
     try {
         Invoke-Refine       -Number      $IssueNumber
-        Invoke-Architecture -IssueNumber $IssueNumber
+        Invoke-Architect -IssueNumber $IssueNumber
         Invoke-Plan         -Number      $IssueNumber
     } catch {
         Add-Comment -Number $IssueNumber -Body "🤖❌ Alignment Failed`n``````text`n$_`n``````"

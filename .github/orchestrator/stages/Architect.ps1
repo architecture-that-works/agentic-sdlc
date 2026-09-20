@@ -4,7 +4,7 @@
     Backlog gate, Architect step -- blast-radius impact written into the issue.
 
 .DESCRIPTION
-    Kanban library -- loaded by Kanban.psm1; Invoke-Architecture is called by
+    Kanban library -- loaded by Kanban.psm1; Invoke-Architect is called by
     Invoke-Alignment (Refine.ps1) between Refine and Plan, as part of the
     pre-backlog alignment that grants agent:backlog.
 
@@ -87,7 +87,7 @@ print(json.dumps({
 
 # ── Architect step entry point ────────────────────────────────────────────────
 
-function Invoke-Architecture {
+function Invoke-Architect {
     param([int]$IssueNumber)
     Write-Log "  Architect — blast-radius for issue #$IssueNumber" -Color Yellow
 

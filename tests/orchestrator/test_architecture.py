@@ -1,4 +1,4 @@
-"""Tests for .github/scripts/kanban/Architecture.ps1 (Backlog-gate Architect step).
+"""Tests for .github/orchestrator/Architect.ps1 (Backlog-gate Architect step).
 
 Covers the business rules that must not regress:
 
@@ -9,7 +9,7 @@ Covers the business rules that must not regress:
 3. $safeStr         — the safe-module list truncates to the first 5 with a count.
 
 Each test uses an inline PowerShell snippet that replicates the exact logic from
-Architecture.ps1 so we avoid importing the full Kanban module (which requires a
+Architect.ps1 so we avoid importing the full Kanban module (which requires a
 live environment) while still exercising the real business rules.
 """
 
@@ -22,11 +22,7 @@ import pytest
 
 PWSH = shutil.which("pwsh") or "pwsh"
 SCRIPT = (
-    Path(__file__).parent.parent.parent
-    / ".github"
-    / "scripts"
-    / "kanban"
-    / "Architecture.ps1"
+    Path(__file__).parent.parent.parent / ".github" / "orchestrator" / "Architect.ps1"
 )
 
 pytestmark = pytest.mark.skipif(
@@ -46,7 +42,7 @@ def _ps(script: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str
 
 
 # ── File-count gate ───────────────────────────────────────────────────────────
-# Replicates the gate condition from Invoke-Architecture exactly.
+# Replicates the gate condition from Invoke-Architect exactly.
 
 _GATE_SNIPPET = """\
 function Test-FileCountGate {
@@ -107,7 +103,7 @@ def test_gate_counts_recursively(tmp_path: Path) -> None:
 
 
 # ── Trivial-impact Markdown (written into the issue body) ──────────────────────
-# Replicates the trivial-branch impact string from Invoke-Architecture.
+# Replicates the trivial-branch impact string from Invoke-Architect.
 
 _TRIVIAL_IMPACT_SNIPPET = textwrap.dedent("""\
     function Get-TrivialImpact {
@@ -193,7 +189,7 @@ def test_upsert_replaces_when_present() -> None:
 
 
 # ── $safeStr truncation logic ─────────────────────────────────────────────────
-# Replicates the assignment block from Invoke-Architecture (non-trivial branch).
+# Replicates the assignment block from Invoke-Architect (non-trivial branch).
 
 _SAFE_STR_SNIPPET = textwrap.dedent("""\
     function Get-SafeStr {

@@ -6,11 +6,11 @@ Three surfaces are exercised:
    library (Invoke-Grill); must expose the function with no side effects and no
    scope leak. ``grill.ps1`` is the thin standalone CLI wrapper around it,
    invocable in ``-DryRun`` mode without contacting Claude (see ADR-013).
-2. ``.github/scripts/kanban/_common.ps1`` § ``Set-AgentBrief`` markers — the
+2. ``.github/orchestrator/lib/GitHub.ps1`` § ``Set-AgentBrief`` markers — the
    AGENT-BRIEF section is bounded by HTML-comment markers that must remain
    identifiable from outside PowerShell (Python parsers, future Cloud Run
    service, etc.).
-3. ``.github/scripts/kanban/_common.ps1`` § ``New-HitlChildIssue`` title format
+3. ``.github/orchestrator/lib/GitHub.ps1`` § ``New-HitlChildIssue`` title format
    — the HITL child issue title must carry the parent number and a truncated
    question stub so a human scanning the issue list can see the linkage.
 
@@ -144,7 +144,7 @@ def test_grill_lib_dot_source_then_dry_run_invokes_function() -> None:
 def test_agent_brief_markers_present_in_github_ps1() -> None:
     """Set-AgentBrief depends on stable HTML-comment markers that any runtime
     (PowerShell, Python on Cloud Run) can parse with a single regex."""
-    github = (REPO_ROOT / ".github/scripts/kanban/GitHub.ps1").read_text(
+    github = (REPO_ROOT / ".github/orchestrator/lib/GitHub.ps1").read_text(
         encoding="utf-8"
     )
     assert "<!-- AGENT-BRIEF:BEGIN -->" in github

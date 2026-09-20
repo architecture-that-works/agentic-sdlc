@@ -2,8 +2,7 @@
 
 The scripts split into roles:
 
-* **Library** — `.github/scripts/kanban/` (the Kanban module) plus generic shared
-  helpers (`Claude.ps1`). The module's loader (`Kanban.psm1`) dot-sources these.
+* **Library** — `.github/orchestrator/` — the module: lib/, stages/ and engines/. The module's loader (`Orchestrator.psm1`) dot-sources these.
   A dot-sourced file MUST NOT declare a top-level ``param()`` block: dot-sourcing
   runs that block in the *caller's* scope, injecting the parameter defaults and
   silently clobbering the caller's variables. That is how ``grill.ps1``'s
@@ -13,14 +12,16 @@ The scripts split into roles:
   ``param()`` and are invoked (Import-Module), never dot-sourced.
 
 These static checks enforce that separation so the scope-leak class cannot
-return. Run parameters flow via the env transport + ``Get-KanbanContext``.
+return. Run parameters flow via the env transport + ``Get-OrchestratorContext``.
 """
 
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = ROOT / ".github" / "scripts"
+# Both trees hold PowerShell subject to the library/runnable contract: the module
+# under .github/orchestrator/, and the runnable task + check scripts that invoke it.
+SCRIPTS = ROOT / ".github"
 REFINE = ROOT / ".agents" / "skills" / "refine" / "scripts"
 
 # `. "$PSScriptRoot\..\foo.ps1"` — capture the trailing basename being sourced.
@@ -65,7 +66,7 @@ def test_dot_sourced_libraries_have_no_top_level_param() -> None:
     """The core contract: nothing that is dot-sourced may carry a top-level
     param() block (it would leak into the caller's scope)."""
     sourced = _dot_sourced_basenames()
-    assert sourced, "expected the Kanban.psm1 loader to dot-source library files"
+    assert sourced, "expected the Orchestrator.psm1 loader to dot-source library files"
     offenders = {}
     for name in sorted(sourced):
         path = _resolve(name)
@@ -116,21 +117,22 @@ def test_task_scripts_are_not_dot_sourced() -> None:
 # agent:backlog. Processing (Implement → Review → Merge) is a separate, already-
 # aligned flow. Artefacts live IN the issue body — there is no .planning/.
 
-KANBAN = SCRIPTS / "kanban"
+MODULE = ROOT / ".github" / "orchestrator"
+STAGES = MODULE / "stages"
 
 
-def _kanban(name: str) -> str:
-    return (KANBAN / name).read_text(encoding="utf-8")
+def _stage(name: str) -> str:
+    return (STAGES / name).read_text(encoding="utf-8")
 
 
 def test_alignment_conductor_exists() -> None:
     """Refine.ps1 owns the Backlog gate: Invoke-Alignment conducts
     refine → architect → plan and grants agent:backlog."""
-    refine = _kanban("Refine.ps1")
+    refine = _stage("Refine.ps1")
     assert "function Invoke-Alignment" in refine, (
         "Refine.ps1 must define Invoke-Alignment (the agent:backlog toll-gate)"
     )
-    for step in ("Invoke-Refine", "Invoke-Architecture", "Invoke-Plan"):
+    for step in ("Invoke-Refine", "Invoke-Architect", "Invoke-Plan"):
         assert step in refine, f"Invoke-Alignment must run {step}"
     assert "agent:backlog" in refine, (
         "Invoke-Alignment must grant agent:backlog when the readiness gate clears"
@@ -139,16 +141,16 @@ def test_alignment_conductor_exists() -> None:
 
 def test_orphaned_architect_stub_removed() -> None:
     """The phase-1 Invoke-Architect stub is retired — the real Architect step is
-    Invoke-Architecture (Architecture.ps1)."""
-    assert "function Invoke-Architect " not in _kanban("Refine.ps1"), (
-        "the orphaned Invoke-Architect stub must be removed; use Invoke-Architecture"
+    Invoke-Architect (Architect.ps1)."""
+    assert "function Invoke-Architect " not in _stage("Refine.ps1"), (
+        "the orphaned Invoke-Architect stub must be removed; use Invoke-Architect"
     )
 
 
 def test_implement_does_not_run_alignment_phases() -> None:
     """The Implementing lane is Develop → PR only — alignment happened pre-backlog."""
-    impl = _kanban("Implement.ps1")
-    assert "Invoke-Architecture" not in impl, (
+    impl = _stage("Implement.ps1")
+    assert "Invoke-Architect" not in impl, (
         "Implement.ps1 must not run architecture — it is a pre-backlog gate step"
     )
     assert "Invoke-Refine" not in impl, (
@@ -157,11 +159,11 @@ def test_implement_does_not_run_alignment_phases() -> None:
 
 
 def test_no_planning_directory_artifacts() -> None:
-    """No kanban library script may write to a .planning/ directory — artefacts
+    """No orchestrator library script may write to a .planning/ directory — artefacts
     live in the issue body (ADR-011/ADR-014). Docstrings that *mention* the
     retirement of .planning/ are stripped first so only real code is checked."""
     offenders = {
-        p.name for p in KANBAN.glob("*.ps1") if ".planning" in _code_no_comments(p)
+        p.name for p in MODULE.rglob("*.ps1") if ".planning" in _code_no_comments(p)
     }
     assert not offenders, (
         f".planning/ references must be gone — write into the issue body instead: {offenders}"
@@ -171,14 +173,14 @@ def test_no_planning_directory_artifacts() -> None:
 def test_architecture_writes_into_issue_body() -> None:
     """The Architect step writes the impact into the body via Set-IssueBodySection
     and marks readiness.architected."""
-    arch = _kanban("Architecture.ps1")
+    arch = _stage("Architect.ps1")
     assert "Set-IssueBodySection" in arch, (
-        "Architecture.ps1 must write the impact into the issue body"
+        "Architect.ps1 must write the impact into the issue body"
     )
     assert "BLAST_RADIUS.md" not in arch, (
-        "Architecture.ps1 must not emit a .planning/ BLAST_RADIUS.md file"
+        "Architect.ps1 must not emit a .planning/ BLAST_RADIUS.md file"
     )
-    assert "architected" in arch, "Architecture.ps1 must set readiness.architected"
+    assert "architected" in arch, "Architect.ps1 must set readiness.architected"
 
 
 _BLOCK_COMMENT_RE = re.compile(r"<#.*?#>", re.DOTALL)

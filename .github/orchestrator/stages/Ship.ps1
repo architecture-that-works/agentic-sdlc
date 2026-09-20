@@ -4,7 +4,7 @@
     Merged lane — squash-merge the PR after the CI gate + approval check.
 
 .DESCRIPTION
-    Kanban library — loaded by Kanban.psm1; Invoke-Merge is called by Orchestrator.ps1.
+    Kanban library — loaded by Kanban.psm1; Invoke-Ship is called by Orchestrator.ps1.
 
     Unless called with -Approved (the orchestrator's review stage already
     approved) or -Force, confirms an approval signal exists (agent:reviewing label
@@ -195,7 +195,7 @@ function Invoke-RebaseOnMaster {
     Add-Comment -Number $IssueNumber -Body "· rebased onto $default"
 }
 
-function Invoke-Merge {
+function Invoke-Ship {
     param([int]$IssueNumber = 0, [int]$PRNumber = 0, [switch]$Force, [switch]$Approved)
 
     if ($IssueNumber -eq 0) { $IssueNumber = Get-CurrentIssueNumber }
@@ -219,8 +219,8 @@ function Invoke-Merge {
     # self-review cannot be the last word on the rules it will subsequently be bound
     # by, and branch protection is not available on this repository to enforce it.
     #
-    # This gate lives in Invoke-Merge rather than in Invoke-Orchestration on purpose:
-    # orchestrator.yml's label-triggered `merge` job calls Invoke-Merge directly on
+    # This gate lives in Invoke-Ship rather than in Invoke-Orchestration on purpose:
+    # orchestrator.yml's label-triggered `merge` job calls Invoke-Ship directly on
     # agent:reviewing, so a gate placed only in the orchestrator would be bypassed by
     # the very label this sets. -Force overrides, for a deliberate manual merge.
     if (-not $Force) {

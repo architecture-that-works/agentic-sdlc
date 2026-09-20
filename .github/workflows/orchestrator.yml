@@ -134,7 +134,7 @@ jobs:
         shell: pwsh
         env:
           # Run parameters travel as env — the only transport stable across the
-          # module import and nested pwsh (see ADR-013). Get-KanbanContext reads
+          # module import and nested pwsh (see ADR-013). Get-OrchestratorContext reads
           # them; the fail-loud guard below means the pipeline can never silently
           # run against #0 (the earlier failure mode).
           KANBAN_ISSUE: ${{ steps.resolve.outputs.issue_number }}
@@ -143,8 +143,8 @@ jobs:
           # The Kanban library (Import-Module) runs the full pipeline:
           #   refine → architecture → develop → PR → review loop → merge.
           # Absolute path: Import-Module treats a bare relative path as a module NAME.
-          Import-Module "$env:GITHUB_WORKSPACE/.github/scripts/kanban/Kanban.psd1" -Force
-          $ctx = Get-KanbanContext
+          Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
+          $ctx = Get-OrchestratorContext
           if ($ctx.IssueNumber -le 0) {
             throw "KANBAN_ISSUE='$($ctx.IssueNumber)' did not resolve to a positive issue number — refusing to run against #0."
           }
@@ -182,7 +182,7 @@ jobs:
             Write-Output "Backlog fully drained."
           }
 
-  # ── Merge (approved PR) — reuses the Kanban library's Invoke-Merge ───────────
+  # ── Merge (approved PR) — reuses the Kanban library's Invoke-Ship ───────────
   merge:
     name: Merge approved PR and update CONTEXT.md
     if: >-
@@ -201,7 +201,7 @@ jobs:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
-      # Invoke-Merge → Set-AgentState/Move-ToLane needs the board vars (as env).
+      # Invoke-Ship → Set-AgentState/Move-ToLane needs the board vars (as env).
       KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
       KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
       KANBAN_PROJECT_ID: ${{ vars.KANBAN_PROJECT_ID }}
@@ -235,15 +235,15 @@ jobs:
         shell: pwsh
         run: |
           # Label-triggered / manual merges reuse the SAME merge as the AFK pipeline
-          # (Invoke-Merge): CI gate → squash-merge → agent:shipped → CONTEXT.md update.
+          # (Invoke-Ship): CI gate → squash-merge → agent:shipped → CONTEXT.md update.
           # Single source of truth — no bash re-implementation (ADR-013).
-          Import-Module "$env:GITHUB_WORKSPACE/.github/scripts/kanban/Kanban.psd1" -Force
+          Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           $issue = [int]$env:ISSUE_NUMBER
           if ($issue -le 0) { throw "ISSUE_NUMBER did not resolve to a positive issue." }
 
           # The agent:reviewing label that triggered this also queues the job behind a
           # running implement pipeline (same concurrency group). If that pipeline
-          # already merged, skip — Invoke-Merge would otherwise find no open PR.
+          # already merged, skip — Invoke-Ship would otherwise find no open PR.
           $merged = gh api "repos/$env:GITHUB_REPOSITORY/issues/$issue/labels" `
             --jq 'any(.[]; .name == "agent:shipped")' 2>$null
           if ($merged -eq 'true') {
@@ -252,11 +252,11 @@ jobs:
           }
 
           # This job checks out the default branch; make the feature branch
-          # available locally for Invoke-Merge's checkout + rebase.
+          # available locally for Invoke-Ship's checkout + rebase.
           git fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
 
           $pr = Resolve-PR -IssueNumber $issue
-          Invoke-Merge -IssueNumber $issue -PRNumber $pr
+          Invoke-Ship -IssueNumber $issue -PRNumber $pr
 
 
 

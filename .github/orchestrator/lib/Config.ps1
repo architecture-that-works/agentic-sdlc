@@ -5,7 +5,7 @@
     Single source for "what are the settings for this run": loads .env, defines the
     orchestrator defaults, resolves the $Kanban* constants (project IDs, lanes,
     models, turn budgets) with env overrides, resolves the repo slug and default
-    branch WITHOUT GraphQL, and exposes Get-KanbanContext — the per-run object
+    branch WITHOUT GraphQL, and exposes Get-OrchestratorContext — the per-run object
     (issue, retries, repo, branch, runtime) hydrated from the KANBAN_* env
     transport (ADR-013). Loaded first by Kanban.psm1.
 #>
@@ -153,7 +153,7 @@ $KanbanPriorityFieldId = if ($env:KANBAN_PRIORITY_FIELD_ID) { $env:KANBAN_PRIORI
 # Hydrated from environment variables: the ONLY transport stable across &-calls,
 # dot-sourcing, nested pwsh and subprocesses. Entry points (orchestrator.yml,
 # start.ps1) set KANBAN_ISSUE / KANBAN_MAX_RETRIES; everything downstream reads
-# them via Get-KanbanContext rather than fragile script-scope variables, which a
+# them via Get-OrchestratorContext rather than fragile script-scope variables, which a
 # dot-sourced param() block can silently clobber (ADR-013). Add a new per-run key
 # in one place here → every script gets it.
 
@@ -169,7 +169,7 @@ function Get-EnvInt {
     return $Default
 }
 
-function Get-KanbanContext {
+function Get-OrchestratorContext {
     if ($script:_KanbanContext) { return $script:_KanbanContext }
     $script:_KanbanContext = [pscustomobject]@{
         IssueNumber   = Get-EnvInt 'KANBAN_ISSUE'       -Default 0
