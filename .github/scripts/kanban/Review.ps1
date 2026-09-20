@@ -85,7 +85,11 @@ First line of your response MUST be exactly APPROVED or REJECTED (all caps).
 Follow with your detailed reasoning.
 "@
 
-    $review   = Invoke-ClaudeStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $KanbanMaxTurns_Review
+    if ($KanbanEngine -eq 'gemini') {
+        $review = Invoke-GeminiStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $KanbanMaxTurns_Review
+    } else {
+        $review = Invoke-ClaudeStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $KanbanMaxTurns_Review
+    }
     $approved = $review -match '(?im)^APPROVED'
 
     $issueComment = if ($approved) {

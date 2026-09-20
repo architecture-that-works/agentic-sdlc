@@ -75,7 +75,11 @@ $contextContent
 "@
 
     Write-Log "  Calling Claude for CONTEXT.md update (issue #$IssueNumber)..." -Color DarkGray
-    $response = $prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String
+    $response = if ($KanbanEngine -eq 'gemini') {
+        $prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String
+    } else {
+        $prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Claude invocation failed — skipping context update." -Color Yellow
         return

@@ -129,7 +129,11 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 {"body":"<full issue body>","estimate":<number or null>,"priority":"<one of the allowed values or null>"}
 "@
 
-        $raw = Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
+        $raw = if ($KanbanEngine -eq 'gemini') {
+            Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String)
+        } else {
+            Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
+        }
         if ($LASTEXITCODE -ne 0) { throw "Claude refinement failed: $raw" }
 
         $json = $raw.Trim()
@@ -249,7 +253,11 @@ above if present). Keep it tight — 3 to 8 numbered steps, no preamble, Markdow
     $populatedBy = 'plan (claude)'
     $planMd      = $null
     try {
-        $planMd = Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
+        $planMd = if ($KanbanEngine -eq 'gemini') {
+            Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String)
+        } else {
+            Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
+        }
         if ($LASTEXITCODE -ne 0 -or -not $planMd.Trim()) { $planMd = $null }
     } catch {
         $planMd = $null
@@ -281,6 +289,9 @@ function Invoke-Alignment {
     $ctx  = Get-KanbanContext
     $meta = gh issue view $IssueNumber --repo $ctx.Repo --json title,labels,state | ConvertFrom-Json
     Write-Log "━━━ Alignment (Backlog gate): issue #$IssueNumber — $($meta.title)" -Color Cyan
+
+    # Fail-fast engine validation
+    Assert-EngineReady
 
     $labels = @($meta.labels.name)
     if ($meta.state -ne 'OPEN') {

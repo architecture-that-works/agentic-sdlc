@@ -33,6 +33,7 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\Util.ps1"
 . "$PSScriptRoot\GitHub.ps1"
 . "$PSScriptRoot\..\Claude.ps1"   # generic helper, shared across .github/scripts
+. "$PSScriptRoot\..\Gemini.ps1"   # generic helper, shared across .github/scripts
 . "$PSScriptRoot\..\..\..\.agents\skills\refine\scripts\_grill.ps1"
 . "$PSScriptRoot\Refine.ps1"
 . "$PSScriptRoot\Architecture.ps1"

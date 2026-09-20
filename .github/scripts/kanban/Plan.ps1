@@ -357,7 +357,11 @@ Rules:
 - Priorities are P0..P4. Use P3 unless the child is explicitly higher.
 "@
 
-    $raw = Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
+    $raw = if ($KanbanEngine -eq 'gemini') {
+        Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String)
+    } else {
+        Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
+    }
     if ($LASTEXITCODE -ne 0) { throw "Claude PRD synthesis failed: $raw" }
     $json = $raw.Trim()
     if ($json -match '(?s)```(?:json)?\s*(\{.+\})\s*```') { $json = $Matches[1] }

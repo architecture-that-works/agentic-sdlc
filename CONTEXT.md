@@ -79,7 +79,7 @@ Invariants that must not be violated in any implementation.
 - **Lint gate** — `ruff check` + `ruff format --check` must pass before any commit.
 - **`src/utils/` is generic** — no project-specific logic in `m_*.py` modules.
 - **Standard library first** — prefer stdlib over third-party packages.
-- **Claude-first AI** — Claude CLI (primary) → Claude SDK (fallback). Gemini slot reserved; do not add as primary.
+- **Dual-Engine AI** — Claude and Gemini are co-primary engines for the AFK pipeline, orchestrated via `KANBAN_ENGINE` per run. Claude remains the template default.
 - **PowerShell 7+** — all `.ps1` scripts target `#Requires -Version 7.0`. Never target PS 5.1.
 - **pydantic-settings `extra="ignore"`** — Settings class must always ignore unknown env vars.
 - **Module Map is the source of truth** (ADR-009) — every new top-level `src/<domain>/` directory MUST add a row to the Module Map in the same PR. Enforced by the `ship` skill.
