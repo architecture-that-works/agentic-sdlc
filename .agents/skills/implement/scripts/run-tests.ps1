@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Idempotent test runner for the `tdd` skill.
+    Idempotent test runner for the `implement` skill.
 
 .DESCRIPTION
     Runs the full pytest suite via `uv run pytest`. Verifies the environment is ready
@@ -22,13 +22,13 @@
 
 .EXAMPLE
     # Run all tests with coverage
-    pwsh .agents/skills/tdd/scripts/run-tests.ps1
+    pwsh .agents/skills/implement/scripts/run-tests.ps1
 
     # Run only tests matching "order"
-    pwsh .agents/skills/tdd/scripts/run-tests.ps1 -Filter "order"
+    pwsh .agents/skills/implement/scripts/run-tests.ps1 -Filter "order"
 
     # Run without coverage and without fail-fast
-    pwsh .agents/skills/tdd/scripts/run-tests.ps1 -NoCoverage -FailFast:$false
+    pwsh .agents/skills/implement/scripts/run-tests.ps1 -NoCoverage -FailFast:$false
 #>
 
 [CmdletBinding()]

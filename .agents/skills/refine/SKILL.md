@@ -15,9 +15,9 @@ Prevents premature implementation by forcing full alignment on domain language, 
 
 **Owns:** Grill-me protocol, shared language construction, `CONTEXT.md` schema, `AGENTS.md` persistence rules, ADR creation (MADR format), Agent Brief synthesis, context window initialisation.
 
-**Does not own:** Architecture mapping and static analysis (→ `architecture`), PRD and issue creation (→ `plan`), code implementation (→ `tdd`).
+**Does not own:** Architecture mapping and static analysis (→ `architect`), PRD and issue creation (→ `plan`), code implementation (→ `implement`).
 
-**Interfaces with:** `architecture` — topology validates boundaries declared in `CONTEXT.md`. `plan` — Agent Brief is the direct input to Lean PRD synthesis. `harness` — `CONTEXT.md` and `AGENTS.md` are loaded at session start.
+**Interfaces with:** `architect` — topology validates boundaries declared in `CONTEXT.md`. `plan` — Agent Brief is the direct input to Lean PRD synthesis.
 
 ## When to Use
 
@@ -25,7 +25,7 @@ Prevents premature implementation by forcing full alignment on domain language, 
 - Shared language is ambiguous or missing
 - Architectural boundaries haven't been agreed before coding begins
 
-**Do NOT use for:** Architecture mapping or dependency analysis (→ `architecture`), decomposing requirements into issues (→ `plan`).
+**Do NOT use for:** Architecture mapping or dependency analysis (→ `architect`), decomposing requirements into issues (→ `plan`).
 
 ## Required Inputs
 
@@ -140,7 +140,7 @@ never carries state across environments.
 - Open/decided questions → the `open_questions[]` / `decided_questions[]` arrays
   inside the AGENT-STATE JSON block. Open questions block backlog entry per the
   readiness gate (`Test-Readiness`).
-- One `HITL`-labelled child issue per unresolvable open question, linked back
+- One `human:decision` child issue per unresolvable open question, linked back
   to the parent with "decision needed" framing.
 
 **Readiness lanes.** `refine`, `architect`, and `plan` are NOT kanban lanes —

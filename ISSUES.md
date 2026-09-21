@@ -9,7 +9,7 @@ Run `task sync -- -DryRun` to preview without making changes.
 
 ## Block Format
 
-Every block must follow this structure exactly so `sync-issues.ps1` can parse it:
+Every block must follow this structure exactly so `task sync` can parse it:
 
 ```
 ISSUE: [Action-oriented Issue Title]
@@ -25,9 +25,10 @@ END_ISSUE
 Header fields — all optional, must appear before the body, in any order:
 
 - `LABELS:` — comma-separated subset of the allowed label set. Agents must not create new labels. Allowed values:
-  - `AFK` — issue can be processed autonomously by the orchestrator without human intervention
-  - `HITL` — issue requires human decision or approval at some point; orchestrator will not pick it up automatically
-  - `agent:backlog` `agent:implementing` `agent:review` `agent:merged` `agent:failed` — orchestrator state machine; set by the orchestrator, not by humans or agents writing issues
+  - *(no label)* — unattended is the **default**: the pipeline runs refine through ship without stopping
+  - `human:approval` — implemented and self-reviewed unattended, then held for a human to merge the PR
+  - `human:decision` — a question for a human; never enters the pipeline at all
+  - `agent:backlog` `agent:implementing` `agent:reviewing` `agent:shipped` `agent:failed` — orchestrator state machine; set by the orchestrator, never by humans or agents writing issues
 - `ESTIMATE:` — Fibonacci story point integer (see scale below). Synced to the **Estimate** field on the GitHub Project board. **Do not use the project board's Size field** (XS/S/M/L/XL) — it is not populated by any script and conflicts with Estimate as the single sizing signal.
 - `PRIORITY:` — one of `P0 | P1 | P2 | P3 | P4` (see definitions below). Synced to the **Priority** field on the GitHub Project board.
 
@@ -58,13 +59,13 @@ A true 1 is rare as a standalone issue — in practice issues bundle and land at
 | 5 | New cross-cutting behaviour touching multiple modules; tests required; path is clear | Add a new config field propagated through config, tests, and docs; port a script to a new runtime |
 | 8 | Significant feature spanning multiple subsystems or requiring an explicit design decision | Multi-cloud deployment workflow with WIF; template restructure affecting generation output |
 | 13 | Major system creation or replacement; end-to-end behaviour must be verified | Replace a polling-based pipeline with an event-driven one; introduce a new orchestration layer |
-| 21 | Full architectural phase spanning every bounded context; compounding unknowns. **Decompose before implementation.** | A PRD tackled as a single issue rather than decomposed child issues |
+| 21 | Spans every bounded context; compounding unknowns. **Decompose before implementation.** | A PRD tackled as a single issue rather than decomposed child issues |
 
 **Rules of thumb:**
 - If unsure between two values, pick the higher.
 - Estimates include the full cost: implementation, tests, review, and any documentation AC requires.
 - If a dependency is unresolved, do not estimate — flag for refinement first.
-- `ESTIMATE: 13` or above requires `LABELS: HITL`. The agent does not proceed AFK.
+- `ESTIMATE: 13` or above requires `LABELS: human:approval`. The agent implements and self-reviews, then holds for a human to merge.
 
 ---
 
@@ -86,22 +87,40 @@ Default new issues to **P3** (new work) or **P4** (improvement). Escalation to P
 
 <!-- ISSUES -->
 
-ISSUE: Close the loop on agent PRs left sitting at agent:review
-LABELS: AFK
+ISSUE: Close the loop on agent PRs left sitting at agent:reviewing
+LABELS: human:approval
 ESTIMATE: 3
 PRIORITY: P3
-**Goal**: An agent-authored PR cannot quietly rot at `agent:review` until `main` has moved far enough to make it unmergeable.
-**Description**: The pipeline drives an issue to `agent:review` and then stops — nothing tracks how long a PR waits for the human approval that lane implies. PR #175 (issue #154) sat from 2026-07-29 to 2026-09-20, seven weeks, during which `main` advanced past it and the branch acquired a `pyproject.toml` conflict that required hand resolution before CI could even run. The cost compounds: a stale branch also rebases onto a `main` whose CI gates have since changed, so the eventual rerun fails for reasons unrelated to the original work. There is no dashboard, notification, or scheduled sweep surfacing "these agent PRs are waiting on you". Note this is about *surfacing* staleness, not auto-merging — the human approval gate is deliberate and must stay.
+**Goal**: An agent-authored PR cannot quietly rot at `agent:reviewing` until `main` has moved far enough to make it unmergeable.
+**Description**: The pipeline drives an issue to `agent:reviewing` and then stops — nothing tracks how long a PR waits for the human approval that lane implies. PR #175 (issue #154) sat from 2026-07-29 to 2026-09-20, seven weeks, during which `main` advanced past it and the branch acquired a `pyproject.toml` conflict that required hand resolution before CI could even run. The cost compounds: a stale branch also rebases onto a `main` whose CI gates have since changed, so the eventual rerun fails for reasons unrelated to the original work. There is no dashboard, notification, or scheduled sweep surfacing "these agent PRs are waiting on you". Note this is about *surfacing* staleness, not auto-merging — the human approval gate is deliberate and must stay.
 **Requirements**:
-1. Add a scheduled workflow (daily is sufficient) that lists open PRs whose linked issue carries `agent:review`, with the age of each in days.
+1. Add a scheduled workflow (daily is sufficient) that lists open PRs whose linked issue carries `agent:reviewing`, with the age of each in days.
 2. Escalate past a threshold (suggest 3 days): post or update a single comment on the PR noting how long it has waited, without spamming a new comment per run.
 3. Surface the same list in a form the developer actually sees — a job summary on the scheduled run at minimum; consider a `task` target mirroring `task runner`'s queue display for local use.
 4. Optionally flag PRs whose branch has fallen behind `main` by more than N commits, since that is the specific condition that turns a wait into a conflict.
 5. Do not auto-close, auto-merge, or relabel anything — this issue only makes the backlog of waiting reviews visible.
 **Acceptance Criteria**:
 - A scheduled workflow exists and runs green on `main`.
-- Given an open PR linked to an `agent:review` issue older than the threshold, the workflow reports it by number, title, and age.
+- Given an open PR linked to an `agent:reviewing` issue older than the threshold, the workflow reports it by number, title, and age.
 - Re-running the workflow updates rather than duplicates any comment it posts.
 - No PR state, label, or merge status is modified by the workflow.
 - `uv run pytest` passes and `ruff check .` / `ruff format --check .` are clean.
+END_ISSUE
+
+ISSUE: Decide whether the Planner/Generator/Evaluator split and agent event log are template features
+LABELS: human:decision
+ESTIMATE: 5
+PRIORITY: P4
+**Goal**: The harness content describing a Planner/Generator/Evaluator agent split, an `emitEvent` durable event log, and tool-call offloading rules either becomes implemented template machinery or is dropped — it stops living in a document as unimplemented aspiration.
+**Description**: ADR-015 retired the `harness` skill and moved its content to `docs/HARNESS.md`. Reviewed against the repository, the PGE split, the event log and the offloading rules are implemented nowhere in `.github/orchestrator/` — no function emits an event, and nothing splits generation from evaluation. Documentation carries settled knowledge; in-flight intent belongs on an issue. The context-management thresholds and the Dev Container pointer stayed in `docs/HARNESS.md` because both describe something real. This issue decides the fate of the rest rather than leaving a document that describes machinery the repository does not have.
+**Requirements**:
+1. Decide per component — PGE split, `emitEvent` log, tool-call offloading rules — build, defer, or drop.
+2. For each "build", raise a child issue with acceptance criteria written against `.github/orchestrator/`.
+3. For each "drop", add an entry to `.out-of-scope.md` with the date and this issue as the source, so plan-phase deduplication finds it.
+4. Do not re-expand `docs/HARNESS.md` to hold the deferred design; the issue is the carrier for in-flight intent (ADR-011).
+**Acceptance Criteria**:
+- Given the decision is recorded, no component remains undecided.
+- Given a component is dropped, `.out-of-scope.md` carries it with a date and source link.
+- Given a component is built, a child issue exists with acceptance criteria naming the orchestrator files it touches.
+- `docs/HARNESS.md` is unchanged in length by this issue — it describes only what exists.
 END_ISSUE

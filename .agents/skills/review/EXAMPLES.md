@@ -8,7 +8,7 @@ auto-fix protocol, and drift-risk heuristics.
 
 ## Example 1: PR with a BLOCK Finding (Internal Mock)
 
-**Context:** PR #42 adds `Order.total()` with tax calculation. The `tdd` cycle completed
+**Context:** PR #42 adds `Order.total()` with tax calculation. The `implement` cycle completed
 but the reviewer finds a test that mocks an internal collaborator.
 
 ### Step 1 — Run the review
@@ -223,7 +223,7 @@ determinable without a refine session (two valid bounded context designs exist).
 
 **Action required:** Human review needed before this PR can proceed."
 
-gh pr edit 61 --add-label "HITL"
+gh issue edit 54 --add-label "human:approval"
 ```
 
 Stop. Do not attempt iteration 4.

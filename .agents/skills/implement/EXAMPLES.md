@@ -1,6 +1,6 @@
 # TDD — Examples
 
-Golden end-to-end sessions demonstrating the `tdd` skill. See [SKILL.md](SKILL.md) for the
+Golden end-to-end sessions demonstrating the `implement` skill. See [SKILL.md](SKILL.md) for the
 quick-start and [REFERENCE.md](REFERENCE.md) for the full decision tree, fixture conventions,
 and parametrize patterns.
 

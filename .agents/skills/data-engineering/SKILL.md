@@ -15,9 +15,9 @@ ELT pipelines following a Mini-Medallion architecture (Raw → Bronze → Silver
 
 **Owns:** ELT pipeline design and implementation, Medallion tier definitions and boundaries, SQLAlchemy Core (Bronze bulk inserts) and ORM (Silver/Gold transformations), Polars for pipeline data transformations, DuckLake storage backend configuration, storage backend selection (SQLite vs DuckLake), Pydantic boundary validation (the Sandwich), upsert logic, data quality gates, schema contracts, feature pipeline implementation (computing features at scale — not designing them), lineage event emission from pipeline steps (OpenLineage).
 
-**Does not own:** Feature design — which features to compute and why (→ `refine`), model training pipelines (→ `agentic-engineering`), general telemetry instrumentation (→ `harness`).
+**Does not own:** Feature design — which features to compute and why (→ `refine`), model training pipelines (→ `agentic-engineering`), general telemetry instrumentation (see `docs/HARNESS.md`).
 
-**Interfaces with:** `refine` — feature requirements and domain boundaries are specified there; data-engineering implements the Gold pipeline against those specs. `tdd` — integration tests for each pipeline stage drive the RED phase. `application-engineering` — Gold tables / Parquet datasets are the contract for downstream APIs.
+**Interfaces with:** `refine` — feature requirements and domain boundaries are specified there; data-engineering implements the Gold pipeline against those specs. `implement` — integration tests for each pipeline stage drive the RED phase. `application-engineering` — Gold tables / Parquet datasets are the contract for downstream APIs.
 
 ## When to Use
 

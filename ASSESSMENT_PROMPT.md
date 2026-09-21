@@ -58,8 +58,8 @@ this order and record what you find. Cite file paths and line ranges for every f
 4. **Skill system** — `.claude/skills/` (or plugin equivalent), per-skill `SKILL.md`
    frontmatter, presence of `REFERENCE.md` / `EXAMPLES.md` / `scripts/`, MECE coverage of
    SDLC phases, idempotency of skill scripts
-5. **Phase orchestration** — state-persistence mechanism (`STATE.md`, `.planning/`, scratch
-   directories), stateless sub-agent invocation pattern, phase-gated commands
+5. **Stage orchestration** — state-persistence mechanism (`STATE.md`, `.planning/`, scratch
+   directories), stateless sub-agent invocation pattern, stage-gated commands
 6. **Pipeline trigger** — label-driven workflow wiring (issue label → agent → PR), human
    merge gate, retry/token budget
 7. **Decision lineage** — `docs/adr/`, ADR template adherence (MADR / Nygard), cross-links
@@ -213,7 +213,7 @@ harness that steers agent behavior.
 
 | # | Criterion | Met when… |
 |---|---|---|
-| 3.10 | Fresh-context-per-phase via on-disk state | A persistent state mechanism exists on disk (`STATE.md`, `.planning/`, `.scratch/`, or per-phase artifact files). Each SDLC phase reads from and writes to this medium; long-running single-session conversations are not the orchestration model. |
+| 3.10 | Fresh-context-per-stage via on-disk state | A persistent state mechanism exists on disk (`STATE.md`, `.planning/`, `.scratch/`, or per-stage artifact files). Each SDLC stage reads from and writes to this medium; long-running single-session conversations are not the orchestration model. |
 
 ### D. Agentic Pipeline [§15-T3]
 

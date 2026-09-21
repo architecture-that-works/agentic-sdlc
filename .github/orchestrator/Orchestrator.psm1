@@ -38,12 +38,7 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\engines\Claude.ps1"
 . "$PSScriptRoot\engines\Gemini.ps1"
 
-# The refine stage's self-grill subagent still lives in the skill tree, so the
-# module reaches into it. That direction is wrong — the orchestrator should not
-# depend on .agents/ — but inverting it means the skill's grill.ps1 imports this
-# module instead, which is a behavioural change and belongs in its own PR. See
-# ADR-015 § Open decisions.
-. "$PSScriptRoot\..\..\.agents\skills\refine\scripts\_grill.ps1"
+. "$PSScriptRoot\lib\Grill.ps1"
 
 # stages — one file per stage, in pipeline order
 . "$PSScriptRoot\stages\Refine.ps1"

@@ -125,7 +125,7 @@ New context: src/streaming/ — owns SSE lifecycle and Claude streaming adapter.
 `GET /stream?q=hello` → three hardcoded tokens → `data: [DONE]` → connection closes.
 ```
 
-**Outcome:** Agent Brief signed off. `architecture` session can begin.
+**Outcome:** Agent Brief signed off. `architect` session can begin.
 
 ---
 

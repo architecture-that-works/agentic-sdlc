@@ -37,7 +37,7 @@ at the same time — never merge an ADR without a corresponding index update.
 | [ADR-004](ADR-004-iam-provider-selection.md) | IAM Provider Selection | Proposed | `project_type: application`, `project_type: agent` | Keycloak (internal employees / LDAP) or Zitadel (external customers / B2B) — context-dependent; FastAPI via `OAuth2AuthorizationCodeBearer` |
 | [ADR-005](ADR-005-pipeline-orchestration.md) | Data Pipeline Orchestration | Proposed | `project_type: ml`, `project_type: agent` (data-intensive) | Dagster (Software-Defined Assets) when multiple production pipelines or backfill requirements emerge — not applicable to `application` |
 | [ADR-006](ADR-006-agent-observability.md) | Agent Observability Tooling | Accepted | `project_type: agent` | Vertex AI Service Runtime (GCP + Gemini) or LangSmith (provider-agnostic) — context-dependent; extends ADR-003, does not replace OTel span emission |
-| [ADR-007](ADR-007-project-type-selection.md) | Project Type Selection | Accepted | all | `{{ project_type }}` — determines relevant domain ADRs and the domain skill to invoke during `tdd` REFACTOR |
+| [ADR-007](ADR-007-project-type-selection.md) | Project Type Selection | Accepted | all | `{{ project_type }}` — determines relevant domain ADRs and the domain skill to invoke during `implement` REFACTOR |
 | [ADR-008](ADR-008-secrets-management.md) | Secrets Management | Accepted | all | GitHub Secrets for dev/CI; Azure Key Vault (corporate) / GCP Secret Manager (personal) for production |
 | [ADR-009](ADR-009-context-strategy.md) | Context Strategy | Accepted | all | Module Map + Issue-Type Index in CONTEXT.md, Context Protocol in AGENTS.md, blocking ship gate on Module Map updates |
 | [ADR-010](ADR-010-runner-profile-variable.md) | Runner Profile Variable | Proposed | all | `KANBAN_RUNNER_PROFILE` variable switches orchestrator between GHA-hosted ubuntu-latest (default) and self-hosted runner |
@@ -45,6 +45,7 @@ at the same time — never merge an ADR without a corresponding index update.
 | [ADR-012](ADR-012-orchestrator-graphql-budget.md) | Orchestrator GraphQL Budget | Accepted | all | Cut the orchestrator's GraphQL footprint (default-branch + label ops off GraphQL, rate-limit pre-flight); defer a dedicated CI identity — a GitHub App can't mutate the user-owned Projects v2 board, and the cuts are expected to keep AFK within the 5000/hr budget |
 | [ADR-013](ADR-013-workflow-parameter-passing.md) | Workflow Parameter Passing | Accepted | all | Pass run parameters via env transport hydrated into a single `Get-KanbanContext` object; enforce a library/entry-point split (no top-level `param()` in dot-sourced files) to kill the scope-leak that ran the pipeline against #0; PowerShell module migration is the phased follow-up |
 | [ADR-014](ADR-014-pre-backlog-alignment-gate.md) | Pre-Backlog Alignment Gate | Accepted | all | `refine→architect→plan` (`Invoke-Alignment`) is the pre-backlog gate that grants `agent:backlog`; all artefacts written into the issue body (retire `.planning/`); alignment auto-runs on issue creation (`align.yml`), processing is human-triggered (`task runner`/`task start`) — the label means "ready", not "go" |
+| [ADR-015](ADR-015-pipeline-taxonomy.md) | Pipeline Taxonomy | Accepted | all | Six stages (`refine`→`architect`→`plan`→`implement`→`review`→`ship`) named identically as skill, library script and label across four board lanes; module at `.github/orchestrator/`; AFK/HITL demoted from labels to execution modes; `human:approval` (merge authority) and `human:decision` (not a work item) split out of the overloaded HITL label. **Supersedes the `HITL + AFK` label pair from ADR-014** |
 
 ---
 
@@ -54,10 +55,10 @@ Use this to determine which ADRs to load at session start. ADR-000 is always a t
 reference — load it only when creating a new ADR.
 
 ### `project_type: application` (default)
-Load: **ADR-003**, **ADR-004**, **ADR-007**, **ADR-008**, **ADR-009**
+Load: **ADR-003**, **ADR-004**, **ADR-007**, **ADR-008**, **ADR-009**, **ADR-015**
 
 ### `project_type: agent`
-Load: **ADR-003**, **ADR-004**, **ADR-006**, **ADR-007**, **ADR-008**, **ADR-009**
+Load: **ADR-003**, **ADR-004**, **ADR-006**, **ADR-007**, **ADR-008**, **ADR-009**, **ADR-015**
 
 ### `project_type: ml`
-Load: **ADR-001**, **ADR-002**, **ADR-003**, **ADR-005**, **ADR-007**, **ADR-008**, **ADR-009**
+Load: **ADR-001**, **ADR-002**, **ADR-003**, **ADR-005**, **ADR-007**, **ADR-008**, **ADR-009**, **ADR-015**

@@ -21,7 +21,7 @@ Load in this order at the start of every session:
 
 Never begin a task without reading `CONTEXT.md` first. An agent that skips this will hallucinate boundaries that were already agreed.
 
-After reading `ADR_STRUCTURE.md`, load only the ADRs that match the current `project_type`. For `project_type: application` (the default): ADR-003, ADR-004, ADR-007, ADR-008, ADR-009. Do not load ADRs scoped to other project types — they pollute context with irrelevant constraints.
+After reading `ADR_STRUCTURE.md`, load only the ADRs that match the current `project_type`. For `project_type: application` (the default): ADR-003, ADR-004, ADR-007, ADR-008, ADR-009, ADR-015. Do not load ADRs scoped to other project types — they pollute context with irrelevant constraints.
 
 If loading steps 1–3 + step 4 would push context fill past 100k tokens, offload step 4 to the filesystem and load on demand.
 
@@ -45,21 +45,21 @@ Load these docs only when the task requires them — do not load preemptively.
 
 - For testing conventions, fixture patterns, and pytest usage: read `docs/TESTING.md`.
 - For the skill system reference, invocation protocol, and lifecycle: read `docs/SKILLS.md`.
+- For the development environment and context-window management: read `docs/HARNESS.md`.
 
 ## Skills
 
 Invoke the relevant skill before implementing manually. Skills are located in `.agents/skills/`.
 
-**Workflow** (sequential — refine → architecture → plan → tdd → harness → review → ship):
+**Workflow** (sequential — refine → architect → plan → implement → review → ship):
 
 | Skill | When to invoke | References |
 |-------|----------------|------------|
 | `refine` | Starting a new feature — alignment on glossary, boundaries, and ADRs before any code | [REFERENCE.md](.agents/skills/refine/REFERENCE.md) · [EXAMPLES.md](.agents/skills/refine/EXAMPLES.md) |
-| `architecture` | Analysing dependencies, blast-radius, or module structure | [REFERENCE.md](.agents/skills/architecture/REFERENCE.md) · [EXAMPLES.md](.agents/skills/architecture/EXAMPLES.md) |
+| `architect` | Analysing dependencies, blast-radius, or module structure | [REFERENCE.md](.agents/skills/architect/REFERENCE.md) · [EXAMPLES.md](.agents/skills/architect/EXAMPLES.md) |
 | `plan` | Translating an Agent Brief into a Lean PRD and decomposed GitHub Issues | [REFERENCE.md](.agents/skills/plan/REFERENCE.md) · [EXAMPLES.md](.agents/skills/plan/EXAMPLES.md) |
 | `diagnosis` | Implementation or CI fails and the root cause is unclear — before attempting a fix | — |
-| `tdd` | Implementing features via Red-Green-Refactor | [REFERENCE.md](.agents/skills/tdd/REFERENCE.md) · [EXAMPLES.md](.agents/skills/tdd/EXAMPLES.md) |
-| `harness` | Provisioning environments, managing context health, Planner/Generator/Evaluator split | [REFERENCE.md](.agents/skills/harness/REFERENCE.md) · [EXAMPLES.md](.agents/skills/harness/EXAMPLES.md) |
+| `implement` | Implementing features via Red-Green-Refactor | [REFERENCE.md](.agents/skills/implement/REFERENCE.md) · [EXAMPLES.md](.agents/skills/implement/EXAMPLES.md) |
 | `review` | Code review, auto-fix loop, PR validation | [REFERENCE.md](.agents/skills/review/REFERENCE.md) · [EXAMPLES.md](.agents/skills/review/EXAMPLES.md) |
 | `ship` | Pre-merge security checks, squash merge, knowledge base update | [REFERENCE.md](.agents/skills/ship/REFERENCE.md) · [EXAMPLES.md](.agents/skills/ship/EXAMPLES.md) |
 
@@ -70,7 +70,7 @@ Invoke the relevant skill before implementing manually. Skills are located in `.
 | `version-control` | Branching (`feature/{number}-{slug}`), commits, PRs — any phase that touches git | — |
 | `write-skills` | Creating or updating skills in `.agents/skills/` | [REFERENCE.md](.agents/skills/write-skills/REFERENCE.md) · [EXAMPLES.md](.agents/skills/write-skills/EXAMPLES.md) |
 
-**Domain** (extend `tdd` REFACTOR with implementation patterns — named `*-engineering`):
+**Domain** (extend `implement` REFACTOR with implementation patterns — named `*-engineering`):
 
 | Skill | When to invoke |
 |-------|----------------|
@@ -97,11 +97,11 @@ Domain-specific information for this project is captured in ADRs matching the pr
 | `docs/TESTING.md` | Pytest conventions, fixture patterns, file-mirroring rule, coverage floor |
 | `docs/SKILLS.md` | Skill invocation protocol, workflow lifecycle, domain vs. meta skill selection |
 | `CONTEXT.md` | Leading repo-structure doc — domain glossary, bounded contexts, Module Map (agent navigation index), architectural constraints |
-| `.github/workflows/` | CI (`ci.yml`: lint + typecheck + test); the alignment gate (`align.yml`: refine→architect→plan on issue creation); the AFK orchestrator (`orchestrator.yml`: implement→review→merge) |
-| `.github/scripts/kanban/` | Orchestrator **library**: the `Kanban` PowerShell module (`Kanban.psd1`/`.psm1`, `Import-Module`). One script per lane — `Refine.ps1` (Backlog gate + `Invoke-Alignment`), `Architecture.ps1`/`Implement.ps1`/`Review.ps1`/`Merge.ps1`, conducted by `Orchestrator.ps1`. No top-level `param()` in module files (ADR-013) |
-| `.github/scripts/tasks/` | Thin Taskfile/workflow commands that `Import-Module` the library: `align`, `start`, `runner`, `retry`, `setup`, `sync-issues` |
-| `.github/scripts/ci/` | CI gate scripts (`check-module-map.ps1`); generic `Claude.ps1` helper sits at `.github/scripts/` |
-| _(issue body)_ | Per-issue pipeline artifacts live IN the issue body (ADR-011/ADR-014): `AGENT-STATE` JSON, `Agent Brief`, `Architecture Impact`, `Implementation Plan` — there is no `.planning/` directory |
+| `.github/workflows/` | `checks.yml` (lint, typecheck, test, audit, guards); `afk.yml` (the whole pipeline unattended — `stage` input selects refine / implement / ship); `build.yml`, `deploy.yml`, `branch-protection.yml` |
+| `.github/orchestrator/` | The orchestrator **module** (`Orchestrator.psd1`/`.psm1`, `Import-Module`). `Orchestrator.psm1` loads `lib/`, `stages/`, `engines/` and is the single conductor: `Invoke-Orchestration -From refine\|implement`. One file per stage in `stages/`; LLM adapters in `engines/`; shared helpers in `lib/`. Everything here is dot-sourced library — no top-level `param()` (ADR-013) |
+| `.github/tasks/` | Runnables, one per `Taskfile.yml` target, named identically: `align`, `start`, `runner`, `retry`, `setup`, `sync`, `protect`. Each owns its `param()` and `Import-Module`s the orchestrator |
+| `.github/checks/` | Validators run by `checks.yml`, named `check-<thing>.ps1`: Module Map integrity, script paths, doc paths, module API boundary, plus `verify-settings.ps1` |
+| _(issue body)_ | The carrier. Per-issue pipeline artifacts live IN the issue body (ADR-011/ADR-014): `AGENT-STATE` JSON with `open_questions[]` / `decided_questions[]` / `failed_at`, plus `Agent Brief`, `Architecture Impact` and `Implementation Plan` |
 
 ## Rules
 

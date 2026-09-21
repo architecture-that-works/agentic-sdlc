@@ -456,8 +456,8 @@ Living checklist and the handoff point. **An agent resuming this refactor from `
 - [x] **PR 3** — `checks/` + `check-script-paths.ps1` + `check-module-api.ps1`
 - [x] **PR 4** — Workflows → `afk.yml`, `checks.yml`; `tasks/` 1:1 with Taskfile
 - [x] **PR 5** — Execution modes: retire `AFK` / `HITL` labels, wire `human:*`, `failed_at`
-- [ ] **PR 6** — Skill tree: `architect/`, `implement/`, retire `harness/`
-- [ ] **PR 7** — Docs: README, `docs/SKILLS.md`, `AGENTS.md`, `CONTEXT.md` Glossary, `ISSUES.md`, `ASSESSMENT_PROMPT.md`
+- [x] **PR 6** — Skill tree: `architect/`, `implement/`, retire `harness/`
+- [x] **PR 7** — Docs: README, `docs/SKILLS.md`, `AGENTS.md`, `CONTEXT.md` Glossary, `ISSUES.md`, `ASSESSMENT_PROMPT.md`
 
 **Manual steps (live state no PR can carry)**
 
@@ -465,7 +465,7 @@ Living checklist and the handoff point. **An agent resuming this refactor from `
 
 **Open decisions**
 
-- **PR 2b or PR 6** — `_grill.ps1` is dot-sourced by *both* `Orchestrator.psm1` and the refine skill's own `grill.ps1`, so the orchestrator reaches into `.agents/`. That dependency direction is wrong. Either the skill's `grill.ps1` imports the module instead (behavioural, and it is the skill tree's PR), or the file stays dual-consumed and the coupling is accepted. Not decided; the loader carries a comment pointing here.
+- **PR 2b or PR 6** — Decided in PR 6: `_grill.ps1` was moved to `.github/orchestrator/lib/Grill.ps1`, and the skill's `grill.ps1` CLI now imports the orchestrator module instead.
 
 ### Working notes for whoever picks this up
 

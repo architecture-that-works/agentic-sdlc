@@ -153,7 +153,7 @@ Open a new issue for the root cause fix:
 ```bash
 gh issue create \
   --title "fix(config): diagnose DEFAULT_TIMEOUT pydantic conflict before re-implementing" \
-  --label "HITL" \
+  --label "human:approval" \
   --body "PR #55 was reverted (see e9f1234). Root cause: pydantic-settings rejects
 DEFAULT_TIMEOUT because the field name clashes with an env var prefix. A refine
 session is needed to agree on the correct field naming convention before

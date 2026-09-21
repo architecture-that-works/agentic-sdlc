@@ -57,7 +57,7 @@ jobs:
       - run: uv sync
       - run: uv run pip-audit
 
-  module-map-check:
+  guards:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
@@ -70,9 +70,15 @@ jobs:
       - name: Check Script Paths
         shell: pwsh
         run: .github/checks/check-script-paths.ps1
+      - name: Check Doc Paths
+        shell: pwsh
+        run: .github/checks/check-doc-paths.ps1
       - name: Check Module API boundary
         shell: pwsh
         run: .github/checks/check-module-api.ps1
+      - name: Verify Claude Code settings
+        shell: pwsh
+        run: .github/checks/verify-settings.ps1
 
   secret-scan:
     runs-on: ubuntu-latest

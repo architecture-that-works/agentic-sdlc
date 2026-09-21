@@ -128,7 +128,7 @@ Mitigations:
 
 With `KANBAN_RUNNER_PROFILE=self-hosted`, the `implement` job requires a self-hosted runner
 registered with the `gha-project` label (see `runs-on: [self-hosted, gha-project]` in
-`.github/workflows/orchestrator.yml`). The runner must have `uv`, `claude` (Claude Code CLI),
+`.github/workflows/afk.yml`). The runner must have `uv`, `claude` (Claude Code CLI),
 `git`, and `gh` pre-installed.
 
 - **Start:** run `./run.cmd` from the registered runner directory, or install it as a service
