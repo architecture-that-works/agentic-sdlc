@@ -1,10 +1,10 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Merged lane — squash-merge the PR after the CI gate + approval check.
+    Ship stage — squash-merge the PR after the CI gate + approval check.
 
 .DESCRIPTION
-    Kanban library — loaded by Kanban.psm1; Invoke-Ship is called by Orchestrator.ps1.
+    Orchestrator library — loaded by Orchestrator.psm1, which calls Invoke-Ship.
 
     Unless called with -Approved (the orchestrator's review stage already
     approved) or -Force, confirms an approval signal exists (agent:reviewing label
@@ -13,14 +13,14 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-# Module-internal library — loaded by Kanban.psm1 (which loads Config.ps1 first).
+# Module-internal library — loaded by Orchestrator.psm1 (which loads Config.ps1 first).
 # Not dot-sourced individually; see ADR-013.
 
 function Test-HasApproval {
     param([int]$IssueNumber, [int]$PRNumber)
 
-    $labels = gh issue view $IssueNumber --repo $KanbanRepo --json labels --jq '[.labels[].name]' |
-        ConvertFrom-Json -ErrorAction SilentlyContinue
+    # REST, not `gh issue view --json labels` (GraphQL) — ADR-012.
+    $labels = Get-IssueLabel -IssueNumber $IssueNumber
     if ($labels -contains 'agent:reviewing') { return $true }
 
     $reviews = gh pr view $PRNumber --json reviews --jq '[.reviews[] | select(.state=="APPROVED")]' |
@@ -195,6 +195,31 @@ function Invoke-RebaseOnMaster {
     Add-Comment -Number $IssueNumber -Body "· rebased onto $default"
 }
 
+# ── Hold announcement ─────────────────────────────────────────────────────────
+
+function Test-HoldAnnounced {
+    <#
+    .SYNOPSIS
+        True when the human-approval hold has already been announced on this issue.
+    .DESCRIPTION
+        The hold posts one signal comment and must not repeat it on re-entry. The
+        presence of that comment is the only durable record that a previous pass got
+        that far — the agent:reviewing label is not, because the review stage sets it
+        before the ship stage runs.
+    #>
+    param([int]$IssueNumber)
+
+    $bodies = gh api "repos/$KanbanRepo/issues/$IssueNumber/comments" `
+        --jq 'map(.body) | .[]' 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        # Fail open: announcing twice is noise, announcing never is a PR nobody knows
+        # is waiting — which is the failure this hold exists to prevent.
+        Write-Log "  ⚠️ Could not read comments on #${IssueNumber}; assuming not yet announced." -Color Yellow
+        return $false
+    }
+    return $bodies -match '🤖⏸ Held for human approval'
+}
+
 function Invoke-Ship {
     param([int]$IssueNumber = 0, [int]$PRNumber = 0, [switch]$Force, [switch]$Approved)
 
@@ -213,30 +238,38 @@ function Invoke-Ship {
     Write-Log "▶ Merge — issue #$IssueNumber / PR #$PRNumber" -Color Cyan
 
     # ── Human-approval hold ───────────────────────────────────────────────────
-    # An issue carrying HITL is implemented autonomously but never auto-merged: it
-    # stops here at agent:reviewing so a human merges the PR deliberately. Governance
-    # files (CONTEXT.md, CODEOWNERS, SECURITY.md) land this way — the agent's own
-    # self-review cannot be the last word on the rules it will subsequently be bound
-    # by, and branch protection is not available on this repository to enforce it.
+    # An issue carrying human:approval is implemented and self-reviewed autonomously
+    # but never auto-merged: it stops here at agent:reviewing so a human merges the PR
+    # deliberately. Governance files (CONTEXT.md, CODEOWNERS, SECURITY.md) land this
+    # way — the agent's own self-review cannot be the last word on the rules it will
+    # subsequently be bound by, and branch protection is not available on this
+    # repository to enforce it.
     #
     # This gate lives in Invoke-Ship rather than in Invoke-Orchestration on purpose:
-    # orchestrator.yml's label-triggered `merge` job calls Invoke-Ship directly on
-    # agent:reviewing, so a gate placed only in the orchestrator would be bypassed by
+    # afk.yml's label-triggered `ship` job calls Invoke-Ship directly on
+    # agent:reviewing, so a gate placed only in the conductor would be bypassed by
     # the very label this sets. -Force overrides, for a deliberate manual merge.
     if (-not $Force) {
-        $hitlMeta   = gh issue view $IssueNumber --repo $KanbanRepo --json labels | ConvertFrom-Json
-        $hitlLabels = @($hitlMeta.labels.name)
-        if ($hitlLabels -contains 'human:approval') {
-            # Idempotent: setting agent:reviewing fires an `issues: labeled` event, which
-            # triggers orchestrator.yml's merge job, which calls straight back into this
-            # function. Without this check that second pass posts a duplicate hold
-            # comment on every issue. Re-entry is harmless — it just has nothing to do.
-            if ($hitlLabels -contains 'agent:reviewing') {
+        # REST, not `gh issue view --json labels` (GraphQL) — the 5000/hr budget is
+        # shared with the cloud runner on one PAT (ADR-012).
+        $labels = @(
+            gh api "repos/$KanbanRepo/issues/$IssueNumber/labels" --jq 'map(.name) | .[]' 2>&1 |
+                Out-String | ForEach-Object { $_.Trim() -split '\r?\n' } | Where-Object { $_ }
+        )
+        if ($labels -contains 'human:approval') {
+            # Re-entry: setting agent:reviewing fires an `issues: labeled` event, which
+            # triggers afk.yml's ship job, which calls straight back into this function.
+            # Keying that off the label would be wrong — the review stage sets
+            # agent:reviewing before Invoke-Ship ever runs, so the label is ALWAYS
+            # present on the first pass and the notification would never be posted.
+            # Key off the hold comment itself instead: it exists only if a previous
+            # pass got far enough to post it.
+            if (Test-HoldAnnounced -IssueNumber $IssueNumber) {
                 Write-Log "⏸ Issue #$IssueNumber already held at agent:reviewing — nothing to do." -Color DarkGray
                 return $false
             }
             Set-AgentState -IssueNumber $IssueNumber -Label 'agent:reviewing'
-            Add-Comment -Number $IssueNumber -Body "🤖⏸ Held for human approval`n`nPR #$PRNumber is implemented and self-reviewed, but this issue is labelled ``human:approval`` — it is not auto-merged. Review the diff and merge PR #$PRNumber yourself, or re-run merge with ``-Force`` to override."
+            Add-Comment -Number $IssueNumber -Body "🤖⏸ Held for human approval`n`nPR #$PRNumber is implemented and self-reviewed, but this issue is labelled ``human:approval`` — it is not auto-merged. Review the diff and merge PR #$PRNumber yourself, or re-run ship with ``-Force`` to override."
             Write-Log "⏸ Issue #$IssueNumber requires human approval — held at agent:reviewing. PR #$PRNumber awaits human merge." -Color Yellow
             return $false
         }
@@ -249,7 +282,7 @@ function Invoke-Ship {
         $approved = Test-HasApproval -IssueNumber $IssueNumber -PRNumber $PRNumber
         if (-not $approved) {
             Write-Log "⛔ No approval found for PR #$PRNumber." -Color Red
-            Write-Log "   Approval required: run 'task start ISSUE=$IssueNumber' to drive the full pipeline, or pass -Force to bypass." -Color Yellow
+            Write-Log "   Approval required: run 'task hitl ISSUE=$IssueNumber' to drive the full pipeline, or pass -Force to bypass." -Color Yellow
             exit 1
         }
     }
@@ -343,7 +376,7 @@ function Invoke-Ship {
         throw "CI did not complete within ${CICompletionTimeoutSec}s for PR #$PRNumber."
     }
 
-    # --squash to match the docstring, the orchestrator.yml merge job, and the
+    # --squash to match the docstring, the afk.yml merge job, and the
     # repo convention (one squashed commit per issue). Previously --merge, which
     # silently diverged AFK merges (merge commits) from label-triggered squashes.
     gh pr merge $PRNumber --squash --delete-branch 2>&1 | Out-Null

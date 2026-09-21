@@ -115,7 +115,7 @@ foreach ($match in $Found) {
     $Body = $Body.TrimStart()
 
     # Pipeline state (agent:*) is owned by the alignment gate, never by sync.
-    # Issues land un-aligned; align.yml (on issue creation) or `task align` runs
+    # Issues land un-aligned; align.yml (on issue creation) or `task refine` runs
     # refine → architect → plan and grants agent:backlog only when ready (ADR-014).
     # Strip any agent:* labels declared in ISSUES.md so the gate cannot be bypassed.
     $agentLabels = @($ExtraLabels | Where-Object { $_ -like 'agent:*' })

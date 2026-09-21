@@ -91,7 +91,7 @@ function Get-LaneFromLabel {
     }
 }
 
-function Get-PlanningState {
+function Get-IssueState {
     param([int]$IssueNumber)
 
     $body = gh issue view $IssueNumber --repo $KanbanRepo --json body --jq '.body' 2>&1 | Out-String
@@ -209,7 +209,7 @@ function Set-PlanningReadiness {
         $PopulatedBy = "$StageLabel (phase-1 stub)"
     }
 
-    $state = Get-PlanningState -IssueNumber $IssueNumber
+    $state = Get-IssueState -IssueNumber $IssueNumber
     if ($null -eq $state) {
         Write-Log "  ⚠️ Could not load planning state for #${IssueNumber} — skipping readiness update." -Color Yellow
         return
@@ -270,7 +270,7 @@ function Set-PlanningQuestions {
         [pscustomobject[]]$Decided = @()
     )
 
-    $state = Get-PlanningState -IssueNumber $IssueNumber
+    $state = Get-IssueState -IssueNumber $IssueNumber
     if ($null -eq $state) {
         Write-Log "  ⚠️ Could not load planning state for #${IssueNumber} — skipping question merge." -Color Yellow
         return
@@ -449,7 +449,7 @@ The self-grill subagent could not resolve this branch from the codebase alone �
 function Set-AgentFailedState {
     param([int]$IssueNumber, [string]$FailedAt, [string]$Reason)
     
-    $state = Get-PlanningState -IssueNumber $IssueNumber
+    $state = Get-IssueState -IssueNumber $IssueNumber
     if ($state) {
         if ($null -eq $state.failed_at) {
             $state | Add-Member -NotePropertyName failed_at -NotePropertyValue $FailedAt -Force
@@ -489,7 +489,7 @@ function Set-AgentState {
 
     # Readiness gate: backlog entry requires refined + architected + planned and zero open questions.
     if ($Label -eq 'agent:backlog') {
-        $state = Get-PlanningState -IssueNumber $IssueNumber
+        $state = Get-IssueState -IssueNumber $IssueNumber
         if (-not (Test-Readiness -State $state)) {
             Write-Log "  ⚠️ Readiness gate FAILED for #${IssueNumber} — refusing entry to Backlog. Run refine/architect/plan first." -Color Yellow
             return
@@ -511,6 +511,28 @@ function Set-AgentState {
     if ($laneId -and $laneName) {
         Move-ToLane -IssueNumber $IssueNumber -OptionId $laneId -LaneName $laneName
     }
+}
+
+function Get-IssueLabel {
+    <#
+    .SYNOPSIS
+        All label names on an issue, read via REST.
+    .DESCRIPTION
+        The orchestrator is GraphQL-bound (ADR-012), and reading labels through
+        `gh issue view` costs GraphQL points. Every label read goes through this
+        one REST call so tests/orchestrator/test_graphql_budget.py has a single
+        place to hold the line.
+    #>
+    param([int]$IssueNumber)
+
+    $out = gh api "repos/$KanbanRepo/issues/$IssueNumber/labels" --jq 'map(.name) | .[]' 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not read labels on #${IssueNumber}: $($out.Trim())" -Color Yellow
+        return @()
+    }
+    return @($out.Trim() -split '
+?
+' | Where-Object { $_ })
 }
 
 # ── Comment helper ────────────────────────────────────────────────────────────

@@ -135,7 +135,7 @@ registered with the `gha-project` label (see `runs-on: [self-hosted, gha-project
   (`svc.cmd install`) for unattended operation.
 - **Stop:** Ctrl+C in the foreground, or `svc.cmd stop` for the service.
 
-`task runner` dispatches the `agent:backlog` queue to the cloud — it does not start the
+`task afk` dispatches the `agent:backlog` queue to the cloud — it does not start the
 runner process.
 
 ### Cloud runner operation checklist
@@ -162,7 +162,7 @@ One-time setup steps for a freshly generated project:
    profile, skip this — runs execute on `ubuntu-latest`.
 7. **Sync issues** — `task sync` — pushes the local `ISSUES.md` backlog to GitHub Issues and
    applies the `agent:backlog` label to ready items.
-8. **Trigger** — apply `agent:backlog` to any open issue to auto-start it, or run `task runner`
+8. **Trigger** — apply `agent:backlog` to any open issue to auto-start it, or run `task afk`
    to drain the entire `agent:backlog` queue in the cloud.
 
 ---

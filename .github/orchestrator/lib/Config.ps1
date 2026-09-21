@@ -152,7 +152,7 @@ $KanbanPriorityFieldId = if ($env:KANBAN_PRIORITY_FIELD_ID) { $env:KANBAN_PRIORI
 # ── Run context — single source of truth for this run's key parameters ───────
 # Hydrated from environment variables: the ONLY transport stable across &-calls,
 # dot-sourcing, nested pwsh and subprocesses. Entry points (orchestrator.yml,
-# start.ps1) set KANBAN_ISSUE / KANBAN_MAX_RETRIES; everything downstream reads
+# hitl.ps1) set KANBAN_ISSUE / KANBAN_MAX_RETRIES; everything downstream reads
 # them via Get-OrchestratorContext rather than fragile script-scope variables, which a
 # dot-sourced param() block can silently clobber (ADR-013). Add a new per-run key
 # in one place here → every script gets it.

@@ -12,7 +12,7 @@
     invocation drains the whole queue, one issue at a time (serialised by the
     implement-pipeline concurrency group).
 
-    This is the cloud counterpart to `task start` (HITL, local). It does NOT run
+    This is the cloud counterpart to `task hitl` (HITL, local). It does NOT run
     anything in this terminal beyond the dispatch — close the laptop afterwards.
 
     Pre-flight:
@@ -25,8 +25,8 @@
     Skip the self-hosted confirmation prompt (for non-interactive use).
 
 .EXAMPLE
-    task runner             # dispatch the cloud drain, then walk away
-    task runner -- -Force   # same, no prompt even on a self-hosted profile
+    task afk             # dispatch the cloud drain, then walk away
+    task afk -- -Force   # same, no prompt even on a self-hosted profile
 #>
 param([switch]$Force)
 

@@ -18,9 +18,10 @@
           pwsh .agents/skills/refine/scripts/grill.ps1 -Issue 42
           pwsh .agents/skills/refine/scripts/grill.ps1 -Title T -Body B -DryRun
 
-    AFK orchestration does NOT use this wrapper — it dot-sources the library
-    directly (no param() to leak into its scope, see ADR-013):
-          . .github/orchestrator/lib/Grill.ps1
+    The orchestrator does NOT use this wrapper — Orchestrator.psm1 dot-sources
+    the library directly (no param() to leak into its scope, see ADR-013).
+    This CLI imports the module and calls the same function:
+          Import-Module .github/orchestrator/Orchestrator.psd1
           $result = Invoke-Grill -Title $t -Body $b
 
     The system prompt enforces grill-me Rules 1-4 from refine/SKILL.md:
@@ -53,8 +54,8 @@
 .NOTES
     Tracked in: https://github.com/ysuurme/my_template_repo/issues/85
     Schema:    src/utils/m_planning.py::GrillResult
-    Skill:     .agents/skills/refine/SKILL.md § AFK invocation pattern
-    Library:   .github/orchestrator/lib/Grill.ps1 (Invoke-Grill + helpers) — dot-source that, not this CLI.
+    Skill:     .agents/skills/refine/SKILL.md § Unattended invocation pattern
+    Library:   .github/orchestrator/lib/Grill.ps1 (Invoke-Grill + helpers) — the module dot-sources it.
 #>
 
 [CmdletBinding()]

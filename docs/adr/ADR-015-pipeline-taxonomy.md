@@ -8,51 +8,54 @@ applies_to: all
 
 ## Status
 
-Accepted
+Accepted. Implemented — see [Implementation](#implementation).
 
 ## Context and Problem Statement
 
-The pipeline accumulated four independent vocabularies for the same seven concepts. Nothing maps 1:1:
+The pipeline accumulated four independent vocabularies for the same seven concepts, and
+nothing mapped 1:1. Agreeing requirements was phase "Align", skill `refine`, workflow
+`align.yml`, command `task align`, and function `Invoke-Alignment` — which lived in a file
+called `Refine.ps1`.
 
-| What it does | README phase | Skill | Lane label | Script | Workflow | Task |
-|---|---|---|---|---|---|---|
-| agree requirements | Align | `refine` | — | `Refine.ps1` | `align.yml` | `task align` |
-| blast radius | Map | `architecture` | — | `Architecture.ps1` | *(in align)* | — |
-| decompose | Specify | `plan` | — | `Plan.ps1` | *(in align)* | — |
-| write code | Build | `tdd` | `agent:implementing` | `Implement.ps1` | `orchestrator.yml` | `start`/`runner` |
-| environment | Run | `harness` | — | — | — | — |
-| check work | Verify | `review` | `agent:review` | `Review.ps1` | `orchestrator.yml` | — |
-| land it | Merge | `ship` | `agent:merged` | `Merge.ps1` | `orchestrator.yml` | — |
+Four failures followed:
 
-Four failures follow from this:
+1. **One concept, five names.** No layer was derivable from any other.
+2. **`review` denoted two opposed things.** The skill was the agent's self-review; the
+   label `agent:review` meant *"self-review passed — awaiting human approval"*. A reader
+   could not tell which was meant, and the label was load-bearing: it triggered the merge.
+3. **Labels carried stale claims.** `agent:implementing` was described as
+   *"(refine + develop)"*, false since ADR-014 moved refine into the pre-backlog gate.
+4. **Stages and techniques were presented as peers.** `tdd` and `harness` sat in the
+   seven-phase chain, but nothing invoked them as stages. `tdd` is *how* code gets written;
+   `harness` is *where* the agent works. Listing them beside `refine` and `ship` is what
+   forced the vocabularies apart.
 
-1. **One concept, five names.** Agreeing requirements is phase "Align", skill `refine`, `align.yml`, `task align`, and `Invoke-Alignment` — which lives in a file called `Refine.ps1`.
-2. **`review` denotes two opposed things.** The skill is the agent's self-review. The label `agent:review` is documented as *"self-review passed — awaiting human approval"*. A reader cannot tell which is meant, and the label is load-bearing: it triggers the merge job.
-3. **Labels carry stale claims.** `agent:implementing`'s description reads *"(refine + develop)"*, false since ADR-014 moved refine into the pre-backlog gate.
-4. **Stages and techniques are presented as peers.** `tdd` and `harness` appear in the seven-phase chain, but nothing invokes them as stages. `tdd` is *how* code gets written; `harness` is *how* context stays clean throughout. Listing them beside `refine` and `ship` is what forced the vocabularies apart.
-
-Separately, the `HITL` label is overloaded across three unrelated concerns: the venue a run executes in, whether a PR may be merged without human sign-off, and whether an issue is a work item at all. ADR-013's `HITL + AFK` pair was a workaround for having no way to express the second.
+Separately, `HITL` was overloaded across three unrelated concerns: the venue a run executes
+in, whether a PR may merge without human sign-off, and whether an issue is a work item at
+all. The `HITL + AFK` label pair was a workaround for having no way to express the second.
 
 ## Considered Options
 
-* **Option A — Rename in place.** Harmonise the visible names (phase table, workflows, tasks) and leave the structure alone. Cheap, but leaves `tdd`/`harness` mis-cast as stages and the `HITL` overload intact.
-* **Option B — Unified taxonomy.** One name per concept across every layer; demote techniques out of the stage list; split the three concerns tangled in `HITL`. Wide rename, but every layer becomes derivable from the stage name.
+* **Option A — Rename in place.** Harmonise the visible names, leave the structure alone.
+  Cheap, but leaves `tdd`/`harness` mis-cast as stages and the `HITL` overload intact.
+* **Option B — Unified taxonomy.** One name per concept across every layer; demote
+  techniques out of the stage list; split the three concerns tangled in `HITL`.
 
 ## Decision Outcome
 
-Chosen: **Option B.**
+Chosen: **Option B.** Every layer is derivable from the stage name.
 
 ### Definitions
 
 | Term | Definition |
 |---|---|
-| **Stage** | One of the six units of work an issue passes through: `refine`, `architect`, `plan`, `implement`, `review`, `ship`. Each stage has one skill and one library script of the same name. Three carry a label. |
+| **Stage** | One of the six units of work an issue passes through: `refine`, `architect`, `plan`, `implement`, `review`, `ship`. Each has one skill and one library script of the same name. Three carry a label. |
 | **Lane** | A column on the GitHub Project board. There are four: Backlog, Implementing, Review, Shipped. A lane holds work; a stage does work. |
 | **Method** | How a stage is carried out. TDD is the method of `implement`. A stage may change method without changing its name. |
-| **Orchestrator** | The PowerShell module at `.github/orchestrator/`. `Orchestrator.psm1` loads the library and sequences the six stages; `Orchestrator.psd1` declares the public surface. Owns every lane transition and is the only component that decides what runs next. Run context from `Get-OrchestratorContext`. |
-| **Engine** | An LLM provider adapter in `.github/orchestrator/engines/`. One file per provider: `Claude.ps1`, `Gemini.ps1`. Selected by the `KANBAN_ENGINE` variable. |
+| **Orchestrator** | The PowerShell module at `.github/orchestrator/`. `Orchestrator.psm1` loads the library and sequences all six stages; `Orchestrator.psd1` declares the public surface. Owns every lane transition and is the only component that decides what runs next. Run context from `Get-OrchestratorContext`. |
+| **Engine** | An LLM provider adapter in `.github/orchestrator/engines/`. One file per provider. Selected by `KANBAN_ENGINE`. |
 | **Check** | A validator in `.github/checks/`, run by `checks.yml`. Named `check-<thing>.ps1`. |
-| **Task** | A command in `Taskfile.yml`. Each target `X` is backed by `.github/tasks/X.ps1`, named identically. |
+| **Task** | A command in `Taskfile.yml`. Each target is backed by one runnable of the same name in `.github/tasks/`. |
 | **Skill** | A constraint document at `.agents/skills/<name>/SKILL.md`, with optional `REFERENCE.md`, `EXAMPLES.md` and `scripts/`. |
 | **Library** | A PowerShell file dot-sourced by the module loader. PascalCase. Declares no top-level `param()`. |
 | **Runnable** | A PowerShell file invoked directly. lowercase. Owns its `param()`. |
@@ -67,69 +70,24 @@ Chosen: **Option B.**
 | Term | Status |
 |---|---|
 | **Step** | Not used for stages. GitHub Actions defines `steps:` in every workflow file. |
-| **Phase** | Not used. Superseded by *stage*. |
+| **Phase** | Not used for pipeline units. Superseded by *stage*. Still valid for roadmap phases. |
 | **Alignment** | Not used. The pre-backlog gate is the `refine` stage. |
-| **Kanban** | Not used as a module or directory name. Retained only in `Kanban lane` and the `KANBAN_*` variables. |
-
-### One conductor, six stages, no intermediate abstractions
-
-`Orchestrator.psm1` loads the library and sequences the six stages. A stage file contains its own stage and nothing else. There is no second conductor, no named sub-sequence, and no separate loader file — the module root *is* the conductor.
-
-This is violated today: `Invoke-Alignment` sequences `refine → architect → plan` from inside `Refine.ps1`, so the Orchestrator conducts only three of six stages. `Invoke-Alignment` is **deleted**, not renamed — a wrapper around "run the first three stages" earns nothing over the orchestrator simply running them.
-
-```powershell
-# Orchestrator.psm1 — dot-sources lib/, stages/, engines/ then:
-$Stages = 'refine', 'architect', 'plan', 'implement', 'review', 'ship'
-
-function Invoke-Orchestration {
-    param([int]$IssueNumber, [ValidateSet('refine','implement')] [string]$From)
-    # 'refine'    → runs refine, architect, plan; stops at agent:backlog
-    # 'implement' → runs implement, review, ship
-}
-```
-
-The stop after `plan` is ADR-014's gate — "ready" is not "go" — expressed as where the sequence ends rather than as a separate function. `-From` takes the same values as `afk.yml`'s `stage:` input, so the workflow and the conductor read alike.
-
-`Refine.ps1` keeps `Invoke-Refine` only. Callers to update: `tasks/align.ps1`, `align.yml`.
-
-### Declaring the public API
-
-The module defines **78 functions**. Fifteen are called from outside it. `FunctionsToExport = '*'` currently exports all 78.
-
-The API is declared in **`Orchestrator.psd1` as an explicit `FunctionsToExport` array**. This is PowerShell's documented guidance, and it is the option with *no* logic in it:
-
-| Option | Nature | Verdict |
-|---|---|---|
-| `FunctionsToExport` in the `.psd1` | A literal hashtable. Zero executable statements. | **Chosen** |
-| `Export-ModuleMember` in the `.psm1` | Code that runs at import time. | Rejected — it is the loose logic we are removing |
-| Both | The manifest additionally filters the call. | Rejected — two places to read, interaction is non-obvious |
-
-Beyond avoiding logic, the explicit list buys a concrete behaviour: PowerShell can resolve "which module provides `Invoke-Orchestration`?" from the manifest **without loading or executing the module**. A wildcard forces a full module load to answer the same question, which defeats command discovery and auto-loading. Wildcards in `FunctionsToExport` are specifically advised against for this reason.
-
-The split is then a clean data/code boundary, and nothing else is needed:
-
-* `Orchestrator.psd1` — *what you may call.* Declarative.
-* `Orchestrator.psm1` — *what happens.* Imperative.
-
-Anything absent from the list is private to the module automatically. No `_`-prefix convention, no `internal/` directory, no `Export-ModuleMember` call — the manifest **is** the boundary.
-
-**Keeping it true.** An explicit list rots the moment someone adds a caller and forgets the manifest. Since `checks/` exists, the guard belongs there: `check-module-api.ps1` asserts that every module function called from `tasks/`, `workflows/` and skill scripts appears in `FunctionsToExport`, and that nothing exported is uncalled. That makes the API declaration verified rather than aspirational — the same move as `check-script-paths.ps1`, and the reason both land in PR 3.
-
-### One word for the unit: *stage*
-
-The repo currently uses three words for the same thing — `phase` (11 occurrences), `step` (8) and `stage` (8). This ADR standardises on **stage**, for three reasons: `orchestrator.yml` already exposes it as a machine-readable `stage:` input; "stage gate" is the established term for a checkpoint in an engineering process; and **`step` is disqualified outright** because GitHub Actions uses `steps:` natively in every workflow file, so reusing it for our concept would be ambiguous exactly where people read YAML.
-
-`phase` is retired from the README in PR 7.
+| **Kanban** | Not used as a module or directory name. Retained only in the `KANBAN_*` variables, which are live GitHub repository variables — renaming those means touching repository Settings and every generated project's setup for no functional gain. |
 
 ### Six stages, four lanes
-
-The chain is **six stages**, each reading as a verb, each named identically as skill and library script:
 
 ```
 refine → architect → plan → implement → review → ship
 ```
 
-Those six stages occupy **four board lanes**, because the first three are one continuous push to "workable":
+| Stage | Skill | Library script | Label |
+|---|---|---|---|
+| refine | `refine` | `stages/Refine.ps1` | — |
+| architect | `architect` | `stages/Architect.ps1` | — |
+| plan | `plan` | `stages/Plan.ps1` | — |
+| implement | `implement` | `stages/Implement.ps1` | `agent:implementing` |
+| review | `review` | `stages/Review.ps1` | `agent:reviewing` |
+| ship | `ship` | `stages/Ship.ps1` | `agent:shipped` |
 
 ```
 issue created  (purpose: collect information and thoughts)
@@ -147,18 +105,49 @@ agent:backlog   ── refined, architected, planned: ready to implement
      ▼  ship       ── merge + CONTEXT.md update           agent:shipped
 ```
 
-| Stage | Skill | Library script | Label |
-|---|---|---|---|
-| refine | `refine` | `Refine.ps1` | — |
-| architect | `architect` | `Architect.ps1` | — |
-| plan | `plan` | `Plan.ps1` | — |
-| implement | `implement` | `Implement.ps1` | `agent:implementing` |
-| review | `review` | `Review.ps1` | `agent:reviewing` |
-| ship | `ship` | `Ship.ps1` | `agent:shipped` |
+**Six stages but four lanes is the one deliberate non-1:1**, and it is correct: a lane
+records where work *sits*, a stage records what *happens*. `refine`, `architect` and `plan`
+run back-to-back in seconds and nothing ever rests between them, so three extra columns
+would sit permanently empty. Refine therefore has **no in-progress label** — it yields
+`agent:backlog` or `agent:failed` with `failed_at: refine`.
 
-**Six stages but four lanes is the one deliberate non-1:1**, and it is correct: a lane records where work *sits*, a stage records what *happens*. `refine`, `architect` and `plan` run back-to-back in seconds and nothing ever rests between them, so three extra columns would sit permanently empty.
+### One conductor, six stages, no intermediate abstractions
 
-Refine therefore has **no in-progress label**. It yields `agent:backlog` or `agent:failed` with `failed_at: refine`. A label for a two-minute state is noise; the outcomes are what matter, and `failed_at` already carries the diagnostic detail.
+`Orchestrator.psm1` loads the library and sequences the six stages. A stage file contains
+its own stage and nothing else. There is no second conductor and no named sub-sequence —
+the module root *is* the conductor.
+
+```powershell
+$Stages = 'refine', 'architect', 'plan', 'implement', 'review', 'ship'
+
+function Invoke-Orchestration {
+    param([int]$IssueNumber, [ValidateSet('refine','implement')] [string]$From)
+    # 'refine'    → runs refine, architect, plan; stops at agent:backlog
+    # 'implement' → runs implement, review, ship
+}
+```
+
+The stop after `plan` is ADR-014's gate — "ready" is not "go" — expressed as where the
+sequence ends rather than as a separate function. `Invoke-Alignment` was **deleted**, not
+renamed: a wrapper around "run the first three stages" earns nothing over the orchestrator
+simply running them. `-From` takes the same values as `afk.yml`'s `stage:` input, so the
+workflow and the conductor read alike.
+
+### Declaring the public API
+
+The API is an explicit `FunctionsToExport` array in `Orchestrator.psd1` — a literal
+hashtable with zero executable statements. `Export-ModuleMember` was rejected because it is
+code that runs at import time, which is the loose logic this ADR removes.
+
+Beyond avoiding logic, the explicit list buys a concrete behaviour: PowerShell can resolve
+"which module provides `Invoke-Orchestration`?" from the manifest **without loading or
+executing the module**. A wildcard forces a full module load to answer the same question,
+defeating command discovery and auto-loading.
+
+Anything absent from the list is private automatically. No `_`-prefix convention, no
+`internal/` directory — the manifest **is** the boundary, and `check-module-api.ps1`
+asserts it holds: every function called from `tasks/`, `workflows/` or skill scripts must
+be exported, and nothing exported may be uncalled.
 
 ### Skills that are not stages
 
@@ -168,39 +157,43 @@ Refine therefore has **no in-progress label**. It yields `agent:backlog` or `age
 | **Cross-cutting** | `version-control`, `diagnosis` | in any stage, as needed |
 | **Meta** | `write-skills` | when authoring a skill |
 
-`architecture` is renamed `architect` so every stage reads as a verb.
-
 ### `harness` is retired as a stage and a skill
 
-`harness` owns Dev Container provisioning, the Planner/Generator/Evaluator split, the event log, tool-call offloading, `compact()` and the context-reset protocol. None of that is a stage an *issue* passes through — no issue ever sits in a "Harness" lane. It describes the workspace the agent operates in, and this repository **is** that harness, so naming a stage after it is circular.
+`harness` described the workspace the agent operates in, and this repository **is** that
+harness, so naming a stage after it was circular. No issue ever sat in a "Harness" lane.
 
-Its content is preserved, not deleted: it moves to `docs/HARNESS.md`, routed from `AGENTS.md`, following the progressive-disclosure pattern already established by `docs/TESTING.md` and `docs/SKILLS.md` (criterion 3.2). The Dev Container portion is already realised in `.devcontainer/`.
+Its content moved to `docs/HARNESS.md`, routed from `AGENTS.md`, following the
+progressive-disclosure pattern of `docs/TESTING.md` and `docs/SKILLS.md`. What `harness`
+contributed to the *stage* model — "code must comply with this repository's structure and
+conventions" — is carried by the domain-engineering skills, which is where repo-compliant
+implementation patterns belong.
 
-What `harness` contributed to the *stage* model — "code must comply with this repository's structure and conventions" — is carried instead by the domain-engineering skills, which is where repo-compliant implementation patterns belong. For an agentic project that is `agentic-engineering`; for the others, `application-engineering` or `data-engineering`.
+### Why `tdd` becomes `implement`
+
+Every other stage names *what happens*; `tdd` named *how*. That made it the last row where
+skill, script and label disagreed — skill `tdd`, script `Implement.ps1`, label
+`agent:implementing`.
+
+Renaming it makes the stage the container and the **method a choice inside it**. TDD remains
+the sanctioned way code is written, stated in `CONTEXT.md` and the whole of
+`implement/SKILL.md`, but spec-driven development or another discipline can be added without
+renaming the stage, the script or the label. Naming the stage after one method would have
+frozen that choice into the directory structure.
 
 ### Execution modes are not labels
-
-`AFK` and `HITL` describe **how a run is invoked**, not a property of the work:
 
 | Mode | Venue | Interactivity | Entry point |
 |---|---|---|---|
 | **AFK** | GitHub Actions | unattended, drains the queue | `task afk` |
 | **HITL** | local laptop | interactive, one issue | `task hitl` |
 
-Both modes run the *same* stages through the *same* library. Because the mode is chosen at dispatch, it is expressed by which command the operator runs — **not** by a label on the issue. The `AFK` and `HITL` labels are therefore retired.
-
-### Two prefixes: who holds the ball
-
-The `agent:` prefix already answers "what is the agent doing". Human actions get the mirror-image prefix, so the label namespace itself says who is expected to act next:
-
-| Prefix | Meaning |
-|---|---|
-| `agent:` | the agent holds the ball — pipeline state |
-| `human:` | a human holds the ball — nothing advances until they act |
+Both run the *same* stages through the *same* library. Because the mode is chosen at
+dispatch, it is expressed by which command the operator runs — not by a label. The `AFK` and
+`HITL` labels are retired.
 
 ### Three concerns, three names
 
-What `HITL` previously conflated:
+What `HITL` conflated:
 
 | Concern | New name | Meaning |
 |---|---|---|
@@ -208,158 +201,76 @@ What `HITL` previously conflated:
 | merge authority | label `human:approval` | pipeline implements and self-reviews, then holds at `agent:reviewing` for a human to merge |
 | is it work at all | label `human:decision` | a question for a human; never enters the pipeline |
 
-`human:approval` — not `human:review` — because `human:review` sits one inflection away from `agent:reviewing`, and "review means two things" is the exact defect this ADR exists to remove. `approval` is also the established term for a merge gate in agentic pipelines. It replaces the `AFK + HITL` pair and the `HITL and not AFK` condition in the gate. `human:decision` replaces `HITL` on the children refinement spawns for open questions.
+`human:approval` — not `human:review` — because `human:review` sits one inflection away from
+`agent:reviewing`, and "review means two things" is the exact defect this ADR removes.
+
+The `agent:` prefix answers "what is the agent doing"; `human:` is its mirror, so the label
+namespace itself says who is expected to act next.
 
 ### What runs unattended, and what needs attention
 
-AFK is the **default**, not a label. Any issue at `agent:backlog` is eligible for the drain; `human:*` labels are the opt-out, and they mark the exact point where the agent stops:
+AFK is the **default**. Any issue at `agent:backlog` is eligible for the drain; `human:*`
+labels are the opt-out, and they mark the exact point where the agent stops:
 
-* **No `human:` label** → runs Refine through Ship unattended.
-* **`human:approval`** → runs Implement and Review unattended, then stops before Ship.
+* **No `human:` label** → runs refine through ship unattended.
+* **`human:approval`** → runs implement and review unattended, then stops before ship.
 * **`human:decision`** → never enters the pipeline at all.
 
-"What needs my attention" therefore becomes one query rather than a judgement call:
+"What needs my attention" is therefore one query rather than a judgement call:
 
 ```
 is:open is:issue label:human:approval,human:decision
 ```
 
-A third label for "do not let the drain take this, I will drive it myself" is deliberately **not** introduced. Because the mode is a command, running `task hitl ISSUE=N` already claims an issue, and the drain only runs when you start it. If that proves insufficient in practice, `human:implement` can be added later — but not before the need is demonstrated.
+A third label for "do not let the drain take this, I will drive it myself" is deliberately
+**not** introduced: running `task hitl ISSUE=N` already claims an issue, and the drain only
+runs when you start it.
 
 ### State labels
 
-Exactly one `agent:` label at a time, matching the stage in progress. A `human:` label may accompany it.
+Exactly one `agent:` label at a time, matching the stage in progress. A `human:` label may
+accompany it.
 
 | Label | Lane | Meaning |
 |---|---|---|
 | *(none)* | Backlog | created, not yet refined |
 | `agent:backlog` | Backlog | refined, architected, planned — **ready to implement** |
-| `agent:implementing` | Implementing | Implement in progress |
-| `agent:reviewing` | Review | Review in progress |
+| `agent:implementing` | Implementing | implement in progress |
+| `agent:reviewing` | Review | review in progress |
 | `agent:shipped` | Shipped | merged and closed |
 | `agent:failed` | Backlog | a stage errored unrecoverably — see `failed_at` |
 
-`agent:backlog` is **kept**, not renamed: in this project the Backlog *is* the set of refined issues ready to implement, so the label and the lane agree by design rather than duplicating each other.
+`agent:backlog` is **kept**, not renamed: in this project the Backlog *is* the set of
+refined issues ready to implement, so the label and the lane agree by design.
 
 ### `agent:failed` records where it stopped
 
-`agent:failed` is not a terminal state — it parks an issue so a later run can resume it. A flat label loses the one fact needed to resume: which stage failed. Today `task retry` resets to `agent:backlog` regardless, so a failure during Review re-enters as though implementation had never happened.
-
-Rather than a label per failure point (`agent:failed-implement`, …), which explodes the namespace, the stage is recorded **in the issue-carried state** alongside the error, consistent with ADR-011:
+`agent:failed` parks an issue so a later run can resume it. A flat label loses the one fact
+needed to resume: which stage failed. Rather than a label per failure point, which explodes
+the namespace, the stage is recorded **in the carrier** alongside the error, consistent with
+ADR-011:
 
 ```json
 { "failed_at": "implement", "failed_reason": "CI checks failed for PR #194" }
 ```
 
-`task retry` reads `failed_at` and resumes that stage. `agent:failed` stays a single label; the carrier holds the detail.
-
-### File and command layout
-
-Every workflow's helpers live in the directory of the same name.
-
-| Old | New |
-|---|---|
-| `workflows/ci.yml` | `workflows/checks.yml` |
-| `scripts/ci/` | `.github/checks/` |
-| `workflows/align.yml` + `workflows/orchestrator.yml` | `workflows/afk.yml` (merged, `stage` input) |
-| `scripts/kanban/` | `.github/orchestrator/` (module) with `stages/`, `engines/`, `lib/` |
-| `Kanban.psd1` / `.psm1` | `Orchestrator.psd1` / `.psm1` (`FunctionsToExport` becomes an explicit list) |
-| `Get-KanbanContext` | `Get-OrchestratorContext` |
-| `Architecture.ps1` | `Architect.ps1` |
-| `Merge.ps1` | `Ship.ps1` |
-| `Claude.ps1`, `Gemini.ps1` *(loose)* | `orchestrator/engines/` |
-| `scripts/tasks/align.ps1` | `.github/tasks/refine.ps1` |
-| `scripts/tasks/runner.ps1` | `.github/tasks/afk.ps1` |
-| `scripts/tasks/start.ps1` | `.github/tasks/hitl.ps1` |
-| `scripts/tasks/sync-issues.ps1` | `.github/tasks/sync.ps1` |
-| `scripts/setup-branch-protection.ps1` | `.github/tasks/protect.ps1` |
-| `tests/scripts/` | `tests/orchestrator/` |
-| `task align` / `runner` / `start` | `task refine` / `afk` / `hitl` |
-| `AFK` / `HITL` labels | *retired* — modes are commands |
-| `agent:review` / `agent:merged` | `agent:reviewing` / `agent:shipped` |
-| `HITL` on approval-gated work | `human:approval` |
-| `HITL` on decision children | `human:decision` |
-
-`kanban` becomes `orchestrator` because that is what the module does; the Kanban board is one *view* of the state it manages, not the thing itself. `pipeline` was considered and rejected: it would have been a second name for the same module, alongside `Orchestrator`. `agent` was rejected as too vague — every component here is agent-related — and `core` as meaningless.
+`task retry` reads `failed_at` and resumes that stage.
 
 ### Folder structure
 
-Renaming alone leaves four structural problems, found by auditing every script in the repo rather than only the ones the renames touch.
+Every workflow's helpers live in the directory of the same name. `scripts/` was removed
+because it groups by file *type*: every child is scripts, so the word carries no information
+and costs a level of nesting. `.github/` already scopes "GitHub automation".
 
-**1. `scripts/` root is a junk drawer.** Three files sit loose beside the subdirectories: `Claude.ps1`, `Gemini.ps1` and `setup-branch-protection.ps1`. The first two are LLM **engine adapters** — the dual-engine capability is a first-class concern and should be legible as one folder, not two loose files whose relationship is invisible. The third is the helper for `branch-protection.yml` and `task protect`, filed nowhere.
-
-**2. No workflow can be named after a stage, because no workflow *is* a stage.** The rule works for `checks.yml` ⇒ `scripts/checks/`, but the pipeline workflows break it three ways: both share one library, one of them runs *three* stages, and splitting Implement / Review / Ship apart is not possible — they share a runner session and a working branch, so separate workflows would each get a fresh clone and lose the branch.
-
-Naming one of them `process.yml` was a mis-step: it invents a fifth vocabulary word for something that is not a phase, which is the same debt this ADR is paying off.
-
-Reverting to two workflows named `refine.yml` and `afk.yml` does not work either, because **`refine.yml` runs on GitHub Actions too** — refinement is equally AFK. The name would not distinguish them.
-
-The honest structure is **one cloud workflow with the stage as an input**:
-
-| Axis | Unit | Maps to |
-|---|---|---|
-| **Stage** | unit of *work* an issue passes through | skill, label, library script — 1:1 |
-| **Venue** | unit of *execution* — where stages run | `afk.yml` (cloud) / `task hitl` (local) |
-
-```yaml
-# .github/workflows/afk.yml
-on:
-  issues: [opened, labeled]
-  workflow_dispatch:
-    inputs:
-      stage:  { type: choice, options: [refine, implement, ship] }
-      issue_number: { type: string }
-```
-
-This is not a new pattern — it is what the repo already does. `orchestrator.yml` already carries a `stage` input (`options: [implement, merge]`), already mixes `issues` and `workflow_dispatch` triggers, and already gates its two jobs on `github.event_name`. Consolidating `align.yml` into it extends that by one job and one stage option. Per-job `concurrency` groups (`align-<issue>`, `implement-pipeline`) survive unchanged.
-
-What this buys: **`afk.yml` is the only workflow the orchestrator needs**, and it is named for the one thing that genuinely distinguishes it — the venue. AFK is not insider jargon here; it is front-page vocabulary, with README sections titled *"5-Minute AFK Setup"* and *"AFK Issue → PR Flow"*. HITL needs no workflow at all, because local runs invoke the library directly. So `task afk` ⇒ `afk.yml`, `task hitl` ⇒ no workflow, and the asymmetry is the point rather than an inconsistency.
-
-Runnables a workflow invokes live in a directory named for their role (`checks/`, `tasks/`); the library lives in `pipeline/`.
-
-**3. `tasks/` has no naming rule, so two names are wrong.** `Taskfile.yml` exposes `setup, sync, align, start, runner, retry, protect`, but the files are `setup.ps1, sync-issues.ps1, align.ps1, start.ps1, runner.ps1, retry.ps1` — and `protect` reaches outside the directory entirely to `scripts/setup-branch-protection.ps1`. Adopting **one file per task target, named identically** fixes both: `sync-issues.ps1` → `sync.ps1`, and `setup-branch-protection.ps1` → `tasks/protect.ps1`. Then `task X` ⇒ `scripts/tasks/X.ps1`, with no exceptions to remember.
-
-**4. Two casing conventions are in use with no stated rule.** This one is not an aesthetic choice — it names an invariant the test suite **already enforces**. `tests/.../test_kanban_script_contract.py` defines exactly two roles:
-
-* **Library** — dot-sourced by the module loader. MUST NOT declare a top-level `param()`, because dot-sourcing executes that block in the *caller's* scope. That is how `grill.ps1`'s `param([int]$Issue = 0)` once zeroed the orchestrator's issue number and ran the entire pipeline against issue #0.
-* **Runnable** — owns a `param()`, is invoked, never dot-sourced.
-
-The casing rule simply makes that contract visible at a glance:
-
-> **PascalCase = library** (dot-sourced, no top-level `param()`). **lowercase = runnable** (owns `param()`, invoked directly).
-
-Verified against the files: `Claude.ps1` and `Gemini.ps1` both declare zero top-level `param()` blocks and are dot-sourced at `Kanban.psm1:35-36`. They are libraries, already correctly cased, and merely filed in the wrong place.
-
-### Four directories, four growth axes
-
-The structure is future-proof to the extent that each directory answers "where does the next one of these go?" without debate:
-
-| Directory | Grows with | Next addition lands as |
-|---|---|---|
-| `orchestrator/stages/` | stages | `<Stage>.ps1` |
-| `orchestrator/engines/` | LLM providers | `OpenAI.ps1` (cf. #89, cross-family critique) |
-| `checks/` | validators run by `checks.yml` | `check-<thing>.ps1` |
-| `tasks/` | CLI commands | `<task-target>.ps1` |
-
-Each is a single question with a single answer. That is the test this structure has to pass, not tidiness.
-
-**5. Everything here ships to strangers.** `copier.yml`'s `_exclude` does not list `.github/`, so **every generated project inherits these workflows verbatim**. That is the constraint that settles naming arguments: a name has to be legible to someone who did not build this. It is also why `afk.yml` passes — AFK is documented on the front page of the README, not buried — and why `process.yml` would not: "process what?" has no answer in the filename.
-
-**7. `scripts/` is the abstract intermediate.** It groups by file *type*, not purpose — every child is scripts, so the word carries no information and costs a level of nesting. `.github/` already scopes "GitHub automation"; `scripts/` inside it says only "and these are files".
-
-Removing it leaves four purpose-named peers that read as a set: **what runs** (`workflows/`), **what it runs** (`pipeline/`), **what validates** (`checks/`), **what you type** (`tasks/`).
-
-`orchestrator/` does earn its place, for a reason `scripts/` does not: it is the **module boundary**. Everything inside is dot-sourced library; everything outside it is a runnable. That is the distinction the contract test already enforces, made visible as a directory.
-
-Inside it, `stages/` puts the taxonomy in the filesystem — open it and there are exactly six files, named for the six stages.
-
-Target tree:
+`orchestrator/` earns its place because it is the **module boundary** — everything inside is
+dot-sourced library, everything outside is a runnable, which is the distinction the contract
+test enforces, made visible as a directory.
 
 ```
 .github/
   workflows/
-    afk.yml                 ← orchestrator.yml + align.yml merged; stage as input
-    checks.yml              ← ci.yml
+    afk.yml                 ← the pipeline, unattended; stage as input
+    checks.yml              ← lint, typecheck, test, audit, guards
     build.yml  deploy.yml  branch-protection.yml
   orchestrator/             ← the module; everything here is library
     Orchestrator.psd1       manifest — explicit FunctionsToExport
@@ -370,152 +281,151 @@ Target tree:
     engines/
       Claude.ps1  Gemini.ps1
     lib/
-      Config.ps1  Util.ps1  GitHub.ps1
+      Config.ps1  Util.ps1  GitHub.ps1  Grill.ps1
   checks/                   ← runnables, invoked by checks.yml
     check-module-map.ps1  check-script-paths.ps1
-    verify-settings.ps1     ← rescued from the retiring harness skill
+    check-doc-paths.ps1   check-module-api.ps1  verify-settings.ps1
   tasks/                    ← runnables, one per Taskfile target
     refine.ps1  afk.ps1  hitl.ps1  retry.ps1
     setup.ps1  sync.ps1  protect.ps1
 tests/
-  orchestrator/             ← tests/scripts/, mirrors .github/orchestrator/
-  checks/                                      mirrors .github/checks/
+  orchestrator/             ← mirrors .github/orchestrator/
+  checks/                   ← mirrors .github/checks/
 ```
 
-Cost, stated plainly: this supersedes the `.github/scripts/` layout ADR-013 established, and `test_kanban_script_contract.py` hardcodes `ROOT/".github"/"scripts"` as its root — that constant changes with the move. `.github/` conventionally holds GitHub metadata rather than application directories, which is the one argument for keeping `scripts/`; it is outweighed by the fact that every directory here *is* GitHub automation.
+**One cloud workflow, with the stage as an input.** No workflow can be named after a stage,
+because no workflow *is* a stage: the pipeline workflows share one library, one of them runs
+*three* stages, and splitting implement / review / ship apart is impossible — they share a
+runner session and a working branch, so separate workflows would each get a fresh clone and
+lose the branch. The honest axes are:
 
-`tests/scripts/` becomes `tests/orchestrator/` so the test tree mirrors the source tree the way `tests/utils/` and `tests/tools/` already mirror `src/utils/` and `src/tools/`. "Which scripts?" is not a question a directory name should leave open.
+| Axis | Unit | Maps to |
+|---|---|---|
+| **Stage** | unit of *work* an issue passes through | skill, label, library script — 1:1 |
+| **Venue** | unit of *execution* — where stages run | `afk.yml` (cloud) / `task hitl` (local) |
 
-`harness/scripts/verify-settings.ps1` survives the skill's retirement: it validates `.claude/settings.json`, which makes it a check, so it moves to `scripts/checks/`. Checked rather than assumed — `.claude` **is** in copier's `_exclude`, so the file it validates is absent from generated projects; the script already handles that (`".claude/settings.json not found — using default Claude Code settings"`) and so does not reintroduce the #192 failure mode.
+So `afk.yml` is the only workflow the orchestrator needs, named for the one thing that
+genuinely distinguishes it. HITL needs no workflow at all, because local runs invoke the
+library directly — the asymmetry is the point.
 
-**6. A missed path reference has no guard, and the contract test is not one.** `test_kanban_script_contract.py` discovers files with `rglob` over `.github/scripts`, so it is indifferent to which directory a file sits in. It catches a renamed *dot-sourced* file (the resolver returns nothing) but is blind to a stale directory path in a workflow or Taskfile. The only current signal for that is `Import-Module` failing on the runner — a late, expensive signal, and precisely how #154 burned a full pipeline run.
+**Casing is the library/runnable contract, made visible.** PascalCase = library
+(dot-sourced, no top-level `param()`). lowercase = runnable (owns `param()`, invoked
+directly). This is not aesthetic: dot-sourcing executes a `param()` block in the *caller's*
+scope, which is how `grill.ps1`'s `param([int]$Issue = 0)` once zeroed the orchestrator's
+issue number and ran the entire pipeline against issue #0.
 
-This refactor therefore adds one check, `.github/checks/check-script-paths.ps1`: every `.ps1`/`.psd1` path referenced from `.github/workflows/*.yml` and `Taskfile.yml` must exist on disk. It is a few lines, runs in milliseconds, and converts the next rename from a runtime failure into a failed check. Without it, this ADR's own execution plan is unguarded.
+### Four directories, four growth axes
+
+Each directory answers "where does the next one of these go?" without debate:
+
+| Directory | Grows with | Next addition lands as |
+|---|---|---|
+| `orchestrator/stages/` | stages | `<Stage>.ps1` |
+| `orchestrator/engines/` | LLM providers | `OpenAI.ps1` |
+| `checks/` | validators run by `checks.yml` | `check-<thing>.ps1` |
+| `tasks/` | CLI commands | `<task-target>.ps1` |
+
+**Everything here ships to strangers.** `copier.yml`'s `_exclude` does not list `.github/`,
+so every generated project inherits these workflows verbatim. That is the constraint that
+settles naming arguments: a name has to be legible to someone who did not build this.
+
+### Guards, not conventions
+
+Three of this ADR's rules are enforced rather than documented, because a convention nobody
+checks is a convention that rots:
+
+| Guard | Asserts |
+|---|---|
+| `check-script-paths.ps1` | every `.ps1`/`.psd1` referenced from a workflow or `Taskfile.yml` exists |
+| `check-doc-paths.ps1` | every repo path cited in a load-bearing document exists |
+| `check-module-api.ps1` | `FunctionsToExport` matches what is actually called across the boundary |
+
+`check-script-paths.ps1` exists because the contract test globs rather than asserting paths:
+it catches a renamed *dot-sourced* file but is blind to a stale directory path in a workflow,
+where the only other signal is `Import-Module` failing on the runner — a late, expensive
+signal. `check-doc-paths.ps1` exists because the same was true of documentation, and the
+documentation is what every agent session loads first.
 
 ### Deliberately not renamed
 
-* **`Implement` does not become `Build`.** `workflows/build.yml` already exists and builds the container image, and "build" means compile/package in ordinary CI usage. `Build` is reserved for that meaning; `Implement` is where code is written.
-* **`Merge.ps1` becomes `Ship.ps1`, and the stage is `Ship`.** This matches the existing `ship` skill, and the stage does more than merge — security checks, squash merge, and the CONTEXT.md update.
-* **Accepted ADRs are not rewritten.** ADR-011/012/013/014 are historical records that used the old names correctly at the time. MADR convention is to supersede, not edit. This ADR is the pointer; the old text stands.
-
-### Skill inventory after this ADR
-
-| Skill | Fate |
-|---|---|
-| `refine` | stage — unchanged |
-| `architecture` | **renamed `architect`** — stage, consistent verb |
-| `plan` | stage — unchanged |
-| `tdd` | **renamed `implement`** — stage; TDD becomes its content, not its name |
-| `review` | stage — unchanged |
-| `ship` | stage — unchanged |
-| `harness` | **retired** — content moves to `docs/HARNESS.md` |
-| `version-control`, `diagnosis` | cross-cutting — unchanged |
-| `application-engineering`, `data-engineering`, `agentic-engineering` | domain patterns within Implement — unchanged |
-| `write-skills` | meta — unchanged |
-
-Twelve skills remain, down from thirteen. The chain reads in one vocabulary:
-
-```
-refine → architect → plan → implement → review → ship
-```
-
-### Why `tdd` becomes `implement`
-
-Every other stage names *what happens*; `tdd` named *how*. That made it the last row where the skill, the script and the label disagreed — skill `tdd`, script `Implement.ps1`, label `agent:implementing`.
-
-Renaming it `implement` makes the stage the container and the **method a choice inside it**. Test-driven development is the current default and the whole of the skill's present content, but spec-driven development or another discipline can be added as an alternative method without renaming the stage, the script, or the label. Naming the stage after one method would have frozen that choice into the directory structure.
-
-TDD loses no prominence: it remains the sanctioned way code is written, stated in `CONTEXT.md`, and remains the substance of `implement/SKILL.md`. What changes is that a reader opening `skills/implement/` learns the method, rather than needing to know already that `tdd` is where code gets written.
+* **`Implement` does not become `Build`.** `workflows/build.yml` already builds the
+  container image, and "build" means compile/package in ordinary CI usage.
+* **`Merge.ps1` becomes `Ship.ps1`.** This matches the existing `ship` skill, and the stage
+  does more than merge — security checks, squash merge, and the CONTEXT.md update.
+* **Accepted ADRs are not rewritten.** ADR-011/012/013/014 are historical records that used
+  the old names correctly at the time. MADR convention is to supersede, not edit. This ADR
+  is the pointer; the old text stands.
 
 ## Consequences
 
 ### Positive
 
-* Any layer is derivable from the stage name: stage `Refine` ⇒ skill `refine`, label `agent:refining`, `Refine.ps1`, `refine.yml`, `task refine`.
-* `review` becomes unambiguous — `agent:reviewing` means Review is running, and merge authority is carried by `approval:required` instead of being implied by a lane.
-* Governance work reaches the pipeline through a label that says what it means, rather than through a two-label pair whose meaning had to be documented.
+* Any layer is derivable from the stage name: stage `Implement` ⇒ skill `implement`, label
+  `agent:implementing`, `stages/Implement.ps1`.
+* `review` is unambiguous — `agent:reviewing` means the review stage is running, and merge
+  authority is carried explicitly by `human:approval`.
+* Governance work reaches the pipeline through a label that says what it means, rather than
+  through a two-label pair whose meaning had to be documented.
+* Three guards make the structure checkable rather than aspirational.
 
 ### Risks and required care
 
-* **Label renames must use `gh label edit`, never delete-and-recreate** — recreating drops the association with every issue that carried the label.
-* **There is no existing guard against a stale path reference.** The contract test globs rather than asserting paths, so it will not catch one (see finding 6). `check-script-paths.ps1` must land in PR 3, *before* the renames in PR 4 that need it.
-* **Everything here ships to generated projects.** `copier.yml` excludes only `.git`, `.venv`, `.claude`, `uv.lock`, `copier.yml`, `logs` and `tests/test_copier_template.py`. `.github/` and `.agents/skills/` propagate in full, so every name must be legible to someone who did not build this — and any test moved into `tests/orchestrator/` must pass inside a generated project, or carry the skip guard that #192 taught us to add.
-* **`Import-Module` needs the absolute path** to the renamed manifest in both workflows; a bare relative path is treated as a module *name* (ADR-013).
-* **Renaming a workflow file discards its run history continuity** — GitHub treats `checks.yml` as a new workflow, and past `ci.yml` runs stay under the old name.
-* **Copier template parity.** Any path reference inside `.jinja2` files or `copier.yml` must be updated; the parity guard from #192 covers dependencies, not paths.
-* A find-and-replace across the repo is **not** sufficient on its own: directory moves, label edits via API, and the ADR exemption all need doing deliberately.
+* **Label renames must use `gh label edit`, never delete-and-recreate** — recreating drops
+  the association with every issue that carried the label.
+* **Everything here ships to generated projects.** `.github/` and `.agents/skills/`
+  propagate in full, so every name must be legible to someone who did not build this, and
+  any test under `tests/` must pass inside a generated project or carry a skip guard.
+* **`Import-Module` needs the absolute path** to the manifest in workflows; a bare relative
+  path is treated as a module *name* (ADR-013).
+* **Renaming a workflow file discards its run history continuity** — GitHub treats
+  `checks.yml` as a new workflow.
+* **Casing is load-bearing on a case-insensitive filesystem.** `stages/Refine.ps1` and
+  `tasks/refine.ps1` are distinct by directory but identical to a case-insensitive lookup,
+  so any tooling that resolves by basename must match case exactly.
 
-## Implementation status
+## Implementation
 
-Living checklist and the handoff point. **An agent resuming this refactor from `main` should read this section, then the Definitions, Folder structure and Execution plan sections above — they are the whole brief.** Update this section as each PR lands; it is the durable record, the conversation is not.
+Landed across eight PRs. The taxonomy, the folder structure, the labels and the guards are
+all in place; `docs/HARNESS.md` holds only what the repository actually implements.
 
-- [x] **PR 0** — ADR-015 (#198). Status Accepted.
-- [x] **PR 1** — Labels (#199). `agent:review`→`agent:reviewing`, `agent:merged`→`agent:shipped`, `human:approval`/`human:decision` provisioned, two stale descriptions corrected. Live renames applied with `gh label edit --name`; all 60 issue associations verified preserved, zero orphaned names.
-- [x] **PR 2** — Library → `.github/orchestrator/` (#200). Module moved with `stages/`, `engines/`, `lib/`; loader and conductor merged into `Orchestrator.psm1` (the old `Orchestrator.ps1` is gone); `Get-KanbanContext`→`Get-OrchestratorContext`, `Invoke-Architecture`→`Invoke-Architect`, `Invoke-Merge`→`Invoke-Ship`; `tests/scripts/`→`tests/orchestrator/`; explicit `FunctionsToExport` (17, was 78 via wildcard).
-- [x] **PR 2b** — Delete `Invoke-Alignment`; fold refine→architect→plan into `Invoke-Orchestration -From refine|implement`. Split out of PR 2: it changes behaviour and callers, which does not belong inside a 34-file move.
-- [x] **PR 3** — `checks/` + `check-script-paths.ps1` + `check-module-api.ps1`
-- [x] **PR 4** — Workflows → `afk.yml`, `checks.yml`; `tasks/` 1:1 with Taskfile
-- [x] **PR 5** — Execution modes: retire `AFK` / `HITL` labels, wire `human:*`, `failed_at`
-- [x] **PR 6** — Skill tree: `architect/`, `implement/`, retire `harness/`
-- [x] **PR 7** — Docs: README, `docs/SKILLS.md`, `AGENTS.md`, `CONTEXT.md` Glossary, `ISSUES.md`, `ASSESSMENT_PROMPT.md`
+| Area | State |
+|---|---|
+| Labels | `agent:reviewing`, `agent:shipped`, `human:approval`, `human:decision` live. `AFK` and `HITL` deleted; `HITL` was renamed into `human:approval` to preserve its 19 issue associations, then the seven decision issues hand-corrected. |
+| Module | `.github/orchestrator/` with `stages/`, `engines/`, `lib/`. `Invoke-Alignment` deleted; `Invoke-Orchestration -From refine\|implement` is the single conductor. `FunctionsToExport` is an explicit list of 13. |
+| Workflows | `checks.yml`, `afk.yml` (`stage` input: refine / implement / ship). |
+| Tasks | `Taskfile.yml` 1:1 with `.github/tasks/`: `refine`, `afk`, `hitl`, `retry`, `setup`, `sync`, `protect`. |
+| Checks | Five validators in `.github/checks/`, all run by `checks.yml`. |
+| Skills | Twelve, down from thirteen. `architecture`→`architect`, `tdd`→`implement`, `harness` retired to `docs/HARNESS.md`. |
+| Tests | `tests/orchestrator/` and `tests/checks/` mirror their source trees. |
+| Board | Column `Merged` renamed `Shipped` in the Project UI. |
 
-**Manual steps (live state no PR can carry)**
+**Not yet exercised:** the `human:approval` merge hold has never run end-to-end. Before
+2026-09-21 the label carried zero issues, so the branch was unreachable; it now guards seven.
+The hold's notification was silent until the re-entry guard was rekeyed off the hold comment
+rather than the `agent:reviewing` label, which the review stage always sets first.
 
-- [x] Rename the Project board column `Merged` → `Shipped`. Done in the Project UI; `KANBAN_OPT_MERGED` keeps its option ID, so the env var name lags the column name harmlessly until PR 4.
+## Amendments
 
-**Open decisions**
+**2026-09-21** — two decisions that change this ADR's original text:
 
-- **PR 2b or PR 6** — Decided in PR 6: `_grill.ps1` was moved to `.github/orchestrator/lib/Grill.ps1`, and the skill's `grill.ps1` CLI now imports the orchestrator module instead.
+1. **`docs/HARNESS.md` is not a verbatim preservation.** §`harness` is retired said its
+   content was "preserved, not deleted". Reviewed against the repository, the
+   Planner/Generator/Evaluator split, the `emitEvent` log and the tool-call offloading rules
+   are implemented nowhere in `.github/orchestrator/`. Documentation carries settled
+   knowledge; in-flight intent belongs on an issue (ADR-011). `docs/HARNESS.md` keeps the
+   context-management thresholds and a Dev Container pointer — roughly 100 lines, matching
+   `TESTING.md` and `SKILLS.md` — and the rest became a `human:decision` issue.
+2. **The README section was retitled to make this ADR's argument true.** The naming case for
+   `afk.yml` rested on AFK already being front-page vocabulary, citing a README section
+   *"5-Minute AFK Setup"*. The README said "5-Minute Cloud Runner Setup". The section was
+   renamed rather than the claim softened.
 
-### Working notes for whoever picks this up
-
-Learned the hard way during PRs 1–2. Each one cost a cycle; none is guessable from the code.
-
-- **Never `gh label delete` + recreate.** `gh label edit <old> --name <new>` preserves issue associations; delete-and-recreate silently drops them from every issue that carried the label.
-- **Tests that exercise module internals must run inside module scope.** With `FunctionsToExport` now an explicit list, private functions are genuinely unreachable from a test. Use `& (Get-Module Orchestrator) { … }` — dot-sourcing the `.psm1` populates *nothing* in the caller's scope (not even `Invoke-Orchestration`, defined in that file), and dot-sourcing a single stage file resolves its functions but not the module-scoped `$Kanban*` variables they read. `tests/orchestrator/test_plan.py` is the worked example; it is also ~5× faster this way. Do not widen the export list to make a test pass — that is how the list decays back to `'*'`.
-- **This repo is simultaneously a project and a Copier template of itself.** Anything under `tests/`, `pyproject.toml`, or the skill tree usually has a second home under the template root (`.jinja2` suffix, or excluded via `_exclude`). Check for a parallel path before assuming one edit is enough — it has bitten twice (#154, #192).
-- **`test_kanban_script_contract.py` globs; it does not assert paths.** It will happily pass against a tree where every path moved. That is exactly the gap `check-script-paths.ps1` fills, which is why **PR 3 must land before PR 4** — nothing currently catches a stale path except a failing runner.
-- **The orchestrator is GraphQL-bound** (5000 pts/hr, shared between local `gh` and the cloud runner on one PAT). Prefer `git`, REST (`gh api`), or an env var over `gh repo view` / `gh issue view --json labels`. `tests/orchestrator/test_kanban_graphql_budget.py` enforces this statically.
-- **Self-review is not a gate.** It approved both #154 and #192, which CI then rejected. Run the full local suite before pushing; do not lean on the reviewer.
-
-Local verification before any push, all six must be clean:
-
-```powershell
-uv run pytest ; uv run ruff check . ; uv run ruff format . ; uv run pyright
-```
-
-Plus, for anything touching the module surface:
-
-```powershell
-Import-Module .\.github\orchestrator\Orchestrator.psd1 -Force
-(Get-Command -Module Orchestrator).Count   # expect 17
-```
-
-**Carried threads, tracked separately from this refactor**
-
-- Orchestrator reliability: a drain run was cancelled mid-sequence despite `cancel-in-progress: false`; and a drain reported `conclusion=success` while its issue ended `agent:failed` (the drain step is `if: always()` and its guard only tests for `agent:backlog`).
-- Self-review approved two changes CI then rejected (#154, #192) — it reads the diff but never executes it.
-- Housekeeping: abandoned orchestrator auto-stashes; dependabot PRs #187, #188, and #166 (needs a `requires-python` decision, not a merge).
-
-## Execution plan
-
-Not a single find-and-replace. Six ordered PRs, each independently reviewable and each leaving `main` green:
-
-| # | Scope | Why this order |
-|---|---|---|
-| 1 | **Labels** — `agent:review` → `agent:reviewing`, `agent:merged` → `agent:shipped` via `gh label edit`; `agent:implementing` kept (its stale *"(refine + develop)"* description corrected). Plus the `setup.ps1` provisioning list and the `Set-AgentState` / `Test-Readiness` constants. | State names are referenced by everything downstream, so later PRs get written against the final vocabulary. `edit` preserves issue associations; recreating would drop them. |
-| 2 | **Library** — `.github/scripts/kanban/` → `.github/orchestrator/` with `stages/`, `engines/`, `lib/`; `Kanban.ps*` → `Orchestrator.ps*`; `Get-KanbanContext` → `Get-OrchestratorContext`; `Architecture.ps1` → `Architect.ps1`; `Merge.ps1` → `Ship.ps1`; `tests/scripts/` → `tests/orchestrator/`; the `Import-Module` absolute paths in both workflows; the `ROOT/".github"/"scripts"` constant in `test_kanban_script_contract.py`. Engines moved here too, not in PR 3 — the loader dot-sources them by a path relative to the module directory, so they could not stay behind. | The largest mechanical change. Pure moves and renames, so it is reviewable as one diff. |
-| 2b | **One conductor** — delete `Invoke-Alignment`, folding refine/architect/plan into `Invoke-Orchestration -From refine\|implement`. Callers to update: `tasks/align.ps1`, `align.yml`. | Split out of PR 2: this changes behaviour and callers, and burying it inside a 34-file move would make both unreviewable. It is the structural fix the ADR opens by complaining about — two conductors, one level down. |
-| 3 | **The missing guard** — `scripts/ci/` → `.github/checks/`; add `check-script-paths.ps1` and `check-module-api.ps1`, wire both into `checks.yml`. | The guard must exist *before* the workflow and task renames, not after. Nothing today catches a stale path or a drifted export list. |
-| 4 | **Workflows + tasks** — `ci.yml` → `checks.yml`; **merge `align.yml` into `orchestrator.yml` → `afk.yml`** with `stage: [refine, implement, ship]`; `tasks/{align,runner,start}.ps1` → `{refine,afk,hitl}.ps1`; `sync-issues.ps1` → `sync.ps1`; `setup-branch-protection.ps1` → `tasks/protect.ps1`; `Taskfile.yml` targets aligned 1:1 with filenames. | Depends on PRs 2–3. Now guarded: a stale path fails a check instead of a runner. The workflow merge is the riskiest step here — it changes triggers, so verify each of the three entry paths (issue opened, dispatch per stage, `agent:reviewing` label) fires once and only once. |
-| 5 | **Execution modes** — retire the `AFK` / `HITL` labels; add `human:approval` and `human:decision`; drop the `HITL and not AFK` condition in the gate and rewrite the hold gate's label check; record `failed_at` / `failed_reason` in the carrier and teach `task retry` to resume from it. | The only behavioural change in the sequence. It deserves its own review rather than being buried in a rename, and it supersedes the merge-hold mechanism from #195 — which was never exercised end-to-end, so there is no working behaviour to regress. |
-| 6 | **Skill tree** — rename `architecture/` → `architect/` and `tdd/` → `implement/`; retire `harness/` (content to `docs/HARNESS.md`, `verify-settings.ps1` to `scripts/checks/`); fix the **"Interfaces with" cross-references in all 27 skill files** that name a renamed or retired skill; rename `tests/scripts/test_grill_harness.py`. | Touches the Copier-propagated skill tree, so it lands once the pipeline is stable. The cross-references are the hidden bulk — every `SKILL.md` declares what it interfaces with by name, so a rename that stops at directory level leaves 27 files lying. |
-| 7 | **Docs** — `README.md` (skill chain, phase table, Repository Structure, Orchestrator Workflow), `docs/SKILLS.md` (skill table, lifecycle, "extend the tdd REFACTOR phase"), `AGENTS.md` router, `CONTEXT.md`, `ISSUES.md` label list, `ASSESSMENT_PROMPT.md`. | Last, so it describes a repo that already behaves this way. |
-
-**Explicitly not edited** — historical records that were accurate when written: `docs/adr/ADR-000` through `ADR-014`, and `docs/assessment-2026-06-27.md` (a dated snapshot). Rewriting either would falsify the record. This ADR is the pointer forward.
-
-Accepted ADRs (011–014) are **not** edited in any of these. They remain historical record; this ADR is the pointer.
+Amendment rather than supersession: this ADR carries a living Implementation section by its
+own design, and the refactor it describes had not finished landing when these surfaced.
 
 ## More Information
 
-Supersedes the `HITL + AFK` label-pair mechanism introduced for the merge hold, and the `HITL and not AFK` alignment condition. Builds on ADR-011 (issue-carried state), ADR-013 (module structure and parameter passing) and ADR-014 (pre-backlog gate) — all of which keep their original terminology as historical record.
+Supersedes the `HITL + AFK` label-pair mechanism and the `HITL and not AFK` alignment
+condition. Builds on ADR-011 (issue-carried state), ADR-012 (GraphQL budget), ADR-013
+(module structure and parameter passing) and ADR-014 (pre-backlog gate) — all of which keep
+their original terminology as historical record.

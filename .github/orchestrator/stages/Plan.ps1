@@ -420,7 +420,7 @@ function Invoke-PlanDecomposition {
     # ── 4. Labelling heuristic ──────────────────────────────────────────────
     $blastText = Get-IssueBlastRadius -IssueNumber $IssueNumber
     $narrow    = Test-NarrowBlast -BlastText $blastText
-    $state     = Get-PlanningState -IssueNumber $IssueNumber
+    $state     = Get-IssueState -IssueNumber $IssueNumber
     $openCount = if ($state -and $state.open_questions) { @($state.open_questions).Count } else { 0 }
     $defaultLabel = Get-PlanLabel -NarrowBlast $narrow -OpenQuestionCount $openCount
     Write-Log "  Heuristic: narrowBlast=$narrow openQuestions=$openCount → default label = $defaultLabel" -Color DarkGray

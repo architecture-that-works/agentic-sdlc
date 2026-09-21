@@ -137,3 +137,21 @@ def test_agent_label_read_via_rest() -> None:
     assert re.search(r"gh api .*issues/\$IssueNumber/labels", code), (
         "Set-AgentState should read the current label via REST repos/.../labels"
     )
+
+
+def test_no_stage_reads_labels_via_graphql() -> None:
+    """The same constraint, everywhere it can be violated.
+
+    Scanning only GitHub.ps1 let `gh issue view --json labels` survive in
+    Ship.ps1's human-approval hold — the guard asserted the rule in one file
+    while the pattern lived in another.
+    """
+    offenders = [
+        p.name
+        for p in STAGE_SCRIPTS
+        if re.search(r"gh issue view .*--json labels", _code(p))
+    ]
+    assert not offenders, (
+        "label reads must use `gh api .../labels` (REST), not "
+        f"`gh issue view --json labels` (GraphQL): {offenders}"
+    )

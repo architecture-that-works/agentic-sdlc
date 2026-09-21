@@ -36,7 +36,7 @@
         'Clear-IssueReviewCount'
 
         # Carrier read + label primitive — task retry resumes from failed_at
-        'Get-PlanningState'
+        'Get-IssueState'
         'Set-IssueLabel'
 
         # Self-grill subagent (refine stage; also driven standalone by the

@@ -2,7 +2,7 @@
 <#
     Kanban — the AFK orchestrator library (ADR-013).
 
-    Import-Module Kanban exposes the orchestration functions; the module's private
+    Import-Module Orchestrator exposes the orchestration functions; the module's private
     $Kanban* variables and any internal param() defaults stay in module scope and
     never reach the caller, so the dot-source scope leak that once ran the pipeline
     against issue #0 is impossible by construction.
@@ -114,7 +114,7 @@ function Invoke-Orchestration {
                 return $false
             }
 
-            $state = Get-PlanningState -IssueNumber $IssueNumber
+            $state = Get-IssueState -IssueNumber $IssueNumber
             if (Test-Readiness -State $state) {
                 Set-AgentState -IssueNumber $IssueNumber -Label 'agent:backlog'
                 Add-Comment -Number $IssueNumber -Body "🤖✅ Aligned — refined, architected, planned, zero open questions. Queued in Backlog (agent:backlog); run ``task runner`` or ``task start`` to process."
@@ -190,7 +190,7 @@ function Invoke-Orchestration {
         $currentStage = 'ship'
         $merged = Invoke-Ship -IssueNumber $IssueNumber -PRNumber $prNum -Approved
 
-        # Invoke-Ship returns $false when it holds a HITL issue at agent:reviewing rather
+        # Invoke-Ship returns $false when it holds a human:approval issue at agent:reviewing rather
         # than merging. Report that honestly — claiming "complete" for work still
         # awaiting a human merge is the same class of false signal as a drain run
         # exiting 0 while the issue it processed ended agent:failed.

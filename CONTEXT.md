@@ -23,8 +23,8 @@ __PROJECT_DESCRIPTION__
 | Library | A PowerShell file dot-sourced by the module loader. PascalCase. Declares no top-level `param()` — dot-sourcing executes that block in the caller's scope (ADR-013). | Opposite of a Runnable |
 | Runnable | A PowerShell file invoked directly. lowercase. Owns its `param()`. | Opposite of a Library |
 | Carrier | The GitHub issue body. Holds the `AGENT-STATE` block, `open_questions[]`, `decided_questions[]`, `failed_at`, and the Architecture Impact, Implementation Plan and Agent Brief sections. | The only cross-runtime state medium (ADR-011) |
-| AFK | Execution mode: unattended, on GitHub Actions. Entry point `task runner`, workflow `afk.yml`. The default. | A mode, never a label |
-| HITL | Execution mode: interactive, on the local machine. Entry point `task start`. Has no workflow. | A mode, never a label |
+| AFK | Execution mode: unattended, on GitHub Actions. Entry point `task afk`, workflow `afk.yml`. The default. | A mode, never a label |
+| HITL | Execution mode: interactive, on the local machine. Entry point `task hitl`. Has no workflow. | A mode, never a label |
 | `agent:` | Label prefix — the agent holds the ball. Exactly one `agent:` label at a time. | — |
 | `human:` | Label prefix — a human holds the ball; nothing advances until they act. `human:approval` = merge authority; `human:decision` = a question, never a work item. | `human:approval`, not `human:review` — "review" already names the agent's own stage |
 | `KANBAN_*` variables | Deliberately retained — the one exception to the single-vocabulary rule. `KANBAN_ENGINE` and `KANBAN_RUNNER_PROFILE` are live GitHub repository variables; renaming them means touching repository Settings and every generated project's setup for no functional gain. Do not "fix" them. | The module is `Orchestrator`; only the variable prefix is legacy |
@@ -55,7 +55,7 @@ Navigation index for agents. Read CONTEXT.md, identify the target bounded contex
 | tools | `src/tools/` | `src/tools/` | per-tool `main()` (executed directly) |
 | tests | `tests/` | mirrors `src/` and `tools/` | `pytest` discovery |
 | orchestrator (library) | `.github/orchestrator/` | `.github/orchestrator/` | `Orchestrator.psd1` (explicit `FunctionsToExport`) / `Orchestrator.psm1` (loader + `Invoke-Orchestration`, the single conductor); `stages/` one file per stage — `Refine`, `Architect`, `Plan`, `Implement`, `Review`, `Ship`; `engines/` — `Claude.ps1`, `Gemini.ps1`; `lib/` — `Config.ps1`, `GitHub.ps1`, `Util.ps1`, `Grill.ps1` |
-| orchestrator (commands) | `.github/tasks/` | `.github/tasks/` | One runnable per `Taskfile.yml` target: `align.ps1` (Backlog gate), `start.ps1` (HITL), `runner.ps1` (AFK drain), `retry.ps1` (resumes from `failed_at`), `setup.ps1`, `sync.ps1`, `protect.ps1`. Each owns its `param()` and `Import-Module`s the orchestrator |
+| orchestrator (commands) | `.github/tasks/` | `.github/tasks/` | One runnable per `Taskfile.yml` target: `refine.ps1` (Backlog gate), `hitl.ps1` (local), `afk.ps1` (cloud drain), `retry.ps1` (resumes from `failed_at`), `setup.ps1`, `sync.ps1`, `protect.ps1`. Each owns its `param()` and `Import-Module`s the orchestrator |
 | checks | `.github/checks/` | `.github/checks/` | `check-module-map.ps1`, `check-script-paths.ps1`, `check-doc-paths.ps1`, `check-module-api.ps1`, `verify-settings.ps1` — all run by `checks.yml` |
 | skills | `.agents/skills/` | `.agents/skills/` | one directory per skill, each with `SKILL.md` |
 | ADRs | `docs/adr/` | `docs/adr/` | `ADR_STRUCTURE.md` (master index) |
@@ -68,8 +68,8 @@ For each kind of work, read these files before opening anything else. If an unex
 
 | Working on... | Read first (nothing else unless surprised) |
 |---|---|
-| orchestrator change | `.github/orchestrator/Orchestrator.psm1` (load order + conductor), `lib/Config.ps1`, the affected stage file (`stages/Implement.ps1` / `stages/Review.ps1` / `stages/Ship.ps1`) or `lib/GitHub.ps1`, or the task entry (`.github/tasks/start.ps1`) |
-| refine-stage change | `.github/orchestrator/stages/Refine.ps1` (`Invoke-Refine`), `stages/Architect.ps1`, `stages/Plan.ps1`, `.github/workflows/afk.yml`, `.github/tasks/align.ps1`, `tests/orchestrator/test_architecture.py` |
+| orchestrator change | `.github/orchestrator/Orchestrator.psm1` (load order + conductor), `lib/Config.ps1`, the affected stage file (`stages/Implement.ps1` / `stages/Review.ps1` / `stages/Ship.ps1`) or `lib/GitHub.ps1`, or the task entry (`.github/tasks/hitl.ps1`) |
+| refine-stage change | `.github/orchestrator/stages/Refine.ps1` (`Invoke-Refine`), `stages/Architect.ps1`, `stages/Plan.ps1`, `.github/workflows/afk.yml`, `.github/tasks/refine.ps1`, `tests/orchestrator/test_architect.py` |
 | sync-issues change | `.github/tasks/sync.ps1`, `tests/orchestrator/test_sync_issues.py` |
 | `src/utils/` change | `src/utils/m_*.py`, matching `tests/utils/test_*.py` |
 | `src/tools/` change | `src/tools/*.py`, matching `tests/tools/test_*.py` |
@@ -93,6 +93,7 @@ Invariants that must not be violated in any implementation.
 - **Dual-Engine AI** — Claude and Gemini are co-primary engines for the pipeline, orchestrated via `KANBAN_ENGINE` per run. Claude remains the template default.
 - **PowerShell 7+** — all `.ps1` scripts target `#Requires -Version 7.0`. Never target PS 5.1.
 - **pydantic-settings `extra="ignore"`** — Settings class must always ignore unknown env vars.
+- **This repo is simultaneously a project and a Copier template of itself** — anything under `tests/`, `pyproject.toml`, or the skill tree usually has a second home under the template root (a `.jinja2` suffix, or an entry in `copier.yml` `_exclude`). Check for a parallel path before assuming one edit is enough; missing it has broken generated projects twice.
 - **Module Map is the source of truth** (ADR-009) — every new top-level `src/<domain>/` directory MUST add a row to the Module Map in the same PR. Enforced by the `ship` skill.
 - **Skills travel with generated projects** (ADR-009) — every skill referenced in `AGENTS.md` MUST be physically present under `.agents/skills/` in every generated project. Skill files local to `~/.claude/skills/` alone do not satisfy this constraint.
 - **Context Protocol is mandatory** (ADR-009) — agents MUST follow `AGENTS.md` §Session Initialisation → Context Protocol before reading any source file.

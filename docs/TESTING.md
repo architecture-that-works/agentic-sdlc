@@ -134,3 +134,39 @@ Avoid copy-pasting similar test functions — parametrize instead.
 | `tests/checks/` | Validator tests — mirrors `.github/checks/` |
 | tests/test_copier_template.py | Template generation and structure tests — template-only; copier excludes it from generated projects |
 | `tests/conftest.py` | Project-wide fixtures only |
+
+## Testing the orchestrator module
+
+`Orchestrator.psd1` exports an explicit list, so private functions are genuinely
+unreachable from a test. Dot-sourcing the `.psm1` populates *nothing* in the caller's
+scope — not even `Invoke-Orchestration`, which is defined in that file — and
+dot-sourcing a single stage file resolves its functions but not the module-scoped
+`$Kanban*` variables they read.
+
+Run inside module scope instead:
+
+```powershell
+Import-Module .\.github\orchestrator\Orchestrator.psd1 -Force
+& (Get-Module Orchestrator) { Invoke-SomePrivateFunction -IssueNumber 1 }
+```
+
+`tests/orchestrator/test_plan.py` is the worked example, and it is roughly five times
+faster this way.
+
+**Never widen `FunctionsToExport` to make a test pass.** That is how an explicit API
+list decays back to `'*'`; `check-module-api.ps1` fails the build if an export goes
+uncalled or a private function is called from outside.
+
+## The local gate
+
+Six commands, all clean, before any push:
+
+```powershell
+uv run pytest ; uv run ruff check . ; uv run ruff format . ; uv run pyright
+pwsh .github/checks/check-script-paths.ps1
+pwsh .github/checks/check-doc-paths.ps1
+pwsh .github/checks/check-module-api.ps1
+```
+
+Self-review is not a gate. It approved two changes CI then rejected (#154, #192): a
+reviewer reads the diff, it never executes it.

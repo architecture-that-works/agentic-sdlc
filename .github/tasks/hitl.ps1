@@ -18,8 +18,8 @@
     Maximum implement→review cycles before marking agent:failed. Default: 3.
 
 .EXAMPLE
-    task start              # interactive picker
-    task start ISSUE=13     # run orchestration for issue #13 directly
+    task hitl              # interactive picker
+    task hitl ISSUE=13     # run orchestration for issue #13 directly
 #>
 param(
     [int]$Issue      = 0,

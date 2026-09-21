@@ -5,7 +5,7 @@
     agent:backlog when an issue is ready for processing.
 
 .DESCRIPTION
-    The Backlog-gate counterpart to `task start` / `task runner`. Imports the
+    The Backlog-gate counterpart to `task hitl` / `task afk`. Imports the
     Kanban module and calls Invoke-Alignment, which structures the issue body,
     writes the architectural impact and an implementation plan INTO the issue
     (ADR-014 — no .planning/), and labels agent:backlog only when the readiness
@@ -23,8 +23,8 @@
     Issue number to align directly. 0 (default) aligns the whole un-aligned backlog.
 
 .EXAMPLE
-    task align ISSUE=87     # align one issue
-    task align              # align every un-aligned open issue
+    task refine ISSUE=87     # align one issue
+    task refine              # align every un-aligned open issue
 #>
 param([int]$Issue = 0)
 
@@ -68,5 +68,5 @@ foreach ($item in $unaligned) {
 Write-Host ""
 Write-Log "✅ Alignment pass complete — $granted granted agent:backlog, $held held for decisions." -Color Green
 if ($held -gt 0) {
-    Write-Log "   Resolve the linked human:decision child issue(s), then re-run 'task align'." -Color DarkGray
+    Write-Log "   Resolve the linked human:decision child issue(s), then re-run 'task refine'." -Color DarkGray
 }
