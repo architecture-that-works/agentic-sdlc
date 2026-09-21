@@ -70,7 +70,7 @@ def test_with_custom_env(monkeypatch):
 Prefer `monkeypatch` over `unittest.mock.patch` for settings overrides — the attribute is restored automatically after the test.
 
 **Mocking at system boundaries only**
-Per the `tdd` skill: mock only at system boundaries — external APIs, databases, `datetime.now`, and filesystem I/O. Never mock internal collaborators. Tests that mock collaborators pass without proving behaviour.
+Per the `implement` skill: mock only at system boundaries — external APIs, databases, `datetime.now`, and filesystem I/O. Never mock internal collaborators. Tests that mock collaborators pass without proving behaviour.
 
 ```python
 # ✅ Mock at the HTTP boundary
@@ -130,6 +130,7 @@ Avoid copy-pasting similar test functions — parametrize instead.
 | `tests/test_main.py` | HTTP handler and entry point behaviour |
 | `tests/utils/test_m_*.py` | Generic utility module tests |
 | `tests/tools/test_*.py` | Developer tool tests (`commit`, `codebase_map`, `setup`) |
-| `tests/scripts/` | PowerShell contract and orchestrator script tests |
+| `tests/orchestrator/` | Orchestrator module tests — mirrors `.github/orchestrator/` |
+| `tests/checks/` | Validator tests — mirrors `.github/checks/` |
 | `tests/test_copier_template.py` | Template generation and structure tests |
 | `tests/conftest.py` | Project-wide fixtures only |

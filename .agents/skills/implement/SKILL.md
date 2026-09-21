@@ -19,9 +19,9 @@ Red-Green-Refactor sessions (new feature, regression, parametrize).
 
 **Owns:** Red-Green-Refactor loop enforcement, acceptance criteria traceability to the PRD, mocking rules, deep-module REFACTOR target, test suite ergonomics with pytest.
 
-**Does not own:** Test infrastructure provisioning (→ `harness`), PR creation (→ `version-control`), code review (→ `review`), performance infrastructure (→ domain skills).
+**Does not own:** Test infrastructure provisioning (see `docs/HARNESS.md`), PR creation (→ `version-control`), code review (→ `review`), performance infrastructure (→ domain skills).
 
-**Interfaces with:** `plan` — testing decisions in the PRD drive the RED phase. `docs/HARNESS.md` — the TDD loop runs inside managed sessions; large test logs are offloaded. Domain skills (`application-engineering`, `data-engineering`, `agentic-engineering`) — extend the REFACTOR phase with domain-specific patterns.
+**Interfaces with:** `plan` — testing decisions in the PRD drive the RED phase. Domain skills (`application-engineering`, `data-engineering`, `agentic-engineering`) — extend the REFACTOR phase with domain-specific patterns.
 
 ## When to Use
 
@@ -29,7 +29,7 @@ Red-Green-Refactor sessions (new feature, regression, parametrize).
 - Fixing a bug (write a failing test reproducing the bug first)
 - Refactoring a shallow module into a deep module
 
-**Do NOT use for:** Setting up test infrastructure (→ `harness`), reviewing completed code (→ `review`).
+**Do NOT use for:** Setting up test infrastructure (see `docs/HARNESS.md`), reviewing completed code (→ `review`).
 
 ## Required Inputs
 

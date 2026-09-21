@@ -27,6 +27,7 @@ def _run(root: Path) -> subprocess.CompletedProcess[str]:
         cwd=str(root),
         capture_output=True,
         text=True,
+        check=False,
     )
 
 
@@ -40,7 +41,9 @@ def _scaffold(root: Path, agents_md: str) -> None:
     shutil.copy(SCRIPT, root / ".github" / "checks" / SCRIPT.name)
     (root / "AGENTS.md").write_text(agents_md, encoding="utf-8")
     (root / "CONTEXT.md").write_text("# CONTEXT\n", encoding="utf-8")
-    (root / "docs" / "adr" / "ADR_STRUCTURE.md").write_text("# ADRs\n", encoding="utf-8")
+    (root / "docs" / "adr" / "ADR_STRUCTURE.md").write_text(
+        "# ADRs\n", encoding="utf-8"
+    )
     (root / ".agents" / "skills" / "demo" / "SKILL.md").write_text(
         "# Demo\n", encoding="utf-8"
     )

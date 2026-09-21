@@ -3,7 +3,7 @@
 Golden end-to-end session demonstrating the `plan` skill. See [SKILL.md](SKILL.md) for the
 quick-start and [REFERENCE.md](REFERENCE.md) for the full PRD schema and decomposition rules.
 
-The session below continues from the `refine` and `architecture` examples. See
+The session below continues from the `refine` and `architect` examples. See
 [refine/EXAMPLES.md](../refine/EXAMPLES.md) and
 [architecture/EXAMPLES.md](../architecture/EXAMPLES.md) for the preceding sessions.
 
@@ -13,7 +13,7 @@ The session below continues from the `refine` and `architecture` examples. See
 
 **Inputs available:**
 - Agent Brief: SSE Streaming Endpoint (from `refine`)
-- Blast-radius report: `docs/arch/blast-radius.md` (from `architecture`)
+- Blast-radius report: `docs/arch/blast-radius.md` (from `architect`)
 
 ### Step 1 — Deduplicate
 
@@ -38,7 +38,7 @@ No duplicates found. No rejected concepts re-proposed.
 ```bash
 gh issue create \
   --title "feat: SSE streaming endpoint (Lean PRD)" \
-  --label "HITL" \
+  --label "human:approval" \
   --body "$(cat << 'EOF'
 ## Problem Statement
 Browser clients need to receive Claude completion tokens in real time. Today the only
@@ -79,10 +79,9 @@ EOF
 ### Step 3 — Decompose into child issues
 
 ```bash
-# Issue 1: Tracer bullet (AFK — fully automatable)
+# Issue 1: Tracer bullet (unattended — fully automatable)
 gh issue create \
   --title "feat(streaming): tracer bullet — GET /stream returns SSE token sequence" \
-  --label "AFK" \
   --body "$(cat << 'EOF'
 **Goal**: Prove the full SSE pipe works end-to-end with hardcoded tokens.
 **Description**: Implement the minimal GET /stream endpoint that streams three hardcoded
@@ -100,10 +99,9 @@ tokens and emits data: [DONE]. No Claude integration yet — validates SSE frami
 EOF
 )"
 
-# Issue 2: Claude integration (AFK)
+# Issue 2: Claude integration (unattended)
 gh issue create \
   --title "feat(streaming): integrate Claude streaming SDK into GET /stream" \
-  --label "AFK" \
   --body "$(cat << 'EOF'
 **Goal**: Replace hardcoded tokens with a real Claude completion stream.
 **Description**: Wire the Claude SDK streaming call into the tracer-bullet endpoint.
@@ -128,7 +126,7 @@ EOF
 # Issue 3: Integration test (HITL — needs human review of test scenario)
 gh issue create \
   --title "test(streaming): end-to-end integration test for GET /stream" \
-  --label "HITL" \
+  --label "human:approval" \
   --body "$(cat << 'EOF'
 **Goal**: Verify the SSE endpoint against a real HTTP client.
 **Description**: Write an integration test that makes a real HTTP request to a running
@@ -151,9 +149,9 @@ EOF
 
 Plan session produces:
 
-- 1 Lean PRD (HITL) — awaits human sign-off before implementation begins
+- 1 Lean PRD (needs a human) — awaits human sign-off before implementation begins
 - 3 decomposed issues: 2 AFK (fully automatable), 1 HITL (requires human review)
 - No duplicates found; no `.out-of-scope.md` entries violated
 - Multi-turn streaming and auth appended as `## ` sections to `.out-of-scope.md` post-merge
 
-**Next:** `tdd` session opens Issue #1 (tracer bullet) and enters the RED phase.
+**Next:** `implement` session opens Issue #1 (tracer bullet) and enters the RED phase.

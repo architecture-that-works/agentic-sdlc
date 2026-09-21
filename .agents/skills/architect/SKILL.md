@@ -15,7 +15,7 @@ Prevents structural drift and unplanned side-effects by making the dependency to
 
 **Owns:** Dependency graph generation and visualisation, circular dependency and layer-violation detection, deep/shallow module identification, fragility and coupling metric interpretation, blast-radius computation, GitHub Issue cross-reference loop, refactoring demand enforcement.
 
-**Does not own:** Domain model design decisions (→ `refine`), infrastructure and deployment topology (→ `harness`), CI/CD pipeline configuration (→ `harness`).
+**Does not own:** Domain model design decisions (→ `refine`), infrastructure and deployment topology (see `docs/HARNESS.md`), CI/CD pipeline configuration (see `docs/HARNESS.md`).
 
 **Interfaces with:** `refine` — topology validates the boundaries declared in `CONTEXT.md`. `plan` — blast-radius findings gate scope decisions in the Lean PRD. `review` — blast-radius report is posted as a PR comment for reviewer visibility.
 
@@ -26,7 +26,7 @@ Prevents structural drift and unplanned side-effects by making the dependency to
 - When fragility or coupling signals suggest a refactoring is overdue
 - When `review` surfaces a pattern-grade failure
 
-**Do NOT use for:** Domain modelling or glossary decisions (→ `refine`), writing implementation code (→ `tdd`).
+**Do NOT use for:** Domain modelling or glossary decisions (→ `refine`), writing implementation code (→ `implement`).
 
 ## Required Inputs
 
@@ -92,7 +92,7 @@ Flag any open issue that overlaps with the current blast-radius. Prevents duplic
 |---|---|
 | Circular dependency | Block — do not proceed |
 | Layer boundary violation | Block — flag in blast-radius report |
-| Shallow module detected | Trigger REFACTOR phase in `tdd` |
+| Shallow module detected | Trigger REFACTOR phase in `implement` |
 | Pattern grade F | Block — raise with `refine` before `plan` |
 | Blast-radius crosses boundary | Post report, await explicit approval |
 

@@ -7,7 +7,7 @@ description: Use when validating a pull request, running the auto-fix loop on re
 
 ## Overview
 
-Prevents defects and architectural drift from reaching `main` by running a structured review cycle — Claude reviewer, auto-fix loop in an isolated worktree, and a hard HITL block when the loop cannot resolve a finding.
+Prevents defects and architectural drift from reaching `main` by running a structured review cycle — Claude reviewer, auto-fix loop in an isolated worktree, and a hard stop for a human when the loop cannot resolve a finding.
 
 **Primary artifact:** Review report with all findings resolved or escalated, and a verified clean PR ready for `ship`.
 
@@ -17,31 +17,31 @@ review sessions (BLOCK finding resolved, clean approval, escalation after 3 iter
 
 ## Scope
 
-**Owns:** PR review execution (Claude), auto-fix and refine loop, finding verification and compaction, Senior Architect standard enforcement against `CONTEXT.md` principles, HITL escalation when the loop reaches its iteration limit.
+**Owns:** PR review execution (Claude), auto-fix and refine loop, finding verification and compaction, Senior Architect standard enforcement against `CONTEXT.md` principles, escalation to a human when the loop reaches its iteration limit.
 
-**Does not own:** Code implementation (→ `tdd`), static topology analysis (→ `architecture`), merge and security governance (→ `ship`).
+**Does not own:** Code implementation (→ `implement`), static topology analysis (→ `architect`), merge and security governance (→ `ship`).
 
 **Interfaces with:** `implement` — review validates that GREEN and REFACTOR phases produced compliant code. `architect` — blast-radius report from `architect` is surfaced in the review. `ship` — a clean review (all findings resolved or explicitly escalated) is the gate for the `ship` phase.
 
 ## When to Use
 
 - A PR is open and ready for review
-- A `tdd` cycle has completed and findings need independent validation
-- An `architecture` blast-radius report flagged at-risk modules that need code-level inspection
+- A `implement` cycle has completed and findings need independent validation
+- An `architect` blast-radius report flagged at-risk modules that need code-level inspection
 
-**Do NOT use for:** Writing implementation code (→ `tdd`), running topology analysis (→ `architecture`), merging or closing issues (→ `ship`).
+**Do NOT use for:** Writing implementation code (→ `implement`), running topology analysis (→ `architect`), merging or closing issues (→ `ship`).
 
 ## Required Inputs
 
 - Open PR number
 - `CONTEXT.md` (architectural constraints for Senior Architect enforcement)
-- Blast-radius report from `architecture` (if available)
+- Blast-radius report from `architect` (if available)
 
 ## Primary Outputs
 
 - Review report with severity-tagged findings (BLOCK / WARN / INFO)
 - Auto-fix commits in an isolated worktree (for each BLOCK/WARN resolved)
-- HITL escalation comment + label (for findings not resolved after 3 iterations)
+- Escalation comment + `human:approval` (for findings not resolved after 3 iterations)
 - Confirmed clean PR ready for `ship`
 
 ## Core Pattern
@@ -70,7 +70,7 @@ For each BLOCK or WARN finding, run the fix loop in an isolated worktree:
 
 **Iteration limit: 3.** If a finding is not resolved after 3 iterations, stop the loop and escalate.
 
-### Step 3 — Escalation (HITL Block)
+### Step 3 — Escalation (hand to a human)
 
 When the loop hits the iteration limit:
 
@@ -82,9 +82,9 @@ gh pr comment <number> --body "## Review Escalation
 **Status:** UNRESOLVED — merge blocked
 
 **Action required:** Human review needed before this PR can proceed.
-Label: HITL"
+Label: human:approval"
 
-gh pr edit <number> --add-label "HITL"
+gh issue edit <issue-number> --add-label "human:approval"
 ```
 
 Do not attempt a 4th iteration. Do not merge. Surface to human and stop.
@@ -104,10 +104,10 @@ If a finding maps to a principle from `CONTEXT.md` or a constraint established i
 
 | Severity | Gate | Resolution |
 |---|---|---|
-| BLOCK | Merge prohibited | Fix via loop or HITL escalation |
+| BLOCK | Merge prohibited | Fix via loop, or escalate to a human |
 | WARN | Must address or waive | Fix, or explicit waiver comment in PR |
 | INFO | No gate | Noted, tracked for future |
-| Loop limit reached | Merge prohibited | HITL label + comment, human takes over |
+| Loop limit reached | Merge prohibited | `human:approval` + comment, human takes over |
 
 **Context sensitivity:** Low for individual commit reviews. High for the fix loop — each fix iteration should start from a compact context to avoid compounding drift.
 
@@ -123,4 +123,4 @@ Three iterations is the cap. A fourth attempt compounds drift and wastes context
 Every WARN must have either a fix commit or an explicit waiver comment in the PR. Silent drops become silent debt.
 
 **Skipping blast-radius cross-reference.**
-If `architecture` produced a blast-radius report for this PR, it must be referenced in the review. At-risk modules flagged there get BLOCK-severity treatment.
+If `architect` produced a blast-radius report for this PR, it must be referenced in the review. At-risk modules flagged there get BLOCK-severity treatment.

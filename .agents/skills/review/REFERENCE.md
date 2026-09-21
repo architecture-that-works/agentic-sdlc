@@ -12,8 +12,8 @@ scope, and quick start. See [EXAMPLES.md](EXAMPLES.md) for worked review session
 A finding is BLOCK when ANY of the following is true:
 
 - Violates a constraint in `CONTEXT.md` Architectural Constraints
-- Introduces a circular dependency (detected by the `architecture` blast-radius report)
-- Mocks an internal collaborator in a test (violates `tdd` mocking rule)
+- Introduces a circular dependency (detected by the `architect` blast-radius report)
+- Mocks an internal collaborator in a test (violates `implement` mocking rule)
 - Adds a new `src/<domain>/` directory without a Module Map row in `CONTEXT.md`
 - Hardcodes a secret, API key, or credential (any literal string)
 - Adds a new dependency that is unpinned or unvetted
@@ -110,7 +110,7 @@ When a finding is not resolved after 3 iterations:
 2. Add the HITL label:
 
    ```bash
-   gh pr edit <number> --add-label "HITL"
+   gh issue edit <issue-number> --add-label "human:approval"
    ```
 
 3. Stop all further auto-fix attempts on this finding.
@@ -128,7 +128,7 @@ Apply this checklist against every PR diff before generating findings:
 |----------|-------|----------------------|
 | Bounded context integrity | New logic belongs to the correct `Owns` context in `CONTEXT.md` | BLOCK |
 | Module Map completeness | Every new `src/<domain>/` has a Module Map row | BLOCK |
-| Circular dependency absence | No import cycle introduced (cross-check `architecture` report) | BLOCK |
+| Circular dependency absence | No import cycle introduced (cross-check `architect` report) | BLOCK |
 | Mocking rule | Tests mock only at system boundaries | BLOCK |
 | Secret hygiene | No hardcoded credentials, API keys, tokens | BLOCK |
 | Deep module | Public interface is minimal; no leaking implementation details | WARN |

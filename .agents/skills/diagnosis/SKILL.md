@@ -9,7 +9,7 @@ description: Use when implementation or CI fails and the root cause is unclear �
 
 Prevents trial-and-error debugging by enforcing a structured fault-isolation protocol. Every fix attempt is preceded by a confirmed hypothesis; every hypothesis is derived from observed evidence, not guesses.
 
-**Primary artifact:** A written root-cause statement with supporting evidence, ready to hand off to `tdd` for the fix.
+**Primary artifact:** A written root-cause statement with supporting evidence, ready to hand off to `implement` for the fix.
 
 See [REFERENCE.md](REFERENCE.md) for mechanism-level guidance on each of the six Core Pattern
 steps — full-trace capture, symptom-vs-root-cause heuristics, hypothesis ranking algorithm,
@@ -21,9 +21,9 @@ statement (a test failure and a CI/workflow failure).
 
 **Owns:** Structured fault-isolation protocol, hypothesis-driven debugging, error-reading discipline, minimal reproduction procedure, symptom-vs-root-cause distinction.
 
-**Does not own:** Writing the fix (→ `tdd`), provisioning test environments (→ `harness`), code review after the fix (→ `review`).
+**Does not own:** Writing the fix (→ `implement`), provisioning test environments (see `docs/HARNESS.md`), code review after the fix (→ `review`).
 
-**Interfaces with:** `implement` — diagnosis ends when the root cause is confirmed; `implement` begins with that root-cause statement as the RED-phase acceptance criterion. `docs/HARNESS.md` — when minimal reproduction requires an isolated environment.
+**Interfaces with:** `implement` — diagnosis ends when the root cause is confirmed; `implement` begins with that root-cause statement as the RED-phase acceptance criterion.
 
 ## When to Use
 
@@ -32,7 +32,7 @@ statement (a test failure and a CI/workflow failure).
 - A feature appears correct in isolation but fails end-to-end
 - CI passes locally but fails remotely (environment divergence suspected)
 
-**Do NOT use for:** Failures with an obvious, self-evident cause — read the error, fix it, move on. **Do NOT start a fix before completing diagnosis** — the fix is `tdd`'s job; this skill's job is confirming _what_ to fix.
+**Do NOT use for:** Failures with an obvious, self-evident cause — read the error, fix it, move on. **Do NOT start a fix before completing diagnosis** — the fix is `implement`'s job; this skill's job is confirming _what_ to fix.
 
 ## Required Inputs
 
@@ -132,7 +132,7 @@ Rules:
 
 ### Step 6 — Write the Root-Cause Statement
 
-One sentence. No ambiguity. Specific enough to hand to `tdd` as an acceptance criterion.
+One sentence. No ambiguity. Specific enough to hand to `implement` as an acceptance criterion.
 
 ```
 ❌ "The test was failing because of a config issue."
@@ -155,7 +155,7 @@ Attach:
 | 3. Hypotheses | Ranked list of ≤5 candidates | Ranked by prior probability |
 | 4. Minimal reproduction | Smallest reproducing case | One command, reproducible in <10s |
 | 5. Test one hypothesis | Rule in or out | Confirmed by revert + reapply |
-| 6. Root-cause statement | Handoff to `tdd` | One sentence, specific, actionable |
+| 6. Root-cause statement | Handoff to `implement` | One sentence, specific, actionable |
 
 **Context sensitivity:** Medium. Diagnosis requires holding the error context in mind across steps. If context fill reaches the Transition Zone mid-diagnosis, write the current hypothesis list and ruled-out hypotheses to a scratch note before compacting.
 
@@ -174,7 +174,7 @@ Changing two things at once means you cannot know which change fixed the failure
 A failure you cannot reproduce in isolation is a failure you do not understand. A fix for it is a guess.
 
 **Writing the root-cause statement after starting the fix.**
-The root-cause statement is the input to `tdd`, not a post-hoc description. If you cannot write it before writing code, diagnosis is incomplete.
+The root-cause statement is the input to `implement`, not a post-hoc description. If you cannot write it before writing code, diagnosis is incomplete.
 
 **Treating CI-only failures as flakes without evidence.**
 Re-run once to rule out transient flakes. If it fails consistently, it is a real failure — reproduce locally by matching the CI environment.

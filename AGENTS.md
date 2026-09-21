@@ -21,7 +21,7 @@ Load in this order at the start of every session:
 
 Never begin a task without reading `CONTEXT.md` first. An agent that skips this will hallucinate boundaries that were already agreed.
 
-After reading `ADR_STRUCTURE.md`, load only the ADRs that match the current `project_type`. For `project_type: application` (the default): ADR-003, ADR-004, ADR-007, ADR-008, ADR-009. Do not load ADRs scoped to other project types — they pollute context with irrelevant constraints.
+After reading `ADR_STRUCTURE.md`, load only the ADRs that match the current `project_type`. For `project_type: application` (the default): ADR-003, ADR-004, ADR-007, ADR-008, ADR-009, ADR-015. Do not load ADRs scoped to other project types — they pollute context with irrelevant constraints.
 
 If loading steps 1–3 + step 4 would push context fill past 100k tokens, offload step 4 to the filesystem and load on demand.
 
@@ -45,6 +45,7 @@ Load these docs only when the task requires them — do not load preemptively.
 
 - For testing conventions, fixture patterns, and pytest usage: read `docs/TESTING.md`.
 - For the skill system reference, invocation protocol, and lifecycle: read `docs/SKILLS.md`.
+- For the development environment and context-window management: read `docs/HARNESS.md`.
 
 ## Skills
 
@@ -96,11 +97,11 @@ Domain-specific information for this project is captured in ADRs matching the pr
 | `docs/TESTING.md` | Pytest conventions, fixture patterns, file-mirroring rule, coverage floor |
 | `docs/SKILLS.md` | Skill invocation protocol, workflow lifecycle, domain vs. meta skill selection |
 | `CONTEXT.md` | Leading repo-structure doc — domain glossary, bounded contexts, Module Map (agent navigation index), architectural constraints |
-| `.github/workflows/` | CI (`ci.yml`: lint + typecheck + test); the alignment gate (`align.yml`: refine→architect→plan on issue creation); the orchestrator drain (`orchestrator.yml`: implement→review→merge) |
-| `.github/scripts/kanban/` | Orchestrator **library**: the `Kanban` PowerShell module (`Kanban.psd1`/`.psm1`, `Import-Module`). One script per lane — `Refine.ps1` (Backlog gate + `Invoke-Alignment`), `Architect.ps1`/`Implement.ps1`/`Review.ps1`/`Merge.ps1`, conducted by `Orchestrator.ps1`. No top-level `param()` in module files (ADR-013) |
-| `.github/scripts/tasks/` | Thin Taskfile/workflow commands that `Import-Module` the library: `align`, `start`, `runner`, `retry`, `setup`, `sync-issues` |
-| `.github/scripts/ci/` | CI gate scripts (`check-module-map.ps1`); generic `Claude.ps1` helper sits at `.github/scripts/` |
-| _(issue body)_ | Per-issue pipeline artifacts live IN the issue body (ADR-011/ADR-014): `AGENT-STATE` JSON, `Agent Brief`, `Architect Impact`, `Implementation Plan` |
+| `.github/workflows/` | `checks.yml` (lint, typecheck, test, audit, guards); `afk.yml` (the whole pipeline unattended — `stage` input selects refine / implement / ship); `build.yml`, `deploy.yml`, `branch-protection.yml` |
+| `.github/orchestrator/` | The orchestrator **module** (`Orchestrator.psd1`/`.psm1`, `Import-Module`). `Orchestrator.psm1` loads `lib/`, `stages/`, `engines/` and is the single conductor: `Invoke-Orchestration -From refine\|implement`. One file per stage in `stages/`; LLM adapters in `engines/`; shared helpers in `lib/`. Everything here is dot-sourced library — no top-level `param()` (ADR-013) |
+| `.github/tasks/` | Runnables, one per `Taskfile.yml` target, named identically: `align`, `start`, `runner`, `retry`, `setup`, `sync`, `protect`. Each owns its `param()` and `Import-Module`s the orchestrator |
+| `.github/checks/` | Validators run by `checks.yml`, named `check-<thing>.ps1`: Module Map integrity, script paths, doc paths, module API boundary, plus `verify-settings.ps1` |
+| _(issue body)_ | The carrier. Per-issue pipeline artifacts live IN the issue body (ADR-011/ADR-014): `AGENT-STATE` JSON with `open_questions[]` / `decided_questions[]` / `failed_at`, plus `Agent Brief`, `Architecture Impact` and `Implementation Plan` |
 
 ## Rules
 

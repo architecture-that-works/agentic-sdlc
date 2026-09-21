@@ -62,7 +62,7 @@ Format: "X — deferred because Y."
 
 ### Ordering rules
 
-1. **Tracer bullet first.** Always Issue #1, labelled `AFK` if fully automatable. Unblocks
+1. **Tracer bullet first.** Always Issue #1, with no `human:` label if fully automatable. Unblocks
    all subsequent issues that depend on the proven end-to-end path.
 2. **Highest risk second.** The issue most likely to surface hidden constraints is Issue #2.
 3. **Independent last.** Issues with no blockers and no blocked-by relationships can execute

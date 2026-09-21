@@ -157,7 +157,7 @@ uv run pytest tests/test_config.py::test_settings_log_level_default
 - H4: Ruled out — `src/config.py` was not modified.
 - H5: Ruled out — failure reproduces both locally and in CI when LOG_LEVEL is absent.
 
-**Handoff to `tdd`:** Write a regression test that sets `LOG_LEVEL` explicitly and verifies
+**Handoff to `implement`:** Write a regression test that sets `LOG_LEVEL` explicitly and verifies
 that `Settings()` does not raise, then fix `tests/conftest.py` to restore the env var.
 
 ---
@@ -288,7 +288,7 @@ pwsh .github/scripts/ci/check-module-map.ps1
 - H4: Ruled out — `git status` showed CONTEXT.md as clean (no staged or unstaged changes).
 - H5: Ruled out — `grep 'payments' CONTEXT.md` returns no results.
 
-**Handoff to `tdd`:** This is a documentation change, not a code defect. The acceptance
+**Handoff to `implement`:** This is a documentation change, not a code defect. The acceptance
 criterion is: `check-module-map.ps1` exits 0 on `feature/88-module-map-gate` after adding
 the `payments` row to CONTEXT.md. No RED/GREEN cycle needed — add the row, verify the script
 passes, and commit.

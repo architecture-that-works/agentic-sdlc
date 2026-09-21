@@ -9,7 +9,7 @@ Run `task sync -- -DryRun` to preview without making changes.
 
 ## Block Format
 
-Every block must follow this structure exactly so `sync-issues.ps1` can parse it:
+Every block must follow this structure exactly so `task sync` can parse it:
 
 ```
 ISSUE: [Action-oriented Issue Title]
@@ -25,9 +25,10 @@ END_ISSUE
 Header fields — all optional, must appear before the body, in any order:
 
 - `LABELS:` — comma-separated subset of the allowed label set. Agents must not create new labels. Allowed values:
-  - `AFK` — issue can be processed autonomously by the orchestrator without human intervention
-  - `HITL` — issue requires human decision or approval at some point; orchestrator will not pick it up automatically
-  - `agent:backlog` `agent:implementing` `agent:review` `agent:merged` `agent:failed` — orchestrator state machine; set by the orchestrator, not by humans or agents writing issues
+  - *(no label)* — unattended is the **default**: the pipeline runs refine through ship without stopping
+  - `human:approval` — implemented and self-reviewed unattended, then held for a human to merge the PR
+  - `human:decision` — a question for a human; never enters the pipeline at all
+  - `agent:backlog` `agent:implementing` `agent:reviewing` `agent:shipped` `agent:failed` — orchestrator state machine; set by the orchestrator, never by humans or agents writing issues
 - `ESTIMATE:` — Fibonacci story point integer (see scale below). Synced to the **Estimate** field on the GitHub Project board. **Do not use the project board's Size field** (XS/S/M/L/XL) — it is not populated by any script and conflicts with Estimate as the single sizing signal.
 - `PRIORITY:` — one of `P0 | P1 | P2 | P3 | P4` (see definitions below). Synced to the **Priority** field on the GitHub Project board.
 
@@ -58,13 +59,13 @@ A true 1 is rare as a standalone issue — in practice issues bundle and land at
 | 5 | New cross-cutting behaviour touching multiple modules; tests required; path is clear | Add a new config field propagated through config, tests, and docs; port a script to a new runtime |
 | 8 | Significant feature spanning multiple subsystems or requiring an explicit design decision | Multi-cloud deployment workflow with WIF; template restructure affecting generation output |
 | 13 | Major system creation or replacement; end-to-end behaviour must be verified | Replace a polling-based pipeline with an event-driven one; introduce a new orchestration layer |
-| 21 | Full architectural phase spanning every bounded context; compounding unknowns. **Decompose before implementation.** | A PRD tackled as a single issue rather than decomposed child issues |
+| 21 | Spans every bounded context; compounding unknowns. **Decompose before implementation.** | A PRD tackled as a single issue rather than decomposed child issues |
 
 **Rules of thumb:**
 - If unsure between two values, pick the higher.
 - Estimates include the full cost: implementation, tests, review, and any documentation AC requires.
 - If a dependency is unresolved, do not estimate — flag for refinement first.
-- `ESTIMATE: 13` or above requires `LABELS: human:approval`. The agent does not proceed unattended.
+- `ESTIMATE: 13` or above requires `LABELS: human:approval`. The agent implements and self-reviews, then holds for a human to merge.
 
 ---
 
@@ -86,8 +87,8 @@ Default new issues to **P3** (new work) or **P4** (improvement). Escalation to P
 
 <!-- ISSUES -->
 
-ISSUE: Close the loop on agent PRs left sitting at agent:review
-
+ISSUE: Close the loop on agent PRs left sitting at agent:reviewing
+LABELS: human:approval
 ESTIMATE: 3
 PRIORITY: P3
 **Goal**: An agent-authored PR cannot quietly rot at `agent:review` until `main` has moved far enough to make it unmergeable.

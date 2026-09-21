@@ -225,5 +225,5 @@ Attach to the root-cause statement:
 - **Minimal reproduction command** — one line, copy-pasteable.
 - **Ruled-out hypotheses** — one line each: `H2: ruled out — env var was set; ValidationError persists.`
 
-The root-cause statement with attachments is the input to `tdd`. The `tdd` RED phase begins
+The root-cause statement with attachments is the input to `implement`. The `implement` RED phase begins
 with the statement as the acceptance criterion for the regression test.

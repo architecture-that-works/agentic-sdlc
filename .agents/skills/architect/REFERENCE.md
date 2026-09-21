@@ -1,6 +1,6 @@
 # Architecture — Reference
 
-Deep-dive reference for the `architecture` skill. See [SKILL.md](SKILL.md) for the overview,
+Deep-dive reference for the `architect` skill. See [SKILL.md](SKILL.md) for the overview,
 scope, and quick start. See [EXAMPLES.md](EXAMPLES.md) for a worked end-to-end session.
 
 ---
@@ -66,7 +66,7 @@ depth_ratio ≤ 0.2  → Deep module     (target state)
 God Object candidate. Flag in the blast-radius report; recommend splitting.
 
 **Anemic domain model detection:** A domain module where < 20% of lines are logic (mostly
-property accessors) is anemic. Flag for REFACTOR phase in `tdd`.
+property accessors) is anemic. Flag for REFACTOR phase in `implement`.
 
 ---
 
@@ -178,17 +178,17 @@ Flag any overlap in the blast-radius report: "Open issue #N may be affected by t
 ```
 Pattern grade F  OR  fragility > 0.6
   └─ Block merge
-  └─ Open a refactoring issue labelled HITL
+  └─ Open a refactoring issue labelled human:approval
   └─ Raise with `refine` to revise the boundary if needed
   └─ Do NOT proceed until the refactoring issue is closed
 
 Shallow module detected
   └─ Flag in blast-radius report
-  └─ Trigger REFACTOR phase in `tdd` for the current feature
+  └─ Trigger REFACTOR phase in `implement` for the current feature
   └─ Open a separate issue only if the module is in a different bounded context
 
 Circular dependency
   └─ Block merge immediately — no exceptions
-  └─ Open a fix issue labelled AFK if the fix is mechanical
+  └─ Open a fix issue with no human: label if the fix is mechanical
   └─ Open a HITL issue if the fix requires boundary decisions
 ```

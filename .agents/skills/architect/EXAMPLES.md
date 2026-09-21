@@ -1,6 +1,6 @@
 # Architecture — Examples
 
-Golden end-to-end session demonstrating the `architecture` skill. See [SKILL.md](SKILL.md)
+Golden end-to-end session demonstrating the `architect` skill. See [SKILL.md](SKILL.md)
 for the quick-start and [REFERENCE.md](REFERENCE.md) for the full metric reference and
 step-by-step procedures.
 
@@ -9,7 +9,7 @@ step-by-step procedures.
 ## Example 1: Blast-Radius Report for a New Streaming Module
 
 **Context:** The `refine` Agent Brief (see [refine/EXAMPLES.md](../refine/EXAMPLES.md)) has
-been signed off. Before opening any implementation file the agent runs `architecture` to
+been signed off. Before opening any implementation file the agent runs `architect` to
 compute the blast radius of adding `src/streaming/`.
 
 ### Step 1 — Generate dependency graph (output to filesystem only)
@@ -135,12 +135,12 @@ src.domain.service → src.utils.m_http → src.domain.service
    or extract the shared concern into a new module that neither layer imports transitively.
    ```
 
-3. Opens a GitHub Issue labelled `HITL`:
+3. Opens a GitHub Issue labelled `human:approval`:
 
    ```bash
    gh issue create \
      --title "fix(arch): break circular dependency between utils and domain" \
-     --label "HITL" \
+     --label "human:approval" \
      --body "Circular dependency: src.domain.service → src.utils.m_http → src.domain.service.
    Requires a boundary decision before the fix can be implemented mechanically."
    ```

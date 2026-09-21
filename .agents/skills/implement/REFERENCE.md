@@ -1,6 +1,6 @@
 # TDD — Reference
 
-Deep-dive reference for the `tdd` skill. See [SKILL.md](SKILL.md) for the overview, scope,
+Deep-dive reference for the `implement` skill. See [SKILL.md](SKILL.md) for the overview, scope,
 and quick start. See [EXAMPLES.md](EXAMPLES.md) for worked Red-Green-Refactor sessions.
 
 ---
@@ -157,7 +157,7 @@ exemption in one sentence, the line should be tested instead.
 ## Acceptance Criteria Traceability — Full Rules
 
 Every test function must trace to a testing decision in the Lean PRD or a user story in the
-GitHub Issue. The tracing is enforced by the Evaluator agent in `harness`:
+GitHub Issue. The tracing is checked during `review`:
 
 1. Read the acceptance criteria in the GitHub Issue.
 2. For each criterion, find the test that verifies it. If no test covers a criterion, that

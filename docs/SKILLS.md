@@ -22,8 +22,8 @@ Each skill directory follows this layout:
 
 Load `SKILL.md` first. If the task is non-trivial, also load `REFERENCE.md` and `EXAMPLES.md` — they contain detail that `SKILL.md` compresses out.
 
-Skills with `REFERENCE.md` + `EXAMPLES.md`: `refine`, `architect`, `plan`, `write-skills`.
-Skills with `SKILL.md` only: `implement`, `docs/HARNESS.md`, `review`, `ship`, `version-control`, domain skills.
+Skills with `REFERENCE.md` + `EXAMPLES.md`: `refine`, `architect`, `plan`, `implement`, `review`, `diagnosis`, `write-skills`.
+Skills with `SKILL.md` only: `ship`, `version-control`, domain skills.
 
 ## Workflow Skill Lifecycle
 
@@ -39,11 +39,12 @@ refine → architect → plan → implement → review → ship
 | `architect` | Dependency or blast-radius analysis | Architecture Impact section in issue body |
 | `plan` | Agent Brief → implementation decomposition | Implementation Plan in issue body |
 | `implement` | Writing or changing code against acceptance criteria | Passing `uv run pytest`, minimal implementation |
-| `docs/HARNESS.md` | Environment provisioning, context health, large test log offload | Managed session scaffold |
 | `review` | Code review and auto-fix loop | Review verdict; PR ready for merge |
 | `ship` | Pre-merge security checks, squash merge, knowledge base update | Merged PR, updated `CONTEXT.md` |
 
-**Do not skip stages.** A `implement` session without a prior `plan` has no PRD to trace tests to. A `review` without a prior `implement` has no green suite to check.
+**Do not skip stages.** An `implement` session without a prior `plan` has no PRD to trace tests to. A `review` without a prior `implement` has no green suite to check.
+
+Environment provisioning and context-window health are not stages — no issue sits in them. See `docs/HARNESS.md`.
 
 ## Meta Skills (cross-cutting, load on demand)
 
