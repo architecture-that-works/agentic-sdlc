@@ -93,6 +93,7 @@ Invariants that must not be violated in any implementation.
 - **Dual-Engine AI** — Claude and Gemini are co-primary engines for the pipeline, orchestrated via `KANBAN_ENGINE` per run. Claude remains the template default.
 - **PowerShell 7+** — all `.ps1` scripts target `#Requires -Version 7.0`. Never target PS 5.1.
 - **pydantic-settings `extra="ignore"`** — Settings class must always ignore unknown env vars.
+- **This repo is simultaneously a project and a Copier template of itself** — anything under `tests/`, `pyproject.toml`, or the skill tree usually has a second home under the template root (a `.jinja2` suffix, or an entry in `copier.yml` `_exclude`). Check for a parallel path before assuming one edit is enough; missing it has broken generated projects twice.
 - **Module Map is the source of truth** (ADR-009) — every new top-level `src/<domain>/` directory MUST add a row to the Module Map in the same PR. Enforced by the `ship` skill.
 - **Skills travel with generated projects** (ADR-009) — every skill referenced in `AGENTS.md` MUST be physically present under `.agents/skills/` in every generated project. Skill files local to `~/.claude/skills/` alone do not satisfy this constraint.
 - **Context Protocol is mandatory** (ADR-009) — agents MUST follow `AGENTS.md` §Session Initialisation → Context Protocol before reading any source file.
