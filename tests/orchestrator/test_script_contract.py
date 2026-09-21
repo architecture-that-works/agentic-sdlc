@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 # Both trees hold PowerShell subject to the library/runnable contract: the module
 # under .github/orchestrator/, and the runnable task + check scripts that invoke it.
 SCRIPTS = ROOT / ".github"
+MODULE = ROOT / ".github" / "orchestrator"
 REFINE = ROOT / ".agents" / "skills" / "refine" / "scripts"
 
 # `. "$PSScriptRoot\..\foo.ps1"` — capture the trailing basename being sourced.
@@ -31,9 +32,10 @@ _TOP_LEVEL_PARAM_RE = re.compile(r"^param\s*\(")
 
 
 def _script_files() -> list[Path]:
-    """All PowerShell source under .github/scripts (incl. the .psm1 loader) plus
-    the refine skill scripts."""
+    """All PowerShell under .github/ (module, tasks, checks) plus the refine
+    skill's scripts, which carry a param() and must stay runnables."""
     files = list(SCRIPTS.rglob("*.ps1")) + list(SCRIPTS.rglob("*.psm1"))
+    files += list(REFINE.glob("*.ps1"))
     return sorted(set(files))
 
 
@@ -55,9 +57,17 @@ def _dot_sourced_basenames() -> set[str]:
 
 
 def _resolve(name: str) -> Path | None:
-    for base in (SCRIPTS,):
+    """Locate a dot-sourced file by basename.
+
+    The module is searched first, and the match must be case-exact: ADR-015 makes
+    casing the library/runnable signal, so `stages/Refine.ps1` (library) and
+    `tasks/refine.ps1` (runnable) differ only by case — and `rglob` is
+    case-insensitive on Windows.
+    """
+    for base in (MODULE, SCRIPTS, REFINE):
         for p in base.rglob(name):
-            return p
+            if p.name == name:
+                return p
     return None
 
 
@@ -84,6 +94,18 @@ def test_grill_cli_is_not_dot_sourced() -> None:
     assert "grill.ps1" not in _dot_sourced_basenames(), (
         "grill.ps1 (the param()-carrying CLI) must not be dot-sourced; "
         "dot-source Grill.ps1 (the library) instead."
+    )
+
+
+def test_grill_library_exists_and_has_no_param() -> None:
+    """The grill library is dot-sourced by the module loader, so a top-level
+    param() would execute in the caller's scope. That is how grill.ps1's
+    `param([int]$Issue = 0)` once zeroed the orchestrator's issue number and ran
+    the whole pipeline against issue #0 (ADR-013)."""
+    lib = ROOT / ".github" / "orchestrator" / "lib" / "Grill.ps1"
+    assert lib.exists(), f"missing grill library: {lib}"
+    assert not _has_top_level_param(lib), (
+        "Grill.ps1 is dot-sourced and must not declare a top-level param()"
     )
 
 

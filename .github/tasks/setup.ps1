@@ -291,8 +291,6 @@ if ($LASTEXITCODE -ne 0 -or -not $_LabelRepo) {
     Write-Host "  ⚠️  Could not resolve repo — skipping label provisioning." -ForegroundColor Yellow
 } else {
     $BaseLabels = @(
-        @{ Name = 'AFK';                Color = '0075ca'; Description = 'Agent executes start-to-finish without interruption' }
-        @{ Name = 'HITL';               Color = 'e4e669'; Description = 'Requires human decision or approval before closing' }
         @{ Name = 'planning';           Color = 'c5def5'; Description = 'Planning artifact — PRD or Agent Brief' }
         @{ Name = 'enhancement';        Color = 'a2eeef'; Description = 'New feature or request' }
         @{ Name = 'bug';                Color = 'd73a4a'; Description = 'Something is not working' }
@@ -321,7 +319,7 @@ if ($LASTEXITCODE -ne 0 -or -not $_LabelRepo) {
 }
 
 Write-Host ""
-Write-Host "✅ Setup complete. Run 'task start' to pick up backlog issues." -ForegroundColor Green
+Write-Host "✅ Setup complete. Run 'task hitl' to pick up backlog issues." -ForegroundColor Green
 Write-Host ""
 Write-Host "ℹ️  Runner profile: KANBAN_RUNNER_PROFILE set to 'hosted' (GHA ubuntu-latest)." -ForegroundColor Cyan
 Write-Host "   To switch to a self-hosted runner: gh variable set KANBAN_RUNNER_PROFILE --body 'self-hosted'" -ForegroundColor DarkGray

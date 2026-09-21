@@ -23,7 +23,7 @@ if ($Issue -eq 0) { throw "ISSUE is required. Usage: task retry ISSUE=N" }
 
 Write-Log "▶ Retry — resuming issue #$Issue" -Color Cyan
 
-$state = Get-PlanningState -IssueNumber $Issue
+$state = Get-IssueState -IssueNumber $Issue
 $failedAt = if ($state -and $state.failed_at) { $state.failed_at } else { '' }
 
 if (-not $failedAt) {
@@ -46,7 +46,7 @@ $stage = switch ($failedAt) {
 if ($stage -eq 'implement' -and $failedAt -eq 'backlog') {
     Set-AgentState -IssueNumber $Issue -Label 'agent:backlog'
     Add-Comment -Number $Issue -Body "· reset to backlog for retry"
-    Write-Log "✅ Issue #$Issue queued in agent:backlog — GHA or 'task start' will pick it up." -Color Green
+    Write-Log "✅ Issue #$Issue queued in agent:backlog — GHA or 'task hitl' will pick it up." -Color Green
 } else {
     Set-IssueLabel -Number $Issue -Remove 'agent:failed'
     

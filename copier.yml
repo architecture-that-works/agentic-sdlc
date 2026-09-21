@@ -16,9 +16,6 @@ project_type:
 _templates_suffix: ".jinja2"
 
 # .gitignore intentionally absent from _exclude — generated projects must inherit it.
-# The inherited .gitignore already lists `.planning/` (per-issue working cache for the
-# orchestrator); generated projects inherit that entry verbatim so cross-runtime state
-# is never committed (see ADR-011 — orchestrator state carrier).
 # .agents/skills/ intentionally absent from _exclude — skill files travel with every generated project
 #
 # Template source layout: the template source is the repository root (no _subdirectory).

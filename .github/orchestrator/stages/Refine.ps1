@@ -9,7 +9,7 @@
     architected, planned, ready for processing") once it passes this gate.
 
     Invoke-Alignment is the conductor (called by align.yml on issue creation and
-    by tasks/align.ps1). It runs the three alignment steps in order, then grants
+    by tasks/refine.ps1). It runs the three alignment steps in order, then grants
     agent:backlog only when the readiness gate clears:
 
         Refine       Invoke-Refine        structure body, estimate, priority,
@@ -23,7 +23,7 @@
 
     Every artefact lives IN the issue body (ADR-011/ADR-014) -- there is no
     .planning/ directory. Processing (Implement → Review → Merge) is a separate,
-    human-triggered flow (task runner / task start); see Orchestrator.ps1.
+    human-triggered flow (task afk / task hitl); see Orchestrator.ps1.
 #>
 
 $ErrorActionPreference = 'Stop'

@@ -4,16 +4,16 @@ name: AFK
 # Requires secrets: GH_TOKEN (classic PAT, project scope), CLAUDE_CODE_OAUTH_TOKEN.
 #
 # Trigger summary:
-#   issue opened (not HITL, not agent:backlog) → refine
+#   issue opened (not human:decision, not agent:backlog) → refine
 #   workflow_dispatch (stage=refine)           → refine one issue manually
-#   workflow_dispatch (stage=implement)        → drain the agent:backlog queue (task runner)
+#   workflow_dispatch (stage=implement)        → drain the agent:backlog queue (task afk)
 #   workflow_dispatch (stage=ship)             → ship one approved PR manually
 #   agent:reviewing label                      → ship job (resilient handoff for review→ship)
 #
 # Queue behaviour:
 #   The implement job uses a concurrency group so only one run executes at a time.
 #   A drain step at the end of each run re-dispatches if further backlog items
-#   remain, so a single `task runner` drains the whole queue, oldest first.
+#   remain, so a single `task afk` drains the whole queue, oldest first.
 
 on:
   issues:

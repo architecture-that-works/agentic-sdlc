@@ -56,9 +56,9 @@ The fastest path from zero to autonomous AI development:
 task setup
 ```
 
-**4. Create an issue** — `afk.yml` automatically refines, architects, and plans it, then grants `agent:backlog` once it is ready (`task align` does the same locally, or for backfill).
+**4. Create an issue** — `afk.yml` automatically refines, architects, and plans it, then grants `agent:backlog` once it is ready (`task refine` does the same locally, or for backfill).
 
-**5. Walk away** — run `task runner` to drain the `agent:backlog` queue: the orchestrator runs branch → implement → review → ship autonomously on `ubuntu-latest` using your `CLAUDE_CODE_OAUTH_TOKEN`. Granting `agent:backlog` does **not** auto-start work — you trigger processing, so "ready" and "go" stay separate (ADR-014).
+**5. Walk away** — run `task afk` to drain the `agent:backlog` queue: the orchestrator runs branch → implement → review → ship autonomously on `ubuntu-latest` using your `CLAUDE_CODE_OAUTH_TOKEN`. Granting `agent:backlog` does **not** auto-start work — you trigger processing, so "ready" and "go" stay separate (ADR-014).
 
 > **`GH_TOKEN` scope requirement:** Must be a **classic PAT** with all five scopes: `project`, `read:org`, `repo`, `user`, `workflow`. Fine-grained PATs do not support GitHub Projects v2. Missing scopes cause silent failures at runtime — `project` breaks kanban board mutations, `workflow` blocks any PR that touches `.github/workflows/*.yml`, `read:org` is required for org-owned projects, `user` for identity calls, and `repo` for issue/PR/commit operations.
 
@@ -66,14 +66,14 @@ task setup
 
 ```mermaid
 flowchart LR
-    N([issue created]) -- afk.yml / task align --> A
+    N([issue created]) -- afk.yml / task refine --> A
     subgraph Backlog gate
       direction LR
       R([refine]) --> AR([architect]) --> P([plan])
     end
     N -.-> R
     P -- ready --> A([agent:backlog])
-    A -- task runner / task start --> D([agent:implementing])
+    A -- task afk / task hitl --> D([agent:implementing])
     D --> E([agent:reviewing])
     E --> F([agent:shipped])
     E -- rejected --> D
@@ -244,10 +244,10 @@ The board is a 4-lane FSM (ADR-011). The alignment gate runs *before* the backlo
 
 ```
 issue created
-     │  afk.yml / task align  (refine → architect → plan; artefacts written into the issue body)
+     │  afk.yml / task refine  (refine → architect → plan; artefacts written into the issue body)
      ▼  ── gate: refined + architected + planned + zero open questions ──
 agent:backlog ───► agent:implementing ───► agent:reviewing ───► agent:shipped
-     ▲   task runner / task start    │            │
+     ▲   task afk / task hitl    │            │
      │                               │ (rejected)  │ (max retries)
      │                               ▼            ▼
      └────────────────── agent:implementing ◄── agent:failed
@@ -256,7 +256,7 @@ agent:backlog ───► agent:implementing ───► agent:reviewing ─�
 | Label | Lane | Meaning |
 |---|---|---|
 | _(no label)_ | Backlog | Un-aligned — the gate has not yet granted readiness |
-| `agent:backlog` | Backlog | Aligned and **ready** — `task runner`/`task start` will process it |
+| `agent:backlog` | Backlog | Aligned and **ready** — `task afk`/`task hitl` will process it |
 | `agent:implementing` | Implementing | Branch created, Claude Code implementing (Develop → PR) |
 | `agent:reviewing` | Review | PR open, agent self-review running or passed |
 | `agent:shipped` | Shipped | PR squash-merged, issue closed |
@@ -269,9 +269,9 @@ Refine, architect, and plan are readiness flags in the issue-carried state, not 
 | Event | From → To |
 |---|---|
 | `task sync` | issue created → Backlog, **un-aligned** (no `agent:*` label) |
-| `afk.yml` (on issue created) or `task align` | runs refine → architect → plan → grants `agent:backlog` when ready |
+| `afk.yml` (on issue created) or `task refine` | runs refine → architect → plan → grants `agent:backlog` when ready |
 | Open questions remain | `agent:backlog` withheld; human:decision child issue raised — resolve, then re-run align |
-| `task runner` (cloud) / `task start` (local) | `agent:backlog` → `agent:implementing` |
+| `task afk` (cloud) / `task hitl` (local) | `agent:backlog` → `agent:implementing` |
 | PR opened, review begins | `agent:implementing` → `agent:reviewing` (lane moves immediately) |
 | Review passes | stays `agent:reviewing` until orchestrator merges |
 | Review rejected | `agent:reviewing` → `agent:implementing` (orchestrator retries implement) |
@@ -283,15 +283,15 @@ Refine, architect, and plan are readiness flags in the issue-carried state, not 
 
 ```bash
 task sync                   # parse ISSUES.md and push pending blocks to GitHub Issues (un-aligned)
-task align                  # Backlog gate — align every un-aligned issue (grants agent:backlog when ready)
-task align ISSUE=13         # align just issue #13
-task start                  # Local — interactive Backlog picker; runs full orchestration here
-task start ISSUE=13         # Local orchestration for issue #13, skipping the picker
-task runner                 # Cloud runner — dispatch GHA to drain the whole agent:backlog queue (laptop can be closed)
+task refine                  # Backlog gate — align every un-aligned issue (grants agent:backlog when ready)
+task refine ISSUE=13         # align just issue #13
+task hitl                  # Local — interactive Backlog picker; runs full orchestration here
+task hitl ISSUE=13         # Local orchestration for issue #13, skipping the picker
+task afk                 # Cloud runner — dispatch GHA to drain the whole agent:backlog queue (laptop can be closed)
 task retry ISSUE=13         # reset a stuck or failed issue back to agent:backlog
 ```
 
-`task runner` drains the `agent:backlog` queue **lowest issue number first**. Local runs use the interactive picker.
+`task afk` drains the `agent:backlog` queue **lowest issue number first**. Local runs use the interactive picker.
 
 #### Issue body template
 
@@ -354,6 +354,6 @@ With `KANBAN_RUNNER_PROFILE=self-hosted`, the `implement` job targets a runner r
 1. **Register** — repository Settings → Actions → Runners → **New runner**, adding the custom label `gha-project`. See the [GitHub docs on self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners).
 2. **Run** — start `./run.cmd`, or install it as a service (`svc.cmd install`) for unattended operation.
 
-`task runner` dispatches the backlog queue to whichever runner the profile selects — it does **not** start the runner process itself.
+`task afk` dispatches the backlog queue to whichever runner the profile selects — it does **not** start the runner process itself.
 
 ---

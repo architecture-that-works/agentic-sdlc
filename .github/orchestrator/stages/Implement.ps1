@@ -296,9 +296,9 @@ function Invoke-Implement {
     # gate; the orchestrator only picks agent:backlog issues, so a fully-aligned
     # state is expected here. Warn (don't re-align) if it is missing, e.g. an issue
     # was dispatched manually or its state block was hand-edited.
-    $state = Get-PlanningState -IssueNumber $IssueNumber
+    $state = Get-IssueState -IssueNumber $IssueNumber
     if (-not (Test-Readiness -State $state)) {
-        Write-Log "  ⚠️ Issue #$IssueNumber reached Implementing without full alignment (refined+architected+planned). Proceeding; run 'task align' next time to align before backlog." -Color Yellow
+        Write-Log "  ⚠️ Issue #$IssueNumber reached Implementing without full alignment (refined+architected+planned). Proceeding; run 'task refine' next time to align before backlog." -Color Yellow
     }
 
     $meta           = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
@@ -323,7 +323,7 @@ function Invoke-Implement {
     # do real work here.
     #
     # The dirty-tree check matters for local runs: when the caller is ALREADY on the
-    # feature branch, New-FeatureBranch (and its auto-stash) never ran, so `task start`
+    # feature branch, New-FeatureBranch (and its auto-stash) never ran, so `task hitl`
     # from a branch with uncommitted work would otherwise hit a hard
     # "cannot rebase: You have unstaged changes". Skipping is safe — Invoke-Ship still
     # rebases before merging, so this is an earlier opportunity, not the only one.

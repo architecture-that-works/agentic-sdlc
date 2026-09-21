@@ -96,7 +96,7 @@ PRIORITY: P3
 **Requirements**:
 1. Add a scheduled workflow (daily is sufficient) that lists open PRs whose linked issue carries `agent:reviewing`, with the age of each in days.
 2. Escalate past a threshold (suggest 3 days): post or update a single comment on the PR noting how long it has waited, without spamming a new comment per run.
-3. Surface the same list in a form the developer actually sees — a job summary on the scheduled run at minimum; consider a `task` target mirroring `task runner`'s queue display for local use.
+3. Surface the same list in a form the developer actually sees — a job summary on the scheduled run at minimum; consider a `task` target mirroring `task afk`'s queue display for local use.
 4. Optionally flag PRs whose branch has fallen behind `main` by more than N commits, since that is the specific condition that turns a wait into a conflict.
 5. Do not auto-close, auto-merge, or relabel anything — this issue only makes the backlog of waiting reviews visible.
 **Acceptance Criteria**:
