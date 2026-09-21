@@ -48,23 +48,11 @@ $citationPatterns = @(
 )
 
 # A path starts at a known top-level directory and is built only from path characters.
+# `.claude` is not a listed root by design: copier excludes it, so it is absent from every
+# generated project — and this check runs there too. For the same reason, a document that
+# ships must not cite a template-only path such as copier.yml or
+# tests/test_copier_template.py; name those in prose, without backticks, instead.
 $pathShape = '^(src|tests|docs|\.github|\.agents|\.devcontainer)/[\w\-./]*$'
-
-# Anything copier excludes is absent from a generated project by design, and this check
-# runs there too. Read the exclusions from copier.yml rather than restating them, so the
-# rule cannot drift from the source of truth — the #192 failure mode.
-$excluded = @()
-$copierYml = Join-Path $RepoRoot 'copier.yml'
-if (Test-Path $copierYml) {
-    $inExclude = $false
-    foreach ($line in Get-Content $copierYml) {
-        if ($line -match '^_exclude:') { $inExclude = $true; continue }
-        if ($inExclude) {
-            if ($line -match '^\s+-\s*"?([^"#]+?)"?\s*$') { $excluded += $Matches[1] }
-            elseif ($line -notmatch '^\s*$') { break }
-        }
-    }
-}
 
 # Naming templates that are spelled with letters rather than angle brackets, so the path
 # shape alone cannot reject them (e.g. `docs/adr/ADR-NNN-kebab-title.md`).
@@ -86,8 +74,6 @@ foreach ($doc in $docsToCheck) {
             if ($candidate -notmatch $pathShape) { continue }
             if ($candidate -match $placeholderShape) { continue }
             if ($seen.ContainsKey($candidate)) { continue }
-            $trimmed = $candidate.TrimEnd('/')
-            if ($excluded | Where-Object { $trimmed -eq $_ -or $trimmed.StartsWith("$_/") }) { continue }
             $seen[$candidate] = $true
             $checkedCount++
 

@@ -90,21 +90,6 @@ def test_does_not_fire_on_non_paths(tmp_path: Path, citation: str) -> None:
     )
 
 
-def test_copier_excluded_paths_are_skipped(tmp_path: Path) -> None:
-    """Anything copier excludes is absent from a generated project by design, and
-    this check runs there too. Citing one must not fail the guard."""
-    _scaffold(
-        tmp_path,
-        "The template smoke test lives at `tests/test_copier_template.py`.\n",
-    )
-    (tmp_path / "copier.yml").write_text(
-        '_exclude:\n    - ".git"\n    - "tests/test_copier_template.py"\n',
-        encoding="utf-8",
-    )
-    result = _run(tmp_path)
-    assert result.returncode == 0, result.stdout
-
-
 def test_examples_md_is_not_scanned(tmp_path: Path) -> None:
     """Worked examples describe a fictional feature; their paths are illustrative."""
     _scaffold(tmp_path, "# Agents\n")

@@ -132,5 +132,5 @@ Avoid copy-pasting similar test functions — parametrize instead.
 | `tests/tools/test_*.py` | Developer tool tests (`commit`, `codebase_map`, `setup`) |
 | `tests/orchestrator/` | Orchestrator module tests — mirrors `.github/orchestrator/` |
 | `tests/checks/` | Validator tests — mirrors `.github/checks/` |
-| `tests/test_copier_template.py` | Template generation and structure tests |
+| tests/test_copier_template.py | Template generation and structure tests — template-only; copier excludes it from generated projects |
 | `tests/conftest.py` | Project-wide fixtures only |
