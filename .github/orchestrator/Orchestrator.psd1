@@ -35,8 +35,9 @@
         'Resolve-PR'
         'Clear-IssueReviewCount'
 
-        # Post-merge CONTEXT.md update
-        'Invoke-ContextUpdate'
+        # Carrier read + label primitive — task retry resumes from failed_at
+        'Get-PlanningState'
+        'Set-IssueLabel'
 
         # Self-grill subagent (refine stage; also driven standalone by the
         # refine skill's grill.ps1 probe)
