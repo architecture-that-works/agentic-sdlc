@@ -19,7 +19,7 @@ Covers the design and implementation of production AI application services. The 
 
 **Does not own:** Plan-Act-Observe loops and multi-turn autonomous agents (→ `agentic-engineering`), agent state persistence and multi-step orchestration (→ `agentic-engineering`), infrastructure and environment provisioning (→ `harness`), data pipeline design (→ `data-engineering`), domain model design (→ `refine`).
 
-**Interfaces with:** `refine` — application layer implements ports defined during alignment; no business logic in routers. `tdd` — contract tests drive the RED phase for API behaviour. `agentic-engineering` — an API endpoint may *invoke* an agent; agent internals live there. `harness` — deployment, environment, and managed identity for secrets.
+**Interfaces with:** `refine` — application layer implements ports defined during alignment; no business logic in routers. `implement` — contract tests drive the RED phase for API behaviour. `agentic-engineering` — an API endpoint may *invoke* an agent; agent internals live there. `docs/HARNESS.md` — deployment, environment, and managed identity for secrets.
 
 ## When to Use
 

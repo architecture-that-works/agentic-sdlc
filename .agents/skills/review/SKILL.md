@@ -21,7 +21,7 @@ review sessions (BLOCK finding resolved, clean approval, escalation after 3 iter
 
 **Does not own:** Code implementation (→ `tdd`), static topology analysis (→ `architecture`), merge and security governance (→ `ship`).
 
-**Interfaces with:** `tdd` — review validates that GREEN and REFACTOR phases produced compliant code. `architecture` — blast-radius report from `architecture` is surfaced in the review. `ship` — a clean review (all findings resolved or explicitly escalated) is the gate for the `ship` phase.
+**Interfaces with:** `implement` — review validates that GREEN and REFACTOR phases produced compliant code. `architect` — blast-radius report from `architect` is surfaced in the review. `ship` — a clean review (all findings resolved or explicitly escalated) is the gate for the `ship` phase.
 
 ## When to Use
 

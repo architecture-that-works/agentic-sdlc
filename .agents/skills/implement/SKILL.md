@@ -21,7 +21,7 @@ Red-Green-Refactor sessions (new feature, regression, parametrize).
 
 **Does not own:** Test infrastructure provisioning (→ `harness`), PR creation (→ `version-control`), code review (→ `review`), performance infrastructure (→ domain skills).
 
-**Interfaces with:** `plan` — testing decisions in the PRD drive the RED phase. `harness` — the TDD loop runs inside managed sessions; large test logs are offloaded. Domain skills (`application-engineering`, `data-engineering`, `agentic-engineering`) — extend the REFACTOR phase with domain-specific patterns.
+**Interfaces with:** `plan` — testing decisions in the PRD drive the RED phase. `docs/HARNESS.md` — the TDD loop runs inside managed sessions; large test logs are offloaded. Domain skills (`application-engineering`, `data-engineering`, `agentic-engineering`) — extend the REFACTOR phase with domain-specific patterns.
 
 ## When to Use
 

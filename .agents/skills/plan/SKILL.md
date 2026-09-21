@@ -17,7 +17,7 @@ Prevents unbounded scope and re-proposed rejected ideas by turning the Agent Bri
 
 **Does not own:** Domain glossary or shared language (→ `refine`), static analysis or blast-radius data (→ `architecture`), code implementation (→ `tdd`), PR creation or branch naming (→ `version-control`).
 
-**Interfaces with:** `refine` — Agent Brief is the primary input. `architecture` — blast-radius findings gate scope decisions. `tdd` — testing decisions in the PRD define acceptance criteria for the RED phase. `version-control` — issues created here are the targets for feature branches.
+**Interfaces with:** `refine` — Agent Brief is the primary input. `architect` — blast-radius findings gate scope decisions. `implement` — testing decisions in the PRD define acceptance criteria for the RED phase. `version-control` — issues created here are the targets for feature branches.
 
 ## When to Use
 

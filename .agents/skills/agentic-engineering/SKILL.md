@@ -19,7 +19,7 @@ Covers the design and implementation of autonomous AI agents. An agent is distin
 
 **Does not own:** Single-turn Claude API calls and AI-backed REST endpoints (→ `application-engineering`), agent deployment infrastructure and environment provisioning (→ `harness`), data pipeline patterns used by agents (→ `data-engineering`), domain model design (→ `refine`).
 
-**Interfaces with:** `application-engineering` — agents are exposed to clients via thin API endpoints; single-call AI patterns and streaming SSE to client live there. `harness` — agent runtime deployment, Planner/Generator/Evaluator split, environment provisioning. `tdd` — agent behaviour verified via RED-GREEN-REFACTOR; domain-specific testing patterns extend REFACTOR here.
+**Interfaces with:** `application-engineering` — agents are exposed to clients via thin API endpoints; single-call AI patterns and streaming SSE to client live there. `docs/HARNESS.md` — agent runtime deployment, Planner/Generator/Evaluator split, environment provisioning. `implement` — agent behaviour verified via RED-GREEN-REFACTOR; domain-specific testing patterns extend REFACTOR here.
 
 ## When to Use
 

@@ -17,7 +17,7 @@ Prevents premature implementation by forcing full alignment on domain language, 
 
 **Does not own:** Architecture mapping and static analysis (→ `architecture`), PRD and issue creation (→ `plan`), code implementation (→ `tdd`).
 
-**Interfaces with:** `architecture` — topology validates boundaries declared in `CONTEXT.md`. `plan` — Agent Brief is the direct input to Lean PRD synthesis. `harness` — `CONTEXT.md` and `AGENTS.md` are loaded at session start.
+**Interfaces with:** `architect` — topology validates boundaries declared in `CONTEXT.md`. `plan` — Agent Brief is the direct input to Lean PRD synthesis. `docs/HARNESS.md` — `CONTEXT.md` and `AGENTS.md` are loaded at session start.
 
 ## When to Use
 

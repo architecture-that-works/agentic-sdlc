@@ -17,7 +17,7 @@ ELT pipelines following a Mini-Medallion architecture (Raw → Bronze → Silver
 
 **Does not own:** Feature design — which features to compute and why (→ `refine`), model training pipelines (→ `agentic-engineering`), general telemetry instrumentation (→ `harness`).
 
-**Interfaces with:** `refine` — feature requirements and domain boundaries are specified there; data-engineering implements the Gold pipeline against those specs. `tdd` — integration tests for each pipeline stage drive the RED phase. `application-engineering` — Gold tables / Parquet datasets are the contract for downstream APIs.
+**Interfaces with:** `refine` — feature requirements and domain boundaries are specified there; data-engineering implements the Gold pipeline against those specs. `implement` — integration tests for each pipeline stage drive the RED phase. `application-engineering` — Gold tables / Parquet datasets are the contract for downstream APIs.
 
 ## When to Use
 

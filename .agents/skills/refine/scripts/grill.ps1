@@ -20,7 +20,7 @@
 
     AFK orchestration does NOT use this wrapper — it dot-sources the library
     directly (no param() to leak into its scope, see ADR-013):
-          . .agents/skills/refine/scripts/_grill.ps1
+          . .github/orchestrator/lib/Grill.ps1
           $result = Invoke-Grill -Title $t -Body $b
 
     The system prompt enforces grill-me Rules 1-4 from refine/SKILL.md:
@@ -54,7 +54,7 @@
     Tracked in: https://github.com/ysuurme/my_template_repo/issues/85
     Schema:    src/utils/m_planning.py::GrillResult
     Skill:     .agents/skills/refine/SKILL.md § AFK invocation pattern
-    Library:   _grill.ps1 (Invoke-Grill + helpers) — dot-source that, not this CLI.
+    Library:   .github/orchestrator/lib/Grill.ps1 (Invoke-Grill + helpers) — dot-source that, not this CLI.
 #>
 
 [CmdletBinding()]
@@ -68,7 +68,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. "$PSScriptRoot\_grill.ps1"
+Import-Module "$PSScriptRoot\..\..\..\..\.github\orchestrator\Orchestrator.psd1" -Force
 
 if ($Issue -eq 0 -and (-not $Body)) {
     throw "grill.ps1 requires either -Issue <number> OR -Body <text> (-Title optional). See -? for help."

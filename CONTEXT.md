@@ -43,12 +43,12 @@ Navigation index for agents. Read CONTEXT.md, identify the target bounded contex
 | utils | `src/utils/` | `src/utils/` | `m_*.py` modules — generic only |
 | tools | `src/tools/` | `src/tools/` | per-tool `main()` (executed directly) |
 | tests | `tests/` | mirrors `src/` and `tools/` | `pytest` discovery |
-| orchestrator (library) | `.github/scripts/kanban/` | `.github/scripts/kanban/` | `Kanban.psd1`/`Kanban.psm1` (Import-Module); `Orchestrator.ps1` (`Invoke-Orchestration`); `Config.ps1`, `GitHub.ps1`, `Util.ps1`; Backlog-gate `Refine.ps1` (`Invoke-Alignment`) + `Architecture.ps1`; lane files `Implement`/`Review`/`Merge.ps1` |
-| orchestrator (commands) | `.github/scripts/tasks/` | `.github/scripts/tasks/` | `align.ps1` (Backlog gate), `start.ps1` (HITL), `runner.ps1` (AFK drain), `retry.ps1` (recovery), `setup.ps1`, `sync-issues.ps1` — task entry points; each `Import-Module`s the Kanban library |
+| orchestrator (library) | `.github/scripts/kanban/` | `.github/scripts/kanban/` | `Kanban.psd1`/`Kanban.psm1` (Import-Module); `Orchestrator.ps1` (`Invoke-Orchestration`); `Config.ps1`, `GitHub.ps1`, `Util.ps1`; Backlog-gate `Refine.ps1` (`Invoke-Alignment`) + `Architect.ps1`; lane files `Implement`/`Review`/`Merge.ps1` |
+| orchestrator (commands) | `.github/scripts/tasks/` | `.github/scripts/tasks/` | `align.ps1` (Backlog gate), `start.ps1` (local), `runner.ps1` (unattended drain), `retry.ps1` (recovery), `setup.ps1`, `sync-issues.ps1` — task entry points; each `Import-Module`s the Kanban library |
 | ci + shared | `.github/scripts/` | `.github/scripts/` | `ci/check-module-map.ps1` (Module Map gate); `Claude.ps1` (generic LLM helper, shared) |
 | skills | `.agents/skills/` | `.agents/skills/` | one directory per skill, each with `SKILL.md` |
 | ADRs | `docs/adr/` | `docs/adr/` | `ADR_STRUCTURE.md` (master index) |
-| CI | `.github/workflows/` | (cross-cutting) | `checks.yml`, `build.yml`, `afk.yml` (AFK pipeline) |
+| CI | `.github/workflows/` | (cross-cutting) | `checks.yml`, `build.yml`, `orchestrator.yml` (orchestrator drain) |
 | `<domain>` | `src/<domain>/` | declared on first feature | declared on first feature |
 
 ## Issue-Type → Files Index
@@ -58,7 +58,7 @@ For each kind of work, read these files before opening anything else. If an unex
 | Working on... | Read first (nothing else unless surprised) |
 |---|---|
 | orchestrator change | `.github/orchestrator/Orchestrator.psm1` (load order), `Config.ps1`, the affected library file (`GitHub.ps1` / `Implement.ps1` / `Review.ps1` / `Ship.ps1` / `Orchestrator.ps1`) or task entry (`.github/tasks/start.ps1`) |
-| alignment-gate change | `.github/orchestrator/stages/Refine.ps1` (`Invoke-Refine`), `Architecture.ps1`, `.github/workflows/afk.yml`, `.github/tasks/align.ps1`, `tests/orchestrator/test_architecture.py` |
+| alignment-gate change | `.github/orchestrator/stages/Refine.ps1` (`Invoke-Refine`), `Architect.ps1`, `.github/workflows/orchestrator.yml`, `.github/tasks/align.ps1`, `tests/orchestrator/test_architect.py` |
 | sync-issues change | `.github/tasks/sync.ps1`, `tests/orchestrator/test_sync_issues.py` |
 | `src/utils/` change | `src/utils/m_*.py`, matching `tests/utils/test_*.py` |
 | `src/tools/` change | `src/tools/*.py`, matching `tests/tools/test_*.py` |
@@ -79,7 +79,7 @@ Invariants that must not be violated in any implementation.
 - **Lint gate** — `ruff check` + `ruff format --check` must pass before any commit.
 - **`src/utils/` is generic** — no project-specific logic in `m_*.py` modules.
 - **Standard library first** — prefer stdlib over third-party packages.
-- **Dual-Engine AI** — Claude and Gemini are co-primary engines for the AFK pipeline, orchestrated via `KANBAN_ENGINE` per run. Claude remains the template default.
+- **Dual-Engine AI** — Claude and Gemini are co-primary engines for the orchestrator pipeline, orchestrated via `KANBAN_ENGINE` per run. Claude remains the template default.
 - **PowerShell 7+** — all `.ps1` scripts target `#Requires -Version 7.0`. Never target PS 5.1.
 - **pydantic-settings `extra="ignore"`** — Settings class must always ignore unknown env vars.
 - **Module Map is the source of truth** (ADR-009) — every new top-level `src/<domain>/` directory MUST add a row to the Module Map in the same PR. Enforced by the `ship` skill.
@@ -87,7 +87,7 @@ Invariants that must not be violated in any implementation.
 - **Context Protocol is mandatory** (ADR-009) — agents MUST follow `AGENTS.md` §Session Initialisation → Context Protocol before reading any source file.
 - **KISS (Keep It Simple, Stupid)** — Avoid premature abstractions, heavy frameworks, or complex architectures when simpler standard-library implementations suffice. Example: `src/main.py` uses `http.server` instead of pulling in a web framework for a minimal healthcheck.
 - **Dependency Inversion** — External I/O (HTTP, filesystem, subprocess) MUST be hidden behind an interface declared in `src/`. Exception: `src/tools/` is explicitly exempt to allow thin CLI utilities (e.g. `src/tools/commit.py` calls `subprocess.run` directly).
-- **DRY (Rule of Three)** — Code must be duplicated three times before extraction to `src/utils/` is permitted to avoid premature abstraction. The `architecture` phase should identify if functionality is duplicated and propose leveraging or generalizing an existing module if the threshold is met.
+- **DRY (Rule of Three)** — Code must be duplicated three times before extraction to `src/utils/` is permitted to avoid premature abstraction. The `architect` stage should identify if functionality is duplicated and propose leveraging or generalizing an existing module if the threshold is met.
 
 ## Out of Scope
 
@@ -98,5 +98,5 @@ Top-5 summary of explicitly deferred or rejected concepts. Full ledger with date
 | Embedded web framework (FastAPI/Flask) in the hello-world starter | Standard Library First constraint; stdlib http.server is sufficient | 2026-05-12 |
 | Separate `CLAUDE.md` for behavioural rules | Rejected in ADR-009; `AGENTS.md` is the single standing-instructions file (cross-tool convention) | 2026-05-11 |
 | Generic Module Map per project_type (separate maps for application / agent / ml) | Rejected in ADR-009; single Map at template-time lists only invariant rows; project_type-specific rows added as first feature lands | 2026-05-11 |
-| Codespace as HITL validation surface | HITL surface is the developer's laptop indefinitely; persistent Cloud Run Orchestrator Service is the Phase-3 cloud-runtime north star, not Codespaces | 2026-05-12 |
+| Codespace as Local validation surface | Local surface is the developer's laptop indefinitely; persistent Cloud Run Orchestrator Service is the Stage-3 cloud-runtime north star, not Codespaces | 2026-05-12 |
 | LangGraph (or any agent-framework library) as orchestrator runtime | Drag too high for a template — forks should not need to learn LangGraph. Steal patterns (declarative graph, checkpoint, interrupt) without the dependency | 2026-05-12 |

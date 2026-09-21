@@ -23,7 +23,7 @@ statement (a test failure and a CI/workflow failure).
 
 **Does not own:** Writing the fix (→ `tdd`), provisioning test environments (→ `harness`), code review after the fix (→ `review`).
 
-**Interfaces with:** `tdd` — diagnosis ends when the root cause is confirmed; `tdd` begins with that root-cause statement as the RED-phase acceptance criterion. `harness` — when minimal reproduction requires an isolated environment.
+**Interfaces with:** `implement` — diagnosis ends when the root cause is confirmed; `implement` begins with that root-cause statement as the RED-phase acceptance criterion. `docs/HARNESS.md` — when minimal reproduction requires an isolated environment.
 
 ## When to Use
 

@@ -34,7 +34,6 @@ def _script_files() -> list[Path]:
     """All PowerShell source under .github/scripts (incl. the .psm1 loader) plus
     the refine skill scripts."""
     files = list(SCRIPTS.rglob("*.ps1")) + list(SCRIPTS.rglob("*.psm1"))
-    files += list(REFINE.glob("*.ps1"))
     return sorted(set(files))
 
 
@@ -56,7 +55,7 @@ def _dot_sourced_basenames() -> set[str]:
 
 
 def _resolve(name: str) -> Path | None:
-    for base in (SCRIPTS, REFINE):
+    for base in (SCRIPTS,):
         for p in base.rglob(name):
             return p
     return None
@@ -81,19 +80,14 @@ def test_dot_sourced_libraries_have_no_top_level_param() -> None:
 
 def test_grill_cli_is_not_dot_sourced() -> None:
     """The grill.ps1 CLI wrapper has a param() block, so it must never be
-    dot-sourced — the module dot-sources the _grill.ps1 library instead."""
+    dot-sourced — the module dot-sources the Grill.ps1 library instead."""
     assert "grill.ps1" not in _dot_sourced_basenames(), (
         "grill.ps1 (the param()-carrying CLI) must not be dot-sourced; "
-        "dot-source _grill.ps1 (the library) instead."
+        "dot-source Grill.ps1 (the library) instead."
     )
 
 
-def test_grill_library_exists_and_has_no_param() -> None:
-    lib = REFINE / "_grill.ps1"
-    assert lib.exists(), f"missing grill library: {lib}"
-    assert not _has_top_level_param(lib), (
-        "_grill.ps1 must not declare a top-level param()"
-    )
+
 
 
 def test_task_scripts_are_not_dot_sourced() -> None:

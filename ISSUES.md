@@ -64,7 +64,7 @@ A true 1 is rare as a standalone issue — in practice issues bundle and land at
 - If unsure between two values, pick the higher.
 - Estimates include the full cost: implementation, tests, review, and any documentation AC requires.
 - If a dependency is unresolved, do not estimate — flag for refinement first.
-- `ESTIMATE: 13` or above requires `LABELS: HITL`. The agent does not proceed AFK.
+- `ESTIMATE: 13` or above requires `LABELS: human:approval`. The agent does not proceed unattended.
 
 ---
 
@@ -87,7 +87,7 @@ Default new issues to **P3** (new work) or **P4** (improvement). Escalation to P
 <!-- ISSUES -->
 
 ISSUE: Close the loop on agent PRs left sitting at agent:review
-LABELS: AFK
+
 ESTIMATE: 3
 PRIORITY: P3
 **Goal**: An agent-authored PR cannot quietly rot at `agent:review` until `main` has moved far enough to make it unmergeable.
