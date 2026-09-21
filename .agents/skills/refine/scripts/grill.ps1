@@ -68,7 +68,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Import-Module "$PSScriptRoot\..\..\..\..\.github\orchestrator\Orchestrator.psd1" -Force
+. "$PSScriptRoot\..\..\..\..\.github\orchestrator\lib\Grill.ps1"
 
 if ($Issue -eq 0 -and (-not $Body)) {
     throw "grill.ps1 requires either -Issue <number> OR -Body <text> (-Title optional). See -? for help."
