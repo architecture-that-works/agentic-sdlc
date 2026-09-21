@@ -87,9 +87,6 @@ def test_grill_cli_is_not_dot_sourced() -> None:
     )
 
 
-
-
-
 def test_task_scripts_are_not_dot_sourced() -> None:
     """Task entry points own a param() and are invoked, never dot-sourced."""
     sourced = _dot_sourced_basenames()
