@@ -75,7 +75,7 @@ it stops work on `agent:paused` and an hourly job resumes it once the allowance 
 | Everything, immediately | Actions → AFK → **⋯ → Disable workflow** (`gh workflow disable afk.yml`). Nothing runs — not refine, not implement, not comment handling — until re-enabled. |
 | The current run | Actions → the running AFK run → **Cancel workflow** (`gh run cancel <run-id>`). The feature branch and any open PR are kept. |
 | An issue from being processed | Close it; reopen it to release it. The pipeline only processes open issues. |
-| An issue from auto-merging | Add `human:approval`, at any point before ship. The pipeline implements and self-reviews, then holds at `agent:reviewing` and comments on the issue; only a human merges the PR. |
+| An issue from auto-merging | Nothing, for governance changes: a PR touching agent instructions, CI, the orchestrator, ADRs, security docs or skills (`GovernancePaths` in `lib/Config.ps1`) is always held, green, for a human to merge, and the issue is labelled `human:approval`. To hold any other issue, add `human:approval` yourself before ship. |
 
 A cancelled run can leave the issue on `agent:implementing` or `agent:reviewing`; run
 `task retry ISSUE=<n>` to resume it from the stage it was in.

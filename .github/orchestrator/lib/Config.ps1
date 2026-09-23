@@ -61,6 +61,15 @@ $OrchestratorConfig = @{
     MaxTurns_Review        = 30   # read-only: inspect code + signal history, no writes
     MaxTurns_ContextUpdate = 15   # diff analysis + generate a unified patch
 
+    # Governance files: a PR touching any of these is held for the owner's merge
+    # (human:approval), never auto-merged — the agent's own review cannot be the last
+    # word on the rules it is bound by. Matched with -like against the PR's paths.
+    GovernancePaths = @(
+        'AGENTS.md', 'CONTEXT.md', 'SECURITY.md', '.out-of-scope.md', '.github/CODEOWNERS',
+        '.github/workflows/*', '.github/orchestrator/*', '.github/checks/*', '.github/tasks/*',
+        'docs/adr/*', '.agents/skills/*'
+    )
+
     # Orchestrator behaviour
     MaxRetries = 3    # failed attempts per round (implement, review, CI, refine) before agent:failed
 }

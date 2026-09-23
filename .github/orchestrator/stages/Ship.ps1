@@ -218,6 +218,17 @@ function Invoke-RebaseOnMaster {
 
 # ── Hold announcement ─────────────────────────────────────────────────────────
 
+# The PR's changed paths that match GovernancePaths ($OrchestratorConfig).
+function Get-GovernanceFiles {
+    param([Parameter(Mandatory)][int]$PRNumber)
+    $files = @(gh pr diff $PRNumber --repo $KanbanRepo --name-only 2>$null | Where-Object { "$_".Trim() })
+    if ($LASTEXITCODE -ne 0) { return @() }
+    return @($files | Where-Object {
+        $f = "$_".Trim()
+        @($OrchestratorConfig.GovernancePaths | Where-Object { $f -like $_ }).Count -gt 0
+    })
+}
+
 function Test-HoldAnnounced {
     <#
     .SYNOPSIS
@@ -258,40 +269,15 @@ function Invoke-Ship {
 
     Write-Log "▶ Merge — issue #$IssueNumber / PR #$PRNumber" -Color Cyan
 
-    # ── Human-approval hold ───────────────────────────────────────────────────
-    # An issue carrying human:approval is implemented and self-reviewed autonomously
-    # but never auto-merged: it stops here at agent:reviewing so a human merges the PR
-    # deliberately. Governance files (CONTEXT.md, CODEOWNERS, SECURITY.md) land this
-    # way — the agent's own self-review cannot be the last word on the rules it will
-    # subsequently be bound by, and branch protection is not available on this
-    # repository to enforce it.
-    #
-    # This gate lives in Invoke-Ship rather than in Invoke-Orchestration on purpose:
-    # afk.yml's label-triggered `ship` job calls Invoke-Ship directly on
-    # agent:reviewing, so a gate placed only in the conductor would be bypassed by
-    # the very label this sets. -Force overrides, for a deliberate manual merge.
+    # ── Human-approval hold: re-entry ─────────────────────────────────────────
+    # The hold itself happens after CI is green (below). Setting agent:reviewing fires
+    # an `issues: labeled` event that runs afk.yml's ship job, which calls straight back
+    # in here; once the hold is announced there is nothing more to do. Keyed off the
+    # hold comment, which exists only once a pass got that far.
     if (-not $Force) {
-        # REST, not `gh issue view --json labels` (GraphQL) — the 5000/hr budget is
-        # shared with the cloud runner on one PAT (ADR-012).
-        $labels = @(
-            gh api "repos/$KanbanRepo/issues/$IssueNumber/labels" --jq 'map(.name) | .[]' 2>&1 |
-                Out-String | ForEach-Object { $_.Trim() -split '\r?\n' } | Where-Object { $_ }
-        )
-        if ($labels -contains 'human:approval') {
-            # Re-entry: setting agent:reviewing fires an `issues: labeled` event, which
-            # triggers afk.yml's ship job, which calls straight back into this function.
-            # Keying that off the label would be wrong — the review stage sets
-            # agent:reviewing before Invoke-Ship ever runs, so the label is ALWAYS
-            # present on the first pass and the notification would never be posted.
-            # Key off the hold comment itself instead: it exists only if a previous
-            # pass got far enough to post it.
-            if (Test-HoldAnnounced -IssueNumber $IssueNumber) {
-                Write-Log "⏸ Issue #$IssueNumber already held at agent:reviewing — nothing to do." -Color DarkGray
-                return $false
-            }
-            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:reviewing'
-            Add-Comment -Number $IssueNumber -Body "🤖⏸ Held for human approval`n`nPR #$PRNumber is implemented and self-reviewed, but this issue is labelled ``human:approval`` — it is not auto-merged. Review the diff and merge PR #$PRNumber yourself, or re-run ship with ``-Force`` to override."
-            Write-Log "⏸ Issue #$IssueNumber requires human approval — held at agent:reviewing. PR #$PRNumber awaits human merge." -Color Yellow
+        $labels = @(Get-IssueLabel -IssueNumber $IssueNumber)
+        if ($labels -contains 'human:approval' -and (Test-HoldAnnounced -IssueNumber $IssueNumber)) {
+            Write-Log "⏸ Issue #$IssueNumber already held for human approval — nothing to do." -Color DarkGray
             return $false
         }
     }
@@ -402,6 +388,29 @@ function Invoke-Ship {
     # --squash to match the docstring, the afk.yml merge job, and the
     # repo convention (one squashed commit per issue). Previously --merge, which
     # silently diverged AFK merges (merge commits) from label-triggered squashes.
+    # ── Human-approval hold ───────────────────────────────────────────────────
+    # Decided here, from the actual diff, once CI is green: a PR that touches a
+    # governance file (GovernancePaths) is held for the owner to merge, and the issue
+    # is labelled human:approval — a state the pipeline sets, like human:decision.
+    # The owner can also add the label by hand to hold any issue. The gate lives in
+    # Invoke-Ship, not the conductor, because afk.yml's ship job calls Invoke-Ship
+    # directly. -Force overrides, for a deliberate manual merge.
+    if (-not $Force) {
+        $governance = @(Get-GovernanceFiles -PRNumber $PRNumber)
+        $manual     = @(Get-IssueLabel -IssueNumber $IssueNumber) -contains 'human:approval'
+        if ($governance.Count -gt 0 -or $manual) {
+            Set-IssueLabel -Number $IssueNumber -Add 'human:approval'
+            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:reviewing'
+            $why = if ($governance.Count -gt 0) {
+                "it changes governance files, which a human merges:`n" + (($governance | ForEach-Object { "- ``$_``" }) -join "`n")
+            } else { 'this issue is labelled ``human:approval``.' }
+            Add-Comment -Number $IssueNumber -Body ("🤖⏸ Held for human approval`n`nPR #$PRNumber is green and self-reviewed, but " +
+                "$why`n`nReview and merge PR #$PRNumber. To change it instead, close the PR and comment on this issue with what should change.")
+            Write-Log "⏸ Issue #$IssueNumber held for human approval — PR #$PRNumber awaits a human merge." -Color Yellow
+            return $false
+        }
+    }
+
     gh pr merge $PRNumber --squash --delete-branch 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "gh pr merge failed for PR #$PRNumber" }
 

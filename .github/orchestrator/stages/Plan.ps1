@@ -199,12 +199,16 @@ function New-ChildIssue {
     if ($Child.PSObject.Properties['estimate'] -and $null -ne $Child.estimate) { try { $estimate = [int]$Child.estimate } catch { $estimate = 0 } }
     $priority = ''
     if ($Child.PSObject.Properties['priority'] -and $Child.priority) { $priority = "$($Child.priority)" }
+    # The planner's human:decision heuristic becomes a note for refine, not a label.
+    $note = if ($Child.label -eq 'human:decision') {
+        "`n`n_Planner note: wide blast radius or open questions — refine should confirm the decisions with the owner._"
+    } else { '' }
     $body = Format-ChildIssue `
-        -Label              $Child.label `
+        -Label              '' `
         -Estimate           $estimate `
         -Priority           $priority `
         -Goal               $Child.goal `
-        -Description        "$($Child.description)`n`n**Parent**: #$ParentNumber" `
+        -Description        "$($Child.description)$note`n`n**Parent**: #$ParentNumber" `
         -Requirements       $requirements `
         -AcceptanceCriteria $acceptance
 
@@ -215,10 +219,8 @@ function New-ChildIssue {
             '--repo',      $KanbanRepo,
             '--title',     $Child.title,
             '--body-file', $tmp.FullName)
-        if ($Child.label) {
-            $ghArgs += '--label'
-            $ghArgs += $Child.label
-        }
+        # No label at creation: a child is refined on open like any issue, and refine
+        # (not the planner) decides whether it needs a decision from the owner.
         $url = gh @ghArgs 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
             Write-Log "  ⚠️ Could not create child issue '$($Child.title)': $($url.Trim())" -Color Yellow

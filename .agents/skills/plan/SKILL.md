@@ -37,7 +37,7 @@ Prevents unbounded scope and re-proposed rejected ideas by turning the Agent Bri
 ## Primary Outputs
 
 - Lean PRD published as a GitHub Issue
-- Decomposed child issues, each labelled `human:approval`, `human:decision`, or nothing
+- Decomposed child issues, unlabelled — refine labels them
 - `.out-of-scope.md` entries for explicitly deferred concepts
 
 ## Core Pattern
@@ -81,20 +81,14 @@ Anything explicitly deferred. Feeds `.out-of-scope.md` after merge.
 
 Break the PRD into individual GitHub Issues. Rules:
 
-- **Tracer bullet first** — always Issue #1, and it carries no `human:` label
+- **Tracer bullet first** — always Issue #1
 - Each issue is independently mergeable
-- Unattended is the **default**. A `human:` label is the opt-out, and it marks the exact point where the agent stops.
-
-**No `human:` label** — runs refine through ship unattended.
-**`human:approval`** — implements and self-reviews unattended, then holds for a human to merge.
-**`human:decision`** — a question for a human; never enters the pipeline.
+- **No labels at creation.** Every issue is refined on open, and the pipeline sets
+  the labels: refine sets `agent:backlog` or `human:decision` (open questions), and
+  ship sets `human:approval` when the PR touches governance files.
 
 ```bash
-# Unattended (the default) — no label needed.
 gh issue create --title "feat: <title>" --body "<body>"
-
-# Needs a human to merge it.
-gh issue create --title "feat: <title>" --body "<body>" --label "human:approval"
 ```
 
 ## Quick Reference
@@ -104,7 +98,6 @@ gh issue create --title "feat: <title>" --body "<body>" --label "human:approval"
 | Deduplicate | Search open issues + `.out-of-scope.md` | `gh issue list` |
 | PRD | Publish into the parent issue body (between `<!-- AGENT-PRD:BEGIN -->` markers) | `gh issue edit` |
 | Decompose | One issue per vertical slice | `gh issue create` |
-| Label | `human:*` only where the agent must stop | `--label` flag |
 
 **Context sensitivity:** Medium. PRD synthesis requires coherent reasoning — run in Smart Zone when possible. Deduplication queries are stateless and safe at any fill level.
 
@@ -126,17 +119,12 @@ Invoke-Plan -IssueNumber 42
 
 The conductor (`Invoke-Orchestration -From refine`) calls the same function directly. On success the function marks `readiness.planned` in the issue-carried AGENT-STATE block; on a dedupe hit it posts a `🤖❌ Plan Aborted — duplicate` signal comment and returns `$null` without flipping readiness.
 
-## Labelling Heuristic — when to withhold autonomy
+## Planner note — when a child needs a human
 
-Unattended is the default. The orchestrator decides whether to attach a `human:` label from two signals, both read from the issue carrier:
-
-| Blast radius (from `## Blast-Radius Report` comment) | open_questions[] (from AGENT-STATE) | Default child label |
-|------|------|------|
-| Narrow — `At-risk: none` or `Recommendation: proceed` | empty | *(none)* — fully unattended |
-| Narrow | non-empty | `human:decision` on the question; parent stays unattended |
-| Wide — at-risk modules listed | any | `human:approval` |
-
-Either side may opt **up** to `human:approval` (e.g. UX, credentials, a business decision). Neither ever removes a `human:` label a human or the heuristic applied — correctness for recursive issue creation outweighs throughput, since a wrong heuristic pollutes the backlog.
+The orchestrator reads two signals from the issue carrier — blast radius (`## Architecture
+Impact`) and `open_questions[]`. When the blast radius is wide or questions are open, the child
+gets a *Planner note* in its body asking refine to confirm the decisions with the owner. It is a
+note, not a label: refine decides whether a question is genuinely open.
 
 ## Common Mistakes
 

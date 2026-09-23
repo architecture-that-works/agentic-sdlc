@@ -75,7 +75,7 @@ flowchart LR
 | no label | refining it (starts when the issue is opened) | nothing |
 | `human:decision` | waiting on questions listed in the issue, each with a recommended answer (A), two alternatives (B, C) and "other" | reply in a comment: `ok` accepts every recommendation; `1B`, `2C` or `2: your own words` answer one question |
 | `agent:backlog` → `agent:implementing` → `agent:reviewing` | building, reviewing and shipping it — `agent:backlog` starts it | nothing; comments you add are passed to the agent |
-| `human:approval` + a held PR | done, waiting for your merge | review and merge the PR |
+| `human:approval` + a held PR | done and green, but the change touches governance files (agent instructions, CI, ADRs, security, skills) — set by ship | review and merge the PR |
 | `agent:failed` | stopped after 3 failed attempts, each listed in the issue's **Attempts** section | fix it hands-on or explain what to change, then comment — any comment (e.g. `retry`) starts a new round of 3 attempts |
 | `agent:paused` | waiting for the Claude usage allowance to reset; resumes on its own within 5 hours (checked hourly), no attempt counted | nothing |
 | `agent:shipped` | done: merged and closed | nothing |
@@ -88,8 +88,11 @@ flowchart LR
 - **Failures retry themselves.** Test failures, review rejections, red CI (with its log) and
   refine errors each count as one attempt; the next attempt re-implements with every earlier
   failure in view. After 3 (`KANBAN_MAX_RETRIES`) the issue lands on `agent:failed`.
-- **Ship** waits for CI, squash-merges and updates `CONTEXT.md` — unless the issue carries
-  `human:approval`, which holds the PR for you.
+- **Labels are the pipeline's, not yours.** Write issues without labels. Refine sets
+  `agent:backlog` or `human:decision`; ship sets `human:approval`.
+- **Ship** waits for CI, then squash-merges and updates `CONTEXT.md` — unless the PR touches a
+  governance file (the list is `GovernancePaths` in `lib/Config.ps1`), in which case it holds
+  the PR for you and labels the issue `human:approval`. Adding that label yourself forces a hold.
 
 **What needs you:**
 [`human:decision`](../../issues?q=is%3Aopen+label%3Ahuman%3Adecision) ·
