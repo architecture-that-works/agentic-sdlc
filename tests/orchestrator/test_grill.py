@@ -238,3 +238,14 @@ def test_grill_result_validates_subagent_example_payload() -> None:
     assert len(parsed.open_questions) == 1
     # Round-trip with by_alias so the 'from'/'to' alias contract is preserved.
     json.dumps(parsed.model_dump(by_alias=True, mode="json"))
+
+
+def test_grill_never_decides_a_choice_the_issue_reserves_for_the_owner() -> None:
+    """Live on #212 the grill resolved a build/defer/drop decision the issue
+    explicitly reserved for the owner, and the pipeline built it. The exception to
+    Rule 1 keeps such choices as open questions, with the recommendation."""
+    prompt = (
+        Path(__file__).parents[2] / ".github" / "orchestrator" / "lib" / "Grill.ps1"
+    ).read_text(encoding="utf-8")
+    assert "reserves a choice for the owner" in prompt
+    assert "Put it in\n           `open_questions[]` with your recommendation" in prompt

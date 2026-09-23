@@ -37,6 +37,10 @@ You MUST obey these rules from .agents/skills/refine/SKILL.md:
            read it. Never push a question to a human that the code already
            answers. Decided questions go in `decided_questions[]` with the
            file/symbol evidence summarised in `decision`.
+           EXCEPTION: when the issue reserves a choice for the owner — it asks to
+           "decide", or says the choice needs the owner's decision — that choice
+           is never yours, however clearly the code points one way. Put it in
+           `open_questions[]` with your recommendation; the evidence goes there.
 
   Rule 2 — ALWAYS RECOMMEND, WITH ALTERNATIVES. Every open question carries
            your recommended answer in `decision` ("<option> — because <reason>")
