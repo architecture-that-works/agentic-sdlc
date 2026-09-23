@@ -182,13 +182,18 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 
             $open    = @($grillResult.open_questions)
             $decided = @($grillResult.decided_questions)
-            Set-PlanningQuestions -IssueNumber $Number -Open $open -Decided $decided
 
+            # Raise the human:decision issues first so each open question records its
+            # issue number — that link is how Resolve-DecisionAnswers reads the answer back.
             $decisionCount = 0
             foreach ($q in $open) {
                 $url = New-DecisionChildIssue -ParentNumber $Number -ParentTitle $refreshed.title -Question $q
-                if ($url) { $decisionCount++ }
+                if ($url -and $url -match '/issues/(\d+)\s*$') {
+                    $q | Add-Member -NotePropertyName child_issue -NotePropertyValue ([int]$Matches[1]) -Force
+                    $decisionCount++
+                }
             }
+            Set-PlanningQuestions -IssueNumber $Number -Open $open -Decided $decided
             if ($decisionCount -gt 0) {
                 $changes += "human:decision children=$decisionCount"
                 Add-Comment -Number $Number -Body "· self-grill — $decisionCount human:decision child issue(s) emitted; resolve before backlog entry"
@@ -209,6 +214,66 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 
     Add-Comment -Number $Number -Body "· refined — $($changes -join ', ')"
     Write-Log "  Issue #$Number refined: $($changes -join ', ')" -Color Green
+}
+
+# ── Answers from human:decision issues ────────────────────────────────────────
+# A human answers an open question by commenting on its human:decision issue and
+# closing it; closing without a comment accepts the agent's recommendation. For
+# every open question whose issue is closed, this moves the question to
+# decided_questions with that answer, so nobody has to edit the AGENT-STATE JSON.
+# Pipeline comments (🤖 signal, · noise) are never taken as an answer. Returns the
+# number of questions resolved.
+function Resolve-DecisionAnswers {
+    param([int]$IssueNumber)
+
+    $state = Get-IssueState -IssueNumber $IssueNumber
+    if ($null -eq $state -or -not $state.open_questions) { return 0 }
+
+    $stillOpen = [System.Collections.Generic.List[object]]::new()
+    $decided   = [System.Collections.Generic.List[object]]::new()
+    foreach ($q in @($state.decided_questions)) { if ($q) { $decided.Add($q) } }
+    $resolved  = 0
+
+    foreach ($q in @($state.open_questions)) {
+        $child = if ($q.child_issue) { [int]$q.child_issue } else { 0 }
+        if ($child -le 0) { $stillOpen.Add($q); continue }
+
+        $meta = gh api "repos/$KanbanRepo/issues/$child" `
+            --jq '{state: .state, closed_by: (.closed_by.login // "")}' 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) { $stillOpen.Add($q); continue }
+        $meta = $meta | ConvertFrom-Json
+        if ($meta.state -ne 'closed') { $stillOpen.Add($q); continue }
+
+        $answer = gh api "repos/$KanbanRepo/issues/$child/comments" --jq `
+            '[.[] | select((.body | startswith("🤖") or startswith("·")) | not)] | last | {login: .user.login, body: .body}' `
+            2>&1 | Out-String
+        $answer = if ($LASTEXITCODE -eq 0 -and $answer.Trim() -and $answer.Trim() -ne 'null') {
+            $answer | ConvertFrom-Json
+        } else { $null }
+
+        $decision  = if ($answer -and $answer.body) { $answer.body.Trim() }
+                     else { "Accepted the recommendation (#$child closed without comment): $($q.decision)" }
+        $decidedBy = if ($answer -and $answer.login) { $answer.login }
+                     elseif ($meta.closed_by) { $meta.closed_by } else { 'human' }
+
+        $decided.Add([pscustomobject]@{
+            text        = $q.text
+            raised_by   = $q.raised_by
+            decided_by  = $decidedBy
+            decision    = $decision
+            timestamp   = (Get-Date).ToUniversalTime().ToString('o')
+            child_issue = $child
+        })
+        $resolved++
+    }
+
+    if ($resolved -gt 0) {
+        $state | Add-Member -NotePropertyName open_questions    -NotePropertyValue @($stillOpen) -Force
+        $state | Add-Member -NotePropertyName decided_questions -NotePropertyValue @($decided)   -Force
+        Set-PlanningState -IssueNumber $IssueNumber -State $state
+        Add-Comment -Number $IssueNumber -Body "· decisions recorded — $resolved answer(s) from human:decision issue(s); $($stillOpen.Count) still open"
+    }
+    return $resolved
 }
 
 # ── Plan (Backlog gate, third step) ───────────────────────────────────────────

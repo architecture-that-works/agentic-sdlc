@@ -72,6 +72,9 @@ class Question(BaseModel):
     decided_by: str | None = None
     decision: str | None = None
     timestamp: datetime | None = None
+    # The human:decision issue that carries an open question. Closing it (with an
+    # optional answer comment) is how a human decides; refine reads it back.
+    child_issue: int | None = None
 
 
 class Transition(BaseModel):

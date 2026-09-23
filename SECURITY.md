@@ -71,7 +71,7 @@ browser step also works from the GitHub mobile web UI.
 |---|---|
 | Everything, immediately | Actions → AFK → **⋯ → Disable workflow** (`gh workflow disable afk.yml`). No stage runs, including refine on new issues, until re-enabled. |
 | The current run | Actions → the running AFK run → **Cancel workflow** (`gh run cancel <run-id>`). The feature branch and any open PR are kept. |
-| The queue after the current issue | Remove `agent:backlog` from the issues you want held. The drain only re-dispatches while `agent:backlog` issues remain. |
+| An issue from being processed | Close it; reopen it to release it. The pipeline only processes open issues — removing `agent:backlog` is not enough, because the next `stage=all` run re-aligns any open issue without an `agent:*` label. |
 | An issue from auto-merging | Add `human:approval`, at any point before ship. The pipeline implements and self-reviews, then holds at `agent:reviewing` and comments on the issue; only a human merges the PR. |
 
 A cancelled run can leave the issue on `agent:implementing` or `agent:reviewing`. Resume it
@@ -80,15 +80,18 @@ otherwise re-queues the issue to `agent:backlog` for the next `task afk`.
 
 ### Override
 
+- **Answer a question.** Comment on the `human:decision` issue and close it; closing without a
+  comment accepts the agent's recommendation. Refine records the answer in the parent's
+  `decided_questions[]` and re-refines the parent when its last question closes.
 - **Correct a refine decision.** The issue body is the pipeline's only state (ADR-011) and the
-  implement stage reads it verbatim. Edit the **Agent Brief** section, or move an entry from
-  `open_questions[]` to `decided_questions[]` in the `AGENT-STATE` block with your
-  `decision`, then re-run refine (`task refine ISSUE=<n>`, or Run workflow with
-  `stage=refine`). Architecture Impact and Implementation Plan are regenerated on every refine
+  implement stage reads it verbatim. Edit the **Agent Brief** section, or a
+  `decided_questions[]` entry in the `AGENT-STATE` block, then re-run refine
+  (`task refine ISSUE=<n>`, or Run workflow with `stage=refine`). Architecture Impact and Implementation Plan are regenerated on every refine
   run, so edit them once the issue has `agent:backlog`; from then on edits take effect at the
   next implement without a re-run.
 - **Run a specific stage.** Actions → AFK → **Run workflow** with `stage` and `issue_number`:
-  - `refine` — re-align one issue.
+  - `all` (default) — refine every un-aligned issue, then drain `agent:backlog`.
+  - `refine` — re-align one issue; `0` aligns every un-aligned issue.
   - `implement` — process that issue if it carries `agent:backlog`, otherwise the oldest
     `agent:backlog` issue; `0` drains the queue.
   - `ship` — merge the issue's PR. Requires an approval signal (`agent:reviewing` or an

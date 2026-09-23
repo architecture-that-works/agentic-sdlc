@@ -55,8 +55,8 @@ Replace `HelloHandler` in `src/main.py` with your first feature.
 ```mermaid
 flowchart LR
     N([issue opened]) --> R([refine]) --> AR([architect]) --> P([plan])
-    P -- open questions --> Q([human:decision child issue])
-    Q -- answered, task refine --> R
+    P -- open questions --> Q([human:decision issue])
+    Q -- answer + close --> R
     P -- ready --> B([agent:backlog])
     B -- task afk / task hitl --> I([agent:implementing])
     I --> V([agent:reviewing])
@@ -67,12 +67,16 @@ flowchart LR
     F -- task retry --> B
 ```
 
-- **Refine → architect → plan** runs automatically when an issue is opened and writes its output
-  (Agent Brief, Architecture Impact, Implementation Plan) into the issue body. It grants
-  `agent:backlog` only when no open questions remain.
-- **Implement → review → ship** starts only when you trigger it: `agent:backlog` means *ready*,
-  not *go* (ADR-014). `task afk` drains the whole queue in the cloud, oldest issue first, so the
-  laptop can be closed.
+- **One trigger.** `task afk` — or Actions → **AFK** → **Run workflow** with the default
+  `stage=all`, which works from a phone — refines every un-aligned issue, then runs implement →
+  review → ship on everything that is ready, oldest first. `agent:backlog` means *ready*, not
+  *go* (ADR-014): nothing is implemented until you trigger it.
+- **Refine → architect → plan** also runs by itself when an issue is opened, writes its output
+  (Agent Brief, Architecture Impact, Implementation Plan) into the issue body, and adds the issue
+  to the board. It grants `agent:backlog` only when no open questions remain.
+- **Questions come to you as `human:decision` issues.** Answer by commenting and closing the
+  issue — closing without a comment accepts the agent's recommendation. The parent is re-refined
+  automatically once its last question closes, and the next trigger processes it.
 - Review may send work back to implement up to `KANBAN_MAX_RETRIES` times (3 in the cloud, 2
   locally by default); after that the issue lands on `agent:failed`.
 - Ship waits for CI, squash-merges, and updates `CONTEXT.md`. An issue labelled `human:approval`
@@ -89,23 +93,27 @@ flowchart LR
 | `human:approval` | — | Implement and review unattended; a human merges |
 | `human:decision` | — | A question for a human, never a work item |
 
-To halt, override or roll back anything the pipeline does, see
+**What needs you** — each with a comment on the issue saying what is needed:
+[`label:human:decision`](../../issues?q=is%3Aopen+label%3Ahuman%3Adecision) (answer and close),
+[`label:human:approval`](../../issues?q=is%3Aopen+label%3Ahuman%3Aapproval) (review and merge the
+PR once it is held), [`label:agent:failed`](../../issues?q=is%3Aopen+label%3Aagent%3Afailed) (fix
+the cause, then `task retry`). To halt, override or roll back anything the pipeline does, see
 [`SECURITY.md` § Human Oversight](SECURITY.md#human-oversight).
 
 ### Commands
 
 ```bash
 task sync              # push ISSUES.md blocks to GitHub Issues (each then triggers refine)
-task refine [ISSUE=N]  # align one issue, or every un-aligned one
-task afk               # cloud: drain the agent:backlog queue
+task afk               # cloud, the one trigger: refine everything un-aligned, then process all that is ready
+task refine [ISSUE=N]  # local: align one issue, or every un-aligned one
 task hitl [ISSUE=N]    # local: pick a backlog issue and run it in this terminal
 task retry ISSUE=N     # resume a failed or stuck issue
 task setup             # one-time board, label and variable setup
 task protect           # apply branch protection to main
 ```
 
-In a browser or on your phone, Actions → **AFK** → **Run workflow** runs a single stage
-(`refine`, `implement` or `ship`) for an issue number.
+Actions → **AFK** → **Run workflow** runs `all` (default), or a single stage — `refine`,
+`implement` or `ship` — for one issue number.
 
 ### Runner profile
 

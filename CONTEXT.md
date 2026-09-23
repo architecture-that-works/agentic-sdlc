@@ -69,7 +69,7 @@ For each kind of work, read these files before opening anything else. If an unex
 | Working on... | Read first (nothing else unless surprised) |
 |---|---|
 | orchestrator change | `.github/orchestrator/Orchestrator.psm1` (load order + conductor), `lib/Config.ps1`, the affected stage file (`stages/Implement.ps1` / `stages/Review.ps1` / `stages/Ship.ps1`) or `lib/GitHub.ps1`, or the task entry (`.github/tasks/hitl.ps1`) |
-| refine-stage change | `.github/orchestrator/stages/Refine.ps1` (`Invoke-Refine`), `stages/Architect.ps1`, `stages/Plan.ps1`, `.github/workflows/afk.yml`, `.github/tasks/refine.ps1`, `tests/orchestrator/test_architect.py` |
+| refine-stage change | `.github/orchestrator/stages/Refine.ps1` (`Invoke-Refine`, `Resolve-DecisionAnswers`), `stages/Architect.ps1`, `stages/Plan.ps1`, `.github/workflows/afk.yml`, `.github/tasks/refine.ps1`, `tests/orchestrator/test_refine.py`, `tests/orchestrator/test_architect.py` |
 | sync-issues change | `.github/tasks/sync.ps1`, `tests/orchestrator/test_sync_issues.py` |
 | `src/utils/` change | `src/utils/m_*.py`, matching `tests/utils/test_*.py` |
 | `src/tools/` change | `src/tools/*.py`, matching `tests/tools/test_*.py` |

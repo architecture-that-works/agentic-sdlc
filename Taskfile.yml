@@ -28,7 +28,7 @@ tasks:
       - pwsh -NoProfile -File .github/tasks/hitl.ps1 -Issue {{.ISSUE}} -MaxRetries {{.RETRIES}}
 
   afk:
-    desc: "AFK — dispatch GHA to drain the whole agent:backlog queue (laptop can be closed)"
+    desc: "AFK — the one trigger: refine every un-aligned issue in the cloud, then implement → review → ship all that is ready"
     cmds:
       - pwsh -NoProfile -File .github/tasks/afk.ps1 {{.CLI_ARGS}}
 

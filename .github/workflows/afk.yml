@@ -4,9 +4,12 @@ name: AFK
 # Requires secrets: GH_TOKEN (classic PAT, project scope), CLAUDE_CODE_OAUTH_TOKEN.
 #
 # Trigger summary:
+#   workflow_dispatch (stage=all)              → refine every un-aligned issue, then drain
+#                                                agent:backlog — the one trigger (task afk)
 #   issue opened (not human:decision, not agent:backlog) → refine
-#   workflow_dispatch (stage=refine)           → refine one issue manually
-#   workflow_dispatch (stage=implement)        → drain the agent:backlog queue (task afk)
+#   human:decision issue closed                → re-refine its parent (the answer is read back)
+#   workflow_dispatch (stage=refine)           → refine one issue, or every un-aligned one (0)
+#   workflow_dispatch (stage=implement)        → drain the agent:backlog queue
 #   workflow_dispatch (stage=ship)             → ship one approved PR manually
 #   agent:reviewing label                      → ship job (resilient handoff for review→ship)
 #
@@ -17,19 +20,20 @@ name: AFK
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [opened, labeled, closed]
   workflow_dispatch:
     inputs:
       issue_number:
-        description: Issue number to process (0 or empty = auto-pick oldest agent:backlog for implement)
+        description: Issue number (0 = every un-aligned issue for refine, oldest agent:backlog for implement)
         required: false
         default: '0'
         type: string
       stage:
-        description: Pipeline stage to run
+        description: Stage to run (all = refine everything un-aligned, then implement → review → ship)
         required: true
         type: choice
-        options: [refine, implement, ship]
+        default: all
+        options: [all, refine, implement, ship]
 
 permissions:
   contents: write
@@ -50,13 +54,17 @@ jobs:
   refine:
     name: Refine issue
     if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.stage == 'refine') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.stage == 'refine' || inputs.stage == 'all')) ||
       (github.event_name == 'issues' && github.event.action == 'opened' &&
        !contains(github.event.issue.labels.*.name, 'human:decision') &&
-       !contains(github.event.issue.labels.*.name, 'agent:backlog'))
+       !contains(github.event.issue.labels.*.name, 'agent:backlog')) ||
+      (github.event_name == 'issues' && github.event.action == 'closed' &&
+       contains(github.event.issue.labels.*.name, 'human:decision'))
     runs-on: ${{ vars.KANBAN_RUNNER_PROFILE == 'self-hosted' && fromJSON('["self-hosted","gha-project"]') || 'ubuntu-latest' }}
     concurrency:
-      group: refine-${{ github.event.issue.number || inputs.issue_number }}
+      # Closed decision issues share one group: two answers to the same parent must
+      # not re-refine it concurrently.
+      group: refine-${{ github.event.action == 'closed' && 'decision' || (github.event.issue.number || inputs.issue_number) }}
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -78,6 +86,8 @@ jobs:
       KANBAN_PRIORITY_OPT_P3: ${{ vars.KANBAN_PRIORITY_OPT_P3 }}
       KANBAN_PRIORITY_OPT_P4: ${{ vars.KANBAN_PRIORITY_OPT_P4 }}
       KANBAN_ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
+      EVENT_ACTION: ${{ github.event.action }}
+      DECISION_BODY: ${{ github.event.action == 'closed' && github.event.issue.body || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -96,12 +106,36 @@ jobs:
       - name: Refine (refine → architect → plan → grant agent:backlog when ready)
         shell: pwsh
         run: |
-          Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
-          $ctx = Get-OrchestratorContext
-          if ($ctx.IssueNumber -le 0) {
-            throw "KANBAN_ISSUE='$($ctx.IssueNumber)' did not resolve to a positive issue number — refusing to align #0."
+          if ($env:EVENT_ACTION -eq 'closed') {
+            # A human:decision issue was answered: re-refine the issue it belongs to.
+            if ($env:DECISION_BODY -notmatch '\*\*Parent\*\*:\s*#(\d+)') {
+              Write-Output "Standalone decision issue — no parent to re-refine."
+              exit 0
+            }
+            $env:KANBAN_ISSUE = $Matches[1]
           }
-          Invoke-Orchestration -From refine -IssueNumber $ctx.IssueNumber
+          if ([int]$env:KANBAN_ISSUE -gt 0) {
+            Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
+            $null = Invoke-Orchestration -From refine -IssueNumber ([int]$env:KANBAN_ISSUE)
+          } else {
+            # Every open issue with no agent:* label that is not a human:decision.
+            pwsh -NoProfile -File "$env:GITHUB_WORKSPACE/.github/tasks/refine.ps1" -Issue 0
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Drain the backlog (stage=all)
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.stage == 'all'
+        shell: pwsh
+        run: |
+          $ready = gh issue list --repo $env:GITHUB_REPOSITORY --label 'agent:backlog' --state open `
+            --json number --jq 'length' 2>$null
+          if ([int]$ready -gt 0) {
+            Write-Output "$ready issue(s) ready — dispatching implement → review → ship."
+            gh workflow run afk.yml --repo $env:GITHUB_REPOSITORY --ref "$env:GITHUB_REF_NAME" `
+              --field stage=implement --field issue_number=0
+          } else {
+            Write-Output "Nothing is ready for implementation."
+          }
 
   # ── Implement (full pipeline: implement → review loop → ship) ────────────────
   implement:

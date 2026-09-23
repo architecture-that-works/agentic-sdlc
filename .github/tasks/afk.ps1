@@ -1,22 +1,23 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    AFK runner — dispatch the GHA orchestrator to process EVERY open
-    agent:backlog issue in the cloud, then return immediately so the laptop
-    can be closed.
+    AFK runner — the one trigger. Dispatches afk.yml (stage=all) so the cloud
+    refines every un-aligned issue and then processes everything that is ready,
+    and returns immediately so the laptop can be closed.
 
 .DESCRIPTION
-    Dispatches orchestrator.yml (stage=implement, issue_number=0). The workflow
-    resolves the oldest agent:backlog issue, runs the full pipeline, and its
-    drain step re-dispatches while any agent:backlog issues remain — so a single
-    invocation drains the whole queue, one issue at a time (serialised by the
-    implement-pipeline concurrency group).
+    stage=all refines every open issue with no agent:* label that is not a
+    human:decision, then — if anything carries agent:backlog — dispatches the
+    implement drain: the oldest agent:backlog issue runs implement → review →
+    ship, and the drain re-dispatches until the queue is empty (serialised by the
+    implement-pipeline concurrency group). Issues that need a human end on
+    human:decision questions, a human:approval hold, or agent:failed, each with
+    a comment saying what is needed.
 
     This is the cloud counterpart to `task hitl` (HITL, local). It does NOT run
     anything in this terminal beyond the dispatch — close the laptop afterwards.
 
     Pre-flight:
-      - Exits cleanly if there are zero open agent:backlog issues.
       - Warns (and confirms, unless -Force) if KANBAN_RUNNER_PROFILE=self-hosted,
         since then a self-hosted runner must be online for the queue to drain.
       - Prints the queue and the Actions URL to watch.
@@ -51,28 +52,30 @@ if ($gql -match '^(\d+)\s+(\d+)$') {
     }
 }
 
-# ── Pre-flight: is there anything to drain? ──────────────────────────────────
+# ── Pre-flight: what will be processed? ──────────────────────────────────────
 # Capture gh's exit code: a failed read (rate limit, auth, bad repo) must throw,
-# never be mistaken for an empty queue and reported as "nothing to drain".
-$raw = gh issue list --repo $KanbanRepo `
-    --label 'agent:backlog' --state open `
-    --json number,title --jq 'sort_by(.number)' 2>&1
+# never be mistaken for an empty queue and reported as "nothing to do".
+$raw = gh issue list --repo $KanbanRepo --state open `
+    --json number,title,labels --limit 200 --jq 'sort_by(.number)' 2>&1
 if ($LASTEXITCODE -ne 0) {
-    throw "Failed to read the agent:backlog queue (gh exited $LASTEXITCODE):`n$raw"
+    throw "Failed to read open issues (gh exited $LASTEXITCODE):`n$raw"
 }
-$backlog = $raw | ConvertFrom-Json
-$count = @($backlog).Count
-if ($count -eq 0) {
-    Write-Log "No open agent:backlog issues — nothing to drain." -Color Yellow
+$open      = @($raw | ConvertFrom-Json)
+$backlog   = @($open | Where-Object { @($_.labels.name) -contains 'agent:backlog' })
+$unaligned = @($open | Where-Object {
+    $names = @($_.labels.name)
+    -not ($names | Where-Object { $_ -like 'agent:*' }) -and ($names -notcontains 'human:decision')
+})
+if ($backlog.Count -eq 0 -and $unaligned.Count -eq 0) {
+    Write-Log "Nothing to refine and nothing ready — no dispatch needed." -Color Yellow
     exit 0
 }
 
 Write-Host ""
-Write-Host "  agent:backlog queue — $KanbanRepo  ($count issue$(if ($count -ne 1) { 's' }))" -ForegroundColor Cyan
+Write-Host "  $KanbanRepo — $($unaligned.Count) to refine, $($backlog.Count) ready to implement" -ForegroundColor Cyan
 Write-Host "  $('─' * 60)" -ForegroundColor DarkGray
-foreach ($i in $backlog) {
-    Write-Host ("  #{0,-4} {1}" -f $i.number, $i.title) -ForegroundColor White
-}
+foreach ($i in $unaligned) { Write-Host ("  refine  #{0,-4} {1}" -f $i.number, $i.title) -ForegroundColor White }
+foreach ($i in $backlog)   { Write-Host ("  ready   #{0,-4} {1}" -f $i.number, $i.title) -ForegroundColor White }
 Write-Host ""
 
 # ── Where will it run? ───────────────────────────────────────────────────────
@@ -94,12 +97,12 @@ if ($runnerProfile -eq 'self-hosted') {
     Write-Log "  Runner: hosted (ubuntu-latest) — laptop can be closed after dispatch." -Color Green
 }
 
-# ── Dispatch the cloud drain ─────────────────────────────────────────────────
+# ── Dispatch: refine everything, then drain ──────────────────────────────────
 gh workflow run afk.yml --repo $KanbanRepo `
-    --field stage=implement --field issue_number=0
+    --field stage=all --field issue_number=0
 if ($LASTEXITCODE -ne 0) { throw "Failed to dispatch afk.yml" }
 
-Write-Log "  🚀 Dispatched — oldest-first drain of $count issue$(if ($count -ne 1) { 's' }) started." -Color Green
+Write-Log "  🚀 Dispatched — refine, then an oldest-first drain of everything that is ready." -Color Green
 Write-Log "  Watch: https://github.com/$KanbanRepo/actions/workflows/afk.yml" -Color Cyan
 Write-Host ""
-Write-Log "  The drain step re-dispatches until the queue is empty. You can walk away." -Color DarkGray
+Write-Log "  You can walk away. What needs you: label:human:decision, label:human:approval, label:agent:failed." -Color DarkGray

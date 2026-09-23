@@ -100,6 +100,20 @@ function Invoke-Orchestration {
                 return $false
             }
 
+            $null = Add-IssueToBoard -IssueNumber $IssueNumber
+
+            # Answers first: a closed human:decision issue resolves its open question.
+            # While any decision is still pending on an already-refined issue there is
+            # nothing to re-run — skip the architect/plan LLM passes until the last
+            # answer is in, so each closed decision issue costs one cheap check.
+            $null  = Resolve-DecisionAnswers -IssueNumber $IssueNumber
+            $state = Get-IssueState -IssueNumber $IssueNumber
+            $pending = if ($state -and $state.open_questions) { @($state.open_questions) } else { @() }
+            if ($state -and $state.readiness.refined.done -and $pending.Count -gt 0) {
+                Write-Log "⏸ Issue #$IssueNumber still waits on $($pending.Count) decision(s) — not re-running refine." -Color Yellow
+                return $false
+            }
+
             try {
                 $currentStage = 'refine'
                 Invoke-Refine    -Number      $IssueNumber
@@ -122,8 +136,15 @@ function Invoke-Orchestration {
                 return $true
             }
 
-            $open = if ($state -and $state.open_questions) { @($state.open_questions).Count } else { 0 }
-            Add-Comment -Number $IssueNumber -Body "🤖⏸ Alignment incomplete — $open open question(s) need a human decision before this issue can enter the backlog. Resolve the linked human:decision issue(s), record the answer in ``decided_questions[]``, then re-run ``task refine ISSUE=$IssueNumber`` (or Actions → AFK → Run workflow, stage=refine)."
+            $openQs  = if ($state -and $state.open_questions) { @($state.open_questions) } else { @() }
+            $open    = $openQs.Count
+            $links   = @($openQs | Where-Object { $_.child_issue } | ForEach-Object { "#$($_.child_issue)" }) -join ', '
+            $howTo   = if ($links) {
+                "Answer each by commenting on it and closing it: $links. Closing without a comment accepts the agent's recommendation. This issue is re-refined automatically when the last one closes."
+            } else {
+                "Record each answer in ``decided_questions[]`` of the AGENT-STATE block, then re-run ``task refine ISSUE=$IssueNumber`` (or Actions → AFK → Run workflow, stage=refine)."
+            }
+            Add-Comment -Number $IssueNumber -Body "🤖⏸ Needs your decision — $open open question(s) block this issue from the backlog. $howTo"
             Write-Log "⏸ Issue #$IssueNumber NOT aligned — readiness gate unmet (open questions=$open). agent:backlog withheld." -Color Yellow
             return $false
         }

@@ -24,3 +24,32 @@ def test_engine_is_pinned_to_an_installed_cli():
     engines = re.findall(r"^\s*KANBAN_ENGINE:\s*(\S+)\s*$", code, re.MULTILINE)
     assert engines == ["claude"]
     assert "npm install -g @anthropic-ai/claude-code" in code
+
+
+def _job(name: str) -> str:
+    """Text of one top-level job, up to the next job header."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    match = re.search(
+        rf"^  {name}:\n(.*?)(?=^  [\w-]+:\n|\Z)", text, re.MULTILINE | re.DOTALL
+    )
+    assert match, f"job {name!r} not found"
+    return match.group(1)
+
+
+def test_all_is_the_default_dispatch_and_drains_after_refining():
+    """One trigger: stage=all refines everything un-aligned, then drains the backlog."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert re.search(r"default: all\s+options: \[all, refine, implement, ship\]", text)
+    refine = _job("refine")
+    assert "inputs.stage == 'all'" in refine
+    drain = refine[refine.index("name: Drain") :]
+    assert "stage=implement" in drain, "stage=all must dispatch the implement drain"
+
+
+def test_closing_a_decision_issue_re_refines_its_parent():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "types: [opened, labeled, closed]" in text
+    refine = _job("refine")
+    assert "github.event.action == 'closed'" in refine
+    assert "contains(github.event.issue.labels.*.name, 'human:decision')" in refine
+    assert "Parent" in refine, "the parent is read from the decision issue body"

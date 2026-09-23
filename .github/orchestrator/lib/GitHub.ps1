@@ -421,7 +421,10 @@ $($Question.text)
 $recommendation
 
 **Why this needs a human**
-The self-grill subagent could not resolve this branch from the codebase alone — it requires user judgement (taste, policy, deadline, or strategic trade-off). Once resolved, paste the decision into the parent issue's ``decided_questions[]`` and re-run refine.
+The self-grill subagent could not resolve this branch from the codebase alone — it requires user judgement (taste, policy, deadline, or strategic trade-off).
+
+**How to answer**
+Comment with your decision, then close this issue. Closing without a comment accepts the recommendation above. Your latest comment is recorded in #$ParentNumber's ``decided_questions[]``, and #$ParentNumber is re-refined automatically once its last open question is closed.
 
 **Parent**: #$ParentNumber
 "@
@@ -773,6 +776,9 @@ function Move-ToLane {
         return
     }
     $itemId    = Get-ProjectItemId -IssueNumber $IssueNumber
+    if (-not $itemId -and (Add-IssueToBoard -IssueNumber $IssueNumber)) {
+        $itemId = Get-ProjectItemId -IssueNumber $IssueNumber
+    }
     $projectId = Get-ProjectId
     if (-not $itemId -or -not $projectId) {
         Write-Log "  Could not resolve project item for issue #$IssueNumber — skipping lane move." -Color Yellow
@@ -804,6 +810,39 @@ function Move-ToLane {
             if ($cached) { $cached.status = $LaneName }
         }
     }
+}
+
+# An issue opened in the GitHub UI or through the API never went through
+# `task sync`, so it is not on the board: every lane move would skip it and refine
+# could not set its estimate. Add it once, and record it in the item cache so the
+# same pass sees it (with empty estimate/priority, which refine then fills in).
+function Add-IssueToBoard {
+    param([int]$IssueNumber)
+    if (Get-ProjectItemId -IssueNumber $IssueNumber) { return $true }
+    # Board unreadable (not configured, or item-list failed) — nothing to add to.
+    if ($KanbanProjectNumber -le 0 -or $null -eq $script:_CachedItems) { return $false }
+    $owner = Get-ResolvedOwner
+    if (-not $owner) { return $false }
+
+    $url = "https://github.com/$KanbanRepo/issues/$IssueNumber"
+    $out = Invoke-GhProjectRetry -Description 'gh project item-add' -Block {
+        gh project item-add $KanbanProjectNumber --owner $owner --url $url --format json 2>&1 | Out-String
+    }
+    $itemId = $null
+    if ($LASTEXITCODE -eq 0) { try { $itemId = ($out.Trim() | ConvertFrom-Json).id } catch {} }
+    if (-not $itemId) {
+        Write-Log "  ⚠️ Could not add issue #$IssueNumber to the project board: $($out.Trim())" -Color Yellow
+        return $false
+    }
+    $script:_CachedItems = @($script:_CachedItems) + [pscustomobject]@{
+        id       = $itemId
+        content  = [pscustomobject]@{ number = $IssueNumber; repository = $KanbanRepo }
+        status   = $null
+        estimate = $null
+        priority = $null
+    }
+    Write-Log "  Issue #$IssueNumber added to the project board." -Color DarkGray
+    return $true
 }
 
 # ── Project field helpers ─────────────────────────────────────────────────────
