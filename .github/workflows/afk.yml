@@ -3,19 +3,21 @@ name: AFK
 # AFK pipeline: Refine → Architect → Plan → Implement → Review → Ship.
 # Requires secrets: GH_TOKEN (classic PAT, project scope), CLAUDE_CODE_OAUTH_TOKEN.
 #
-# The issue is the interface. Every trigger is an issue event; the dispatch inputs
-# are for backfill and manual overrides.
+# The issue is the interface. Every trigger is an issue event — or the owner's merge of
+# a held PR; the dispatch inputs are for backfill and manual overrides.
 #
 #   issue opened                                → refine (refine → architect → plan)
 #   agent:backlog label added                   → implement → review → ship
 #   comment by the owner or a collaborator      → refine: judge the reply against the open
 #     (not a 🤖/· pipeline comment)                questions, or refine an un-refined issue;
 #                                                  on an agent:failed issue → retry that stage
-#   agent:reviewing label                       → ship job (resilient handoff for review→ship)
+#   the owner merges or closes a held PR        → merged: agent:shipped + CONTEXT.md update;
+#     (human:approval)                             closed: agent:failed, your comment retries
 #   hourly schedule                             → resume agent:paused issues once the Claude
 #                                                  usage limit has reset (max 5 h pause)
 #   workflow_dispatch stage=refine, issue 0     → refine every issue with no agent:* label
-#   workflow_dispatch stage=implement / ship    → manual override for one issue
+#   workflow_dispatch stage=implement / ship    → manual override for one issue (ship: your
+#                                                  dispatch is the approval)
 #
 # Queue behaviour:
 #   implement runs one at a time (concurrency group). A pending run can be replaced by
@@ -27,6 +29,8 @@ on:
     types: [opened, labeled]
   issue_comment:
     types: [created]
+  pull_request:
+    types: [closed]
   schedule:
     - cron: '17 * * * *'
   workflow_dispatch:
@@ -48,8 +52,27 @@ permissions:
   issues: write
   pull-requests: write
 
+# Shared by every job: credentials, the default branch, and the board's field and
+# option IDs (repository variables written by `task setup`).
 env:
   GH_TOKEN: ${{ secrets.GH_TOKEN }}
+  CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+  GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+  KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
+  KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
+  KANBAN_PROJECT_ID: ${{ vars.KANBAN_PROJECT_ID }}
+  KANBAN_STATUS_FIELD_ID: ${{ vars.KANBAN_STATUS_FIELD_ID }}
+  KANBAN_OPT_BACKLOG: ${{ vars.KANBAN_OPT_BACKLOG }}
+  KANBAN_OPT_IMPLEMENTING: ${{ vars.KANBAN_OPT_IMPLEMENTING }}
+  KANBAN_OPT_REVIEW: ${{ vars.KANBAN_OPT_REVIEW }}
+  KANBAN_OPT_MERGED: ${{ vars.KANBAN_OPT_MERGED }}
+  KANBAN_ESTIMATE_FIELD_ID: ${{ vars.KANBAN_ESTIMATE_FIELD_ID }}
+  KANBAN_PRIORITY_FIELD_ID: ${{ vars.KANBAN_PRIORITY_FIELD_ID }}
+  KANBAN_PRIORITY_OPT_P0: ${{ vars.KANBAN_PRIORITY_OPT_P0 }}
+  KANBAN_PRIORITY_OPT_P1: ${{ vars.KANBAN_PRIORITY_OPT_P1 }}
+  KANBAN_PRIORITY_OPT_P2: ${{ vars.KANBAN_PRIORITY_OPT_P2 }}
+  KANBAN_PRIORITY_OPT_P3: ${{ vars.KANBAN_PRIORITY_OPT_P3 }}
+  KANBAN_PRIORITY_OPT_P4: ${{ vars.KANBAN_PRIORITY_OPT_P4 }}
   # Pinned, not read from vars.KANBAN_ENGINE: the runners below install only the
   # Claude CLI (headless Gemini was dropped — Gemini is HITL-only). The repository
   # variable still selects the engine for local `task hitl` runs; reading it here
@@ -80,24 +103,6 @@ jobs:
       group: refine-${{ github.event.issue.number || inputs.issue_number }}
       cancel-in-progress: false
     env:
-      GH_TOKEN: ${{ secrets.GH_TOKEN }}
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
-      KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
-      KANBAN_PROJECT_ID: ${{ vars.KANBAN_PROJECT_ID }}
-      KANBAN_STATUS_FIELD_ID: ${{ vars.KANBAN_STATUS_FIELD_ID }}
-      KANBAN_OPT_BACKLOG: ${{ vars.KANBAN_OPT_BACKLOG }}
-      KANBAN_OPT_IMPLEMENTING: ${{ vars.KANBAN_OPT_IMPLEMENTING }}
-      KANBAN_OPT_REVIEW: ${{ vars.KANBAN_OPT_REVIEW }}
-      KANBAN_OPT_MERGED: ${{ vars.KANBAN_OPT_MERGED }}
-      KANBAN_ESTIMATE_FIELD_ID: ${{ vars.KANBAN_ESTIMATE_FIELD_ID }}
-      KANBAN_PRIORITY_FIELD_ID: ${{ vars.KANBAN_PRIORITY_FIELD_ID }}
-      KANBAN_PRIORITY_OPT_P0: ${{ vars.KANBAN_PRIORITY_OPT_P0 }}
-      KANBAN_PRIORITY_OPT_P1: ${{ vars.KANBAN_PRIORITY_OPT_P1 }}
-      KANBAN_PRIORITY_OPT_P2: ${{ vars.KANBAN_PRIORITY_OPT_P2 }}
-      KANBAN_PRIORITY_OPT_P3: ${{ vars.KANBAN_PRIORITY_OPT_P3 }}
-      KANBAN_PRIORITY_OPT_P4: ${{ vars.KANBAN_PRIORITY_OPT_P4 }}
       KANBAN_ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
       ISSUE_LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
     steps:
@@ -146,24 +151,6 @@ jobs:
       group: implement-pipeline
       cancel-in-progress: false
     env:
-      GH_TOKEN: ${{ secrets.GH_TOKEN }}
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
-      KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
-      KANBAN_PROJECT_ID: ${{ vars.KANBAN_PROJECT_ID }}
-      KANBAN_STATUS_FIELD_ID: ${{ vars.KANBAN_STATUS_FIELD_ID }}
-      KANBAN_OPT_BACKLOG: ${{ vars.KANBAN_OPT_BACKLOG }}
-      KANBAN_OPT_IMPLEMENTING: ${{ vars.KANBAN_OPT_IMPLEMENTING }}
-      KANBAN_OPT_REVIEW: ${{ vars.KANBAN_OPT_REVIEW }}
-      KANBAN_OPT_MERGED: ${{ vars.KANBAN_OPT_MERGED }}
-      KANBAN_ESTIMATE_FIELD_ID: ${{ vars.KANBAN_ESTIMATE_FIELD_ID }}
-      KANBAN_PRIORITY_FIELD_ID: ${{ vars.KANBAN_PRIORITY_FIELD_ID }}
-      KANBAN_PRIORITY_OPT_P0: ${{ vars.KANBAN_PRIORITY_OPT_P0 }}
-      KANBAN_PRIORITY_OPT_P1: ${{ vars.KANBAN_PRIORITY_OPT_P1 }}
-      KANBAN_PRIORITY_OPT_P2: ${{ vars.KANBAN_PRIORITY_OPT_P2 }}
-      KANBAN_PRIORITY_OPT_P3: ${{ vars.KANBAN_PRIORITY_OPT_P3 }}
-      KANBAN_PRIORITY_OPT_P4: ${{ vars.KANBAN_PRIORITY_OPT_P4 }}
       TRIGGERED_ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -213,7 +200,6 @@ jobs:
         shell: pwsh
         env:
           KANBAN_ISSUE: ${{ steps.resolve.outputs.issue_number }}
-          KANBAN_MAX_RETRIES: '3'
         run: |
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           $ctx = Get-OrchestratorContext
@@ -253,66 +239,93 @@ jobs:
             Write-Output "Backlog fully drained."
           }
 
-  # ── Ship (approved PR) — reuses the Kanban library's Invoke-Ship ────────────
+  # ── Ship (manual) — merge one issue's PR ─────────────────────────────────────
+  # The conductor ships in-process after review approves; this is the owner's manual
+  # override, so dispatching it is the approval. The governance hold still applies.
   ship:
-    name: Ship approved PR and update CONTEXT.md
-    if: >-
-      (github.event_name == 'issues' && github.event.action == 'labeled' &&
-       github.event.label.name == 'agent:reviewing') ||
-      (github.event_name == 'workflow_dispatch' &&
-       inputs.stage == 'ship')
+    name: Ship an issue's PR
+    if: github.event_name == 'workflow_dispatch' && inputs.stage == 'ship'
     runs-on: ubuntu-latest
     concurrency:
       group: implement-pipeline
       cancel-in-progress: false
     env:
-      GH_TOKEN: ${{ secrets.GH_TOKEN }}
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
-      KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
-      KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
-      KANBAN_PROJECT_ID: ${{ vars.KANBAN_PROJECT_ID }}
-      KANBAN_STATUS_FIELD_ID: ${{ vars.KANBAN_STATUS_FIELD_ID }}
-      KANBAN_OPT_BACKLOG: ${{ vars.KANBAN_OPT_BACKLOG }}
-      KANBAN_OPT_IMPLEMENTING: ${{ vars.KANBAN_OPT_IMPLEMENTING }}
-      KANBAN_OPT_REVIEW: ${{ vars.KANBAN_OPT_REVIEW }}
-      KANBAN_OPT_MERGED: ${{ vars.KANBAN_OPT_MERGED }}
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           token: ${{ secrets.GH_TOKEN }}
 
-      - name: Tooling (git identity + Claude/Gemini for the CONTEXT.md update)
+      - name: Install tooling
         shell: bash
         run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          sudo npm install -g @anthropic-ai/claude-code
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-            sudo npm install -g @anthropic-ai/claude-code
-          fi
-          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] ; then
-            echo "::notice::CLAUDE_CODE_OAUTH_TOKEN not set — engines not installed; post-merge CONTEXT.md update will be skipped."
-          fi
 
-      - name: Ship approved PR via the Kanban library
+      - name: Ship
         shell: pwsh
         run: |
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           $issue = [int]$env:ISSUE_NUMBER
-          if ($issue -le 0) { throw "ISSUE_NUMBER did not resolve to a positive issue." }
-
-          $merged = gh api "repos/$env:GITHUB_REPOSITORY/issues/$issue/labels" `
-            --jq 'any(.[]; .name == "agent:shipped")' 2>$null
-          if ($merged -eq 'true') {
-            Write-Host "Issue #$issue already shipped by the pipeline — skipping."
-            exit 0
-          }
-
+          if ($issue -le 0) { throw "stage=ship needs an issue number." }
           git fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
-          $pr = Resolve-PR -IssueNumber $issue
-          Invoke-Ship -IssueNumber $issue -PRNumber $pr
+          $null = Invoke-Ship -IssueNumber $issue -PRNumber (Resolve-PR -IssueNumber $issue)
+
+  # ── Held PR closed — the owner merged it, or closed it to ask for changes ────
+  held-pr-closed:
+    name: Finish a held issue
+    # Only the pipeline's own branches; Complete-HeldPR acts only when the issue is
+    # held (human:approval) — the pipeline completes its own merges in-process.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'feature/')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: held-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+      PR_MERGED: ${{ github.event.pull_request.merged }}
+    steps:
+      # Cheap check first: the pipeline's own merges were never held — nothing to do.
+      - name: Was the issue held?
+        id: held
+        shell: bash
+        run: |
+          issue=$(sed -nE 's#^feature/([0-9]+)-.*#\1#p' <<< "$PR_BRANCH")
+          held=false
+          if [ -n "$issue" ] && gh api "repos/$GITHUB_REPOSITORY/issues/$issue/labels" \
+               --jq '.[].name' | grep -qx 'human:approval'; then held=true; fi
+          echo "held=$held" >> "$GITHUB_OUTPUT"
+
+      # The default branch, not the PR: the CONTEXT.md update commits on top of it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.held.outputs.held == 'true'
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Install tooling
+        if: steps.held.outputs.held == 'true'
+        shell: bash
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          sudo npm install -g @anthropic-ai/claude-code
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Ship or re-open the held issue
+        if: steps.held.outputs.held == 'true'
+        shell: pwsh
+        run: |
+          Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
+          Complete-HeldPR -PRNumber ([int]$env:PR_NUMBER) -Branch $env:PR_BRANCH -Merged ($env:PR_MERGED -eq 'true')
 
   # ── Resume (hourly) — issues paused on the Claude usage limit ────────────────
   resume:
@@ -322,18 +335,6 @@ jobs:
     concurrency:
       group: resume-paused
       cancel-in-progress: false
-    env:
-      GH_TOKEN: ${{ secrets.GH_TOKEN }}
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
-      KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
-      KANBAN_PROJECT_ID: ${{ vars.KANBAN_PROJECT_ID }}
-      KANBAN_STATUS_FIELD_ID: ${{ vars.KANBAN_STATUS_FIELD_ID }}
-      KANBAN_OPT_BACKLOG: ${{ vars.KANBAN_OPT_BACKLOG }}
-      KANBAN_OPT_IMPLEMENTING: ${{ vars.KANBAN_OPT_IMPLEMENTING }}
-      KANBAN_OPT_REVIEW: ${{ vars.KANBAN_OPT_REVIEW }}
-      KANBAN_OPT_MERGED: ${{ vars.KANBAN_OPT_MERGED }}
     steps:
       # Cheap check first: most hours nothing is paused, and then nothing is installed.
       - name: Any paused issues?

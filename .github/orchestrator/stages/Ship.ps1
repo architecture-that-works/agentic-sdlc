@@ -1,34 +1,21 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Ship stage — squash-merge the PR after the CI gate + approval check.
+    Ship stage — rebase, wait for green CI, then merge or hold for the owner.
 
 .DESCRIPTION
-    Orchestrator library — loaded by Orchestrator.psm1, which calls Invoke-Ship.
-
-    Unless called with -Approved (the orchestrator's review stage already
-    approved) or -Force, confirms an approval signal exists (agent:reviewing label
-    on the issue OR a human-approved PR review). Then waits for CI to pass,
-    squash-merges, and deletes the remote branch. Updates CONTEXT.md post-merge.
+    Orchestrator library — loaded by Orchestrator.psm1. Invoke-Ship is reached only
+    after the review stage approved (the conductor) or by the owner's manual
+    dispatch (afk.yml stage=ship), so it does not re-derive approval. It rebases the
+    branch, waits for CI, and then either holds a PR that touches a governance file
+    (human:approval) or squash-merges it, deletes the branch and updates CONTEXT.md
+    (Complete-Ship). Complete-HeldPR finishes a held issue once the owner merges or
+    closes its PR (afk.yml, pull_request closed).
 #>
 
 $ErrorActionPreference = 'Stop'
 # Module-internal library — loaded by Orchestrator.psm1 (which loads Config.ps1 first).
 # Not dot-sourced individually; see ADR-013.
-
-function Test-HasApproval {
-    param([int]$IssueNumber, [int]$PRNumber)
-
-    # REST, not `gh issue view --json labels` (GraphQL) — ADR-012.
-    $labels = Get-IssueLabel -IssueNumber $IssueNumber
-    if ($labels -contains 'agent:reviewing') { return $true }
-
-    $reviews = gh pr view $PRNumber --json reviews --jq '[.reviews[] | select(.state=="APPROVED")]' |
-        ConvertFrom-Json -ErrorAction SilentlyContinue
-    if ($reviews -and $reviews.Count -gt 0) { return $true }
-
-    return $false
-}
 
 function Invoke-ContextUpdate {
     param([int]$IssueNumber)
@@ -218,6 +205,17 @@ function Invoke-RebaseOnMaster {
 
 # ── Hold announcement ─────────────────────────────────────────────────────────
 
+# The PR's changed paths that match GovernancePaths ($OrchestratorConfig).
+function Get-GovernanceFiles {
+    param([Parameter(Mandatory)][int]$PRNumber)
+    $files = @(gh pr diff $PRNumber --repo $KanbanRepo --name-only 2>$null | Where-Object { "$_".Trim() })
+    if ($LASTEXITCODE -ne 0) { return @() }
+    return @($files | Where-Object {
+        $f = "$_".Trim()
+        @($OrchestratorConfig.GovernancePaths | Where-Object { $f -like $_ }).Count -gt 0
+    })
+}
+
 function Test-HoldAnnounced {
     <#
     .SYNOPSIS
@@ -242,7 +240,7 @@ function Test-HoldAnnounced {
 }
 
 function Invoke-Ship {
-    param([int]$IssueNumber = 0, [int]$PRNumber = 0, [switch]$Force, [switch]$Approved)
+    param([int]$IssueNumber = 0, [int]$PRNumber = 0, [switch]$Force)
 
     if ($IssueNumber -eq 0) { $IssueNumber = Get-CurrentIssueNumber }
 
@@ -258,53 +256,15 @@ function Invoke-Ship {
 
     Write-Log "▶ Merge — issue #$IssueNumber / PR #$PRNumber" -Color Cyan
 
-    # ── Human-approval hold ───────────────────────────────────────────────────
-    # An issue carrying human:approval is implemented and self-reviewed autonomously
-    # but never auto-merged: it stops here at agent:reviewing so a human merges the PR
-    # deliberately. Governance files (CONTEXT.md, CODEOWNERS, SECURITY.md) land this
-    # way — the agent's own self-review cannot be the last word on the rules it will
-    # subsequently be bound by, and branch protection is not available on this
-    # repository to enforce it.
-    #
-    # This gate lives in Invoke-Ship rather than in Invoke-Orchestration on purpose:
-    # afk.yml's label-triggered `ship` job calls Invoke-Ship directly on
-    # agent:reviewing, so a gate placed only in the conductor would be bypassed by
-    # the very label this sets. -Force overrides, for a deliberate manual merge.
+    # ── Human-approval hold: already announced ────────────────────────────────
+    # The hold itself happens after CI is green (below). Once it is announced, a
+    # repeated run (e.g. a manual stage=ship) has nothing to add: the PR waits for a
+    # human merge. Keyed off the hold comment, which exists only once a pass got there.
     if (-not $Force) {
-        # REST, not `gh issue view --json labels` (GraphQL) — the 5000/hr budget is
-        # shared with the cloud runner on one PAT (ADR-012).
-        $labels = @(
-            gh api "repos/$KanbanRepo/issues/$IssueNumber/labels" --jq 'map(.name) | .[]' 2>&1 |
-                Out-String | ForEach-Object { $_.Trim() -split '\r?\n' } | Where-Object { $_ }
-        )
-        if ($labels -contains 'human:approval') {
-            # Re-entry: setting agent:reviewing fires an `issues: labeled` event, which
-            # triggers afk.yml's ship job, which calls straight back into this function.
-            # Keying that off the label would be wrong — the review stage sets
-            # agent:reviewing before Invoke-Ship ever runs, so the label is ALWAYS
-            # present on the first pass and the notification would never be posted.
-            # Key off the hold comment itself instead: it exists only if a previous
-            # pass got far enough to post it.
-            if (Test-HoldAnnounced -IssueNumber $IssueNumber) {
-                Write-Log "⏸ Issue #$IssueNumber already held at agent:reviewing — nothing to do." -Color DarkGray
-                return $false
-            }
-            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:reviewing'
-            Add-Comment -Number $IssueNumber -Body "🤖⏸ Held for human approval`n`nPR #$PRNumber is implemented and self-reviewed, but this issue is labelled ``human:approval`` — it is not auto-merged. Review the diff and merge PR #$PRNumber yourself, or re-run ship with ``-Force`` to override."
-            Write-Log "⏸ Issue #$IssueNumber requires human approval — held at agent:reviewing. PR #$PRNumber awaits human merge." -Color Yellow
+        $labels = @(Get-IssueLabel -IssueNumber $IssueNumber)
+        if ($labels -contains 'human:approval' -and (Test-HoldAnnounced -IssueNumber $IssueNumber)) {
+            Write-Log "⏸ Issue #$IssueNumber already held for human approval — nothing to do." -Color DarkGray
             return $false
-        }
-    }
-
-    # The orchestrator passes -Approved after its own review stage approves
-    # (run.ps1 "merges on first approval"); only re-derive approval from GitHub
-    # state for standalone/manual merges that did not go through that review.
-    if (-not $Force -and -not $Approved) {
-        $approved = Test-HasApproval -IssueNumber $IssueNumber -PRNumber $PRNumber
-        if (-not $approved) {
-            Write-Log "⛔ No approval found for PR #$PRNumber." -Color Red
-            Write-Log "   Approval required: run 'task hitl ISSUE=$IssueNumber' to drive the full pipeline, or pass -Force to bypass." -Color Yellow
-            exit 1
         }
     }
 
@@ -399,33 +359,88 @@ function Invoke-Ship {
         throw "CI did not complete within ${CICompletionTimeoutSec}s for PR #$PRNumber."
     }
 
-    # --squash to match the docstring, the afk.yml merge job, and the
-    # repo convention (one squashed commit per issue). Previously --merge, which
-    # silently diverged AFK merges (merge commits) from label-triggered squashes.
+    # ── Human-approval hold ───────────────────────────────────────────────────
+    # Decided here, from the actual diff, once CI is green: a PR that touches a
+    # governance file (GovernancePaths) is held for the owner to merge, and the issue
+    # is labelled human:approval — a state the pipeline sets, like human:decision.
+    # The owner can also add the label by hand to hold any issue. The gate lives in
+    # Invoke-Ship, not the conductor, because a manual stage=ship calls Invoke-Ship
+    # directly. -Force overrides, for a deliberate merge from a local session.
+    if (-not $Force) {
+        $governance = @(Get-GovernanceFiles -PRNumber $PRNumber)
+        $manual     = @(Get-IssueLabel -IssueNumber $IssueNumber) -contains 'human:approval'
+        if ($governance.Count -gt 0 -or $manual) {
+            Set-IssueLabel -Number $IssueNumber -Add 'human:approval'
+            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:reviewing'
+            $why = if ($governance.Count -gt 0) {
+                "it changes governance files, which a human merges:`n" + (($governance | ForEach-Object { "- ``$_``" }) -join "`n")
+            } else { 'this issue is labelled ``human:approval``.' }
+            Add-Comment -Number $IssueNumber -Body ("🤖⏸ Held for human approval`n`nPR #$PRNumber is green and self-reviewed, but " +
+                "$why`n`nReview and merge PR #$PRNumber. To change it instead, close the PR and comment on this issue with what should change.")
+            Write-Log "⏸ Issue #$IssueNumber held for human approval — PR #$PRNumber awaits a human merge." -Color Yellow
+            return $false
+        }
+    }
+
+    # A -Force merge can carry the label; drop it first so the PR's closed event does
+    # not complete the issue a second time (Complete-HeldPR).
+    if ($Force) { Set-IssueLabel -Number $IssueNumber -Remove 'human:approval' }
     gh pr merge $PRNumber --squash --delete-branch 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "gh pr merge failed for PR #$PRNumber" }
 
-    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:shipped'
-    Add-Comment -Number $IssueNumber -Body "🤖✅ Merged`n`nPR #$PRNumber squash-merged. Issue closed."
+    Complete-Ship -IssueNumber $IssueNumber -PRNumber $PRNumber -How 'squash-merged'
+    return $true
+}
 
-    # From here the merge has already happened, so every exit returns $true — the
-    # CONTEXT.md update is best-effort and its failure must not read as "not merged".
+# ── After the merge ───────────────────────────────────────────────────────────
+# Shared by the pipeline's own merge and the owner's merge of a held PR: the issue
+# reaches agent:shipped and CONTEXT.md learns what changed. The merge has already
+# happened, so the CONTEXT.md update is best-effort.
+function Complete-Ship {
+    param([int]$IssueNumber, [int]$PRNumber, [string]$How)
+
+    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:shipped'
+    Add-Comment -Number $IssueNumber -Body "🤖✅ Merged`n`nPR #$PRNumber $How. Issue closed."
+
     $default = $KanbanDefaultBranch
     git checkout --quiet $default
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Could not switch to $default after merge — context update skipped." -Color Yellow
-        return $true
+        return
     }
     git fetch --quiet origin $default 2>$null
     git reset --hard --quiet "origin/$default" 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Could not sync $default with origin — context update skipped." -Color Yellow
-        return $true
+        return
     }
 
     Invoke-ContextUpdate -IssueNumber $IssueNumber
-
     Write-Log "✅ Merged PR #$PRNumber — issue #$IssueNumber complete." -Color Green
-    return $true
 }
 
+# The owner merged or closed a PR that ship held for approval (afk.yml, on the PR's
+# closed event). Merged: the issue ships as if the pipeline had merged it. Closed
+# unmerged: the issue lands on agent:failed at review, so the owner's comment saying
+# what should change starts the next attempt (retry.ps1). A PR that was never held
+# is left alone — the pipeline completes its own merges in Invoke-Ship.
+function Complete-HeldPR {
+    param([int]$PRNumber, [string]$Branch, [bool]$Merged)
+
+    if ($Branch -notmatch '^feature/(\d+)-') { return }
+    $issue = [int]$Matches[1]
+    if (@(Get-IssueLabel -IssueNumber $issue) -notcontains 'human:approval') {
+        Write-Log "PR #$PRNumber closed; issue #$issue was not held — nothing to do." -Color DarkGray
+        return
+    }
+
+    Set-IssueLabel -Number $issue -Remove 'human:approval'
+    if ($Merged) {
+        Complete-Ship -IssueNumber $issue -PRNumber $PRNumber -How 'merged by you'
+        return
+    }
+    Set-AgentFailedState -IssueNumber $issue -FailedAt 'review' -Reason "The owner closed PR #$PRNumber without merging it."
+    Add-Comment -Number $issue -Body ("🤖⏸ PR #$PRNumber closed without merging`n`n" +
+        'Comment on this issue with what should change; the next attempt starts from your comment.')
+    Write-Log "⏸ Issue #$issue — PR #$PRNumber closed unmerged; waiting on the owner's comment." -Color Yellow
+}

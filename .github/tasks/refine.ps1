@@ -6,7 +6,7 @@
 
 .DESCRIPTION
     The Backlog-gate counterpart to `task hitl` / `task afk`. Imports the
-    Kanban module and calls Invoke-Alignment, which structures the issue body,
+    Orchestrator module and calls Invoke-Orchestration -From refine, which structures the issue body,
     writes the architectural impact and an implementation plan INTO the issue
     (ADR-014 — no .planning/), and labels agent:backlog only when the readiness
     gate clears (refined + architected + planned + zero open questions).

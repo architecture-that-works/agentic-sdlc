@@ -4,7 +4,7 @@
 
     Labels and agent:* state transitions, issue comments, feature branches, the
     Projects v2 board (items, lanes, fields), and the issue-body carriers: the
-    AGENT-STATE planning JSON / 4-lane FSM (ADR-011), the AGENT-BRIEF section, and
+    AGENT-STATE planning JSON (ADR-011), the AGENT-BRIEF section, and
     HITL child issues. Label reads/writes use REST (issues/{n}/labels); board ops
     are GraphQL-only (no REST API) and cache the item list per process (ADR-012).
     Loaded after Config.ps1 + Util.ps1.
@@ -80,28 +80,6 @@ $KanbanDecisionsEndMarker   = '<!-- DECISIONS:END -->'
 $KanbanAttemptsBeginMarker = '<!-- ATTEMPTS:BEGIN -->'
 $KanbanAttemptsEndMarker   = '<!-- ATTEMPTS:END -->'
 
-# 4-lane FSM. agent:failed returns the issue to the 'backlog' lane — it is an
-# in-Backlog label, not a separate lane.
-$KanbanAllowedTransitions = @{
-    'backlog'      = @('implementing')
-    'implementing' = @('review', 'backlog')
-    'review'       = @('merged', 'implementing', 'backlog')
-    'merged'       = @()
-}
-
-function Get-LaneFromLabel {
-    param([string]$Label)
-    switch ($Label) {
-        'agent:backlog'      { 'backlog'      }
-        'agent:implementing' { 'implementing' }
-        'agent:reviewing'    { 'review'       }
-        'agent:shipped'      { 'shipped'      }
-        'agent:failed'       { 'backlog'      }
-        'agent:paused'       { 'backlog'      }
-        default              { ''             }
-    }
-}
-
 function Get-IssueState {
     param([int]$IssueNumber)
 
@@ -169,20 +147,6 @@ function Set-PlanningState {
     } finally {
         Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
     }
-}
-
-function Test-StateTransition {
-    param(
-        [Parameter(Mandatory)][string]$From,
-        [Parameter(Mandatory)][string]$To
-    )
-    if (-not $KanbanAllowedTransitions.ContainsKey($From)) {
-        throw "Unknown source lane '$From'. Must be one of: $($KanbanAllowedTransitions.Keys -join ', ')"
-    }
-    if ($KanbanAllowedTransitions[$From] -notcontains $To) {
-        throw "Illegal transition '$From' → '$To'. Allowed targets from '$From': $($KanbanAllowedTransitions[$From] -join ', ')"
-    }
-    return $true
 }
 
 function Test-Readiness {

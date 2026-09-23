@@ -7,8 +7,8 @@
     Reads KANBAN_PROJECT_NUMBER and KANBAN_PROJECT_OWNER from .env, queries the
     GitHub Project for the Status field and all its option IDs, then:
       1. Writes the discovered IDs back to .env for local use.
-      2. Sets matching GitHub Actions repository variables for orchestrator.yml (the
-         Kanban library's Move-ToLane reads them via env to move board lanes).
+      2. Sets matching GitHub Actions repository variables for afk.yml (the
+         Orchestrator library's Move-ToLane reads them via env to move board lanes).
 
     Run once after creating the GitHub Project and setting KANBAN_PROJECT_NUMBER
     and KANBAN_PROJECT_OWNER in .env.
@@ -19,7 +19,7 @@
 
 $ErrorActionPreference = 'Stop'
 
-# tasks/ is three levels below the repo root (.github/scripts/tasks/).
+# tasks/ is two levels below the repo root (.github/tasks/).
 $_Root    = "$PSScriptRoot\..\.."
 $_EnvPath = "$_Root\.env"
 
@@ -302,7 +302,7 @@ if ($LASTEXITCODE -ne 0 -or -not $_LabelRepo) {
         @{ Name = 'agent:failed';       Color = 'd73a4a'; Description = 'A stage errored unrecoverably — see failed_at in the issue body' }
         @{ Name = 'agent:paused';       Color = 'fbca04'; Description = 'Paused on the Claude usage limit — resumes automatically (max 5 h)' }
         # human:* — a human holds the ball; nothing advances until they act (ADR-015).
-        @{ Name = 'human:approval';     Color = 'd4c5f9'; Description = 'Implemented and self-reviewed — a human must merge the PR' }
+        @{ Name = 'human:approval';     Color = 'd4c5f9'; Description = 'Green PR waiting for your merge — set when a change touches governance files' }
         @{ Name = 'human:decision';     Color = 'd4c5f9'; Description = 'Waiting on your answers — reply to the questions in a comment' }
     )
     foreach ($lbl in $BaseLabels) {

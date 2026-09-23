@@ -38,6 +38,9 @@
         # Hourly resume of issues paused on the engine's usage limit (afk.yml)
         'Resume-PausedIssues'
 
+        # The owner merged or closed a PR held for approval (afk.yml)
+        'Complete-HeldPR'
+
         # Carrier read + label primitive — task retry resumes from failed_at
         'Get-IssueState'
         'Set-IssueLabel'

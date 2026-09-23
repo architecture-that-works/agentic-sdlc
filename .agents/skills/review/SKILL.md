@@ -41,7 +41,7 @@ review sessions (BLOCK finding resolved, clean approval, escalation after 3 iter
 
 - Review report with severity-tagged findings (BLOCK / WARN / INFO)
 - Auto-fix commits in an isolated worktree (for each BLOCK/WARN resolved)
-- Escalation comment + `human:approval` (for findings not resolved after 3 iterations)
+- Escalation comment when findings are not resolved after 3 iterations (in the pipeline: the issue lands on `agent:failed`)
 - Confirmed clean PR ready for `ship`
 
 ## Core Pattern
@@ -81,11 +81,11 @@ gh pr comment <number> --body "## Review Escalation
 **Iterations attempted:** 3
 **Status:** UNRESOLVED — merge blocked
 
-**Action required:** Human review needed before this PR can proceed.
-Label: human:approval"
-
-gh issue edit <issue-number> --add-label "human:approval"
+**Action required:** Human review needed before this PR can proceed."
 ```
+
+In the pipeline, a rejection counts as one attempt; after `KANBAN_MAX_RETRIES` the issue
+lands on `agent:failed` with every attempt listed in the issue — no label is set by hand.
 
 Do not attempt a 4th iteration. Do not merge. Surface to human and stop.
 
@@ -107,7 +107,7 @@ If a finding maps to a principle from `CONTEXT.md` or a constraint established i
 | BLOCK | Merge prohibited | Fix via loop, or escalate to a human |
 | WARN | Must address or waive | Fix, or explicit waiver comment in PR |
 | INFO | No gate | Noted, tracked for future |
-| Loop limit reached | Merge prohibited | `human:approval` + comment, human takes over |
+| Loop limit reached | Merge prohibited | Escalation comment; the pipeline sets `agent:failed`, human takes over |
 
 **Context sensitivity:** Low for individual commit reviews. High for the fix loop — each fix iteration should start from a compact context to avoid compounding drift.
 

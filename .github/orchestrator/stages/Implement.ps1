@@ -4,8 +4,8 @@
     Implementing lane -- Develop -> PR.
 
 .DESCRIPTION
-    Kanban library -- loaded by Kanban.psm1; Invoke-Implement is called by
-    Orchestrator.ps1 for an issue in the Implementing lane.
+    Orchestrator library -- loaded by Orchestrator.psm1; Invoke-Implement is called by
+    Orchestrator.psm1 for an issue in the Implementing lane.
 
     Refine, Architect and Plan are NOT run here -- they are the pre-backlog
     alignment gate (Refine.ps1) that already granted agent:backlog. By the time an
@@ -22,7 +22,7 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-# Module-internal library -- loaded by Kanban.psm1, which loads Config.ps1 and
+# Module-internal library -- loaded by Orchestrator.psm1, which loads Config.ps1 and
 # GitHub.ps1 before this file. See ADR-013.
 # ── Phase 1: Develop ──────────────────────────────────────────────────────────
 
@@ -240,7 +240,7 @@ function Invoke-CommitAndPR {
     # implement-time rebase (see Invoke-Implement) both leave HEAD unable to
     # fast-forward, which is what rejected issue #154's push outright. The lease still
     # refuses to overwrite commits this clone has not seen, so it is not a blind
-    # --force; Merge.ps1 has used the same guard on its post-rebase push all along.
+    # --force; Ship.ps1 has used the same guard on its post-rebase push all along.
     # A brand-new branch has no remote-tracking ref for a lease to compare against,
     # so it takes the plain push.
     if (Test-RemoteBranch -Branch $Branch) {
@@ -316,7 +316,7 @@ function Invoke-Implement {
     }
 
     # Reconcile with the default branch BEFORE writing code, not only at merge time.
-    # Invoke-Ship rebases too (Merge.ps1), but by then the agent has finished and a
+    # Invoke-Ship rebases too (Ship.ps1), but by then the agent has finished and a
     # conflict lands on a human — PR #175 sat seven weeks and acquired a pyproject.toml
     # conflict that had to be resolved by hand. Rebasing here means drift surfaces
     # while the agent is still in the loop, and the implementation is written against

@@ -103,9 +103,7 @@ function Format-ErrorBlock {
     return "``````text`n$($Raw.Trim())`n``````"
 }
 
-# ── Engine Readiness Validation ───────────────────────────────────────────────
-
-# ── Usage limit: a pause, not a failure ──────────────────────────────────────
+# ── Engine readiness and the usage limit ─────────────────────────────────────
 # When the engine refuses because the subscription's usage allowance is spent, the
 # work is paused (agent:paused) and resumed by afk.yml's hourly resume job — never
 # counted as a failed attempt. Only a fresh probe decides that the limit is the
@@ -142,10 +140,9 @@ function Get-UsageLimitResume {
     return $until
 }
 
-# One tiny engine call. $null when the engine answers or fails for another reason
-# — including a CLI that cannot run at all, which is not a usage limit; the probe
-# must never be what breaks the caller. The UTC resume time when it reports a limit.
-function Test-EngineUsageLimit {
+# One tiny call to the configured engine: the reply text and whether it failed.
+# A CLI that cannot run at all reads as a failure, never a throw.
+function Invoke-EnginePing {
     $ctx = Get-OrchestratorContext
     try {
         $out = if ($ctx.Engine -eq 'gemini') {
@@ -153,29 +150,25 @@ function Test-EngineUsageLimit {
         } else {
             "ping" | claude --model $KanbanModel_Aux 2>&1 | Out-String
         }
+        return [pscustomobject]@{ Output = $out; Failed = ($LASTEXITCODE -ne 0) }
     } catch {
-        return $null
+        return [pscustomobject]@{ Output = "$_"; Failed = $true }
     }
-    return Get-UsageLimitResume -Text $out
 }
 
-# Throws 'USAGE-LIMIT|<iso resume time>' when the allowance is spent, so the
-# conductor can pause instead of failing; any other engine failure throws as before.
+# $null when the engine answers or fails for another reason — a CLI that cannot
+# run is not a usage limit; the UTC resume time when it reports a limit.
+function Test-EngineUsageLimit {
+    return Get-UsageLimitResume -Text (Invoke-EnginePing).Output
+}
+
+# Fails fast before any stage runs. Throws 'USAGE-LIMIT|<iso resume time>' when the
+# allowance is spent, so the conductor pauses instead of failing.
 function Assert-EngineReady {
-    $ctx = Get-OrchestratorContext
-    if ($ctx.Engine -eq 'gemini') {
-        Write-Log "  Verifying Gemini (agy) authentication..." -Color DarkGray
-        $out = "ping" | agy --model gemini-3.5-flash 2>&1 | Out-String
-        $failed = $LASTEXITCODE -ne 0
-        $resume = Get-UsageLimitResume -Text $out
-        if ($resume) { throw "USAGE-LIMIT|$($resume.ToString('o'))" }
-        if ($failed) { throw "Gemini (agy) authentication or execution failed:`n$out" }
-    } else {
-        Write-Log "  Verifying Claude authentication..." -Color DarkGray
-        $out = "ping" | claude --model claude-haiku-4-5-20251001 2>&1 | Out-String
-        $failed = $LASTEXITCODE -ne 0
-        $resume = Get-UsageLimitResume -Text $out
-        if ($resume) { throw "USAGE-LIMIT|$($resume.ToString('o'))" }
-        if ($failed) { throw "Claude Code authentication or execution failed:`n$out" }
-    }
+    $engine = (Get-OrchestratorContext).Engine
+    Write-Log "  Verifying $engine authentication..." -Color DarkGray
+    $ping   = Invoke-EnginePing
+    $resume = Get-UsageLimitResume -Text $ping.Output
+    if ($resume) { throw "USAGE-LIMIT|$($resume.ToString('o'))" }
+    if ($ping.Failed) { throw "$engine authentication or execution failed:`n$($ping.Output)" }
 }

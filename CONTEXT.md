@@ -26,7 +26,7 @@ __PROJECT_DESCRIPTION__
 | AFK | Execution mode: unattended, on GitHub Actions (`afk.yml`), driven by issue events — opened, `agent:backlog` added, owner comment. The default. `task afk` only backfills refine. | A mode, never a label |
 | HITL | Execution mode: interactive, on the local machine. Entry point `task hitl`. Has no workflow. | A mode, never a label |
 | `agent:` | Label prefix — the agent holds the ball. Exactly one `agent:` label at a time. | — |
-| `human:` | Label prefix — a human holds the ball; nothing advances until they act. `human:approval` = merge authority; `human:decision` = the issue waits on answers to the questions listed in it. | `human:approval`, not `human:review` — "review" already names the agent's own stage |
+| `human:` | Label prefix — a human holds the ball; nothing advances until they act. `human:decision` = the issue waits on answers to the questions listed in it (set by refine); `human:approval` = a green PR waits for the owner's merge (set by ship when the diff touches `GovernancePaths`, or by the owner). Labels are the pipeline's output — issues are written without them. | `human:approval`, not `human:review` — "review" already names the agent's own stage |
 | `KANBAN_*` variables | Deliberately retained — the one exception to the single-vocabulary rule. `KANBAN_ENGINE` and `KANBAN_RUNNER_PROFILE` are live GitHub repository variables; renaming them means touching repository Settings and every generated project's setup for no functional gain. Do not "fix" them. | The module is `Orchestrator`; only the variable prefix is legacy |
 | ISSUES.md | Local backlog of Agile User Story blocks, synced to GitHub Issues via `task sync` | Separate from GitHub Issues themselves |
 | Signal comment | Issue comment starting with the robot emoji; posted by the orchestrator for agent decisions and outcomes (review results, failures, CI). Retrieved by agents by that prefix to reconstruct issue history | Not orchestrator log noise |
@@ -60,7 +60,7 @@ Navigation index for agents — how to use it is the Context Protocol in `AGENTS
 | checks | `.github/checks/` | `.github/checks/` | `check-module-map.ps1`, `check-script-paths.ps1`, `check-doc-paths.ps1`, `check-module-api.ps1`, `verify-settings.ps1` — all run by `checks.yml` |
 | skills | `.agents/skills/` | `.agents/skills/` | one directory per skill, each with `SKILL.md` |
 | ADRs | `docs/adr/` | `docs/adr/` | `ADR_STRUCTURE.md` (master index) |
-| CI | `.github/workflows/` | (cross-cutting) | `checks.yml` (lint/typecheck/test/audit/guards), `afk.yml` (whole pipeline unattended; `stage` input), `build.yml`, `deploy.yml`, `branch-protection.yml` |
+| CI | `.github/workflows/` | (cross-cutting) | `checks.yml` (lint/typecheck/test/audit/guards), `afk.yml` (the pipeline, driven by issue events; hourly usage-limit resume; `stage` dispatch for overrides), `build.yml`, `deploy.yml`, `branch-protection.yml` |
 | `<domain>` | `src/<domain>/` | declared on first feature | declared on first feature |
 
 ## Issue-Type → Files Index

@@ -13,8 +13,8 @@
     Git ref to diff against. Defaults to 'origin/main'.
 
 .EXAMPLE
-    pwsh .github/scripts/check-module-map.ps1
-    pwsh .github/scripts/check-module-map.ps1 -BaseRef origin/main
+    pwsh .github/checks/check-module-map.ps1
+    pwsh .github/checks/check-module-map.ps1 -BaseRef origin/main
 #>
 
 param(

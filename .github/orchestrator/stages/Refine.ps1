@@ -1,33 +1,26 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Backlog gate -- the pre-backlog alignment that grants agent:backlog.
+    Refine stage — structure the issue, self-grill it, and ask the owner what the
+    codebase cannot answer.
 
 .DESCRIPTION
-    Kanban library -- loaded by Kanban.psm1. This file owns the Backlog lane: an
-    issue lands on the board un-aligned and only earns agent:backlog ("refined,
-    architected, planned, ready for processing") once it passes this gate.
+    Orchestrator library — loaded by Orchestrator.psm1, whose conductor runs
+    refine → architect → plan (Invoke-Orchestration -From refine) and grants
+    agent:backlog when the readiness gate clears (refined + architected + planned,
+    zero open questions).
 
-    Invoke-Alignment is the conductor (called by align.yml on issue creation and
-    by tasks/refine.ps1). It runs the three alignment steps in order, then grants
-    agent:backlog only when the readiness gate clears:
+        Invoke-Refine        structure the body, estimate and priority, self-grill:
+                             Agent Brief plus open / decided questions
+        Request-Decisions    ask the open questions in the issue (human:decision)
+        Invoke-AnswerCheck   read the owner's reply back into decided_questions
+        Invoke-Plan          the implementation plan (epics: Plan.ps1 decomposes)
 
-        Refine       Invoke-Refine        structure body, estimate, priority,
-                                           self-grill Agent Brief + open questions
-        Architect    Invoke-Architect  blast-radius impact into the body
-                                           (Architecture.ps1)
-        Plan         Invoke-Plan          implementation plan into the body
-        ── gate ──   Test-Readiness       refined + architected + planned and
-                                           zero open questions → Set-AgentState
-                                           agent:backlog
-
-    Every artefact lives IN the issue body (ADR-011/ADR-014) -- there is no
-    .planning/ directory. Processing (Implement → Review → Merge) is a separate,
-    human-triggered flow (task afk / task hitl); see Orchestrator.ps1.
+    Every artefact lives in the issue body (ADR-011, ADR-014).
 #>
 
 $ErrorActionPreference = 'Stop'
-# Module-internal library -- loaded by Kanban.psm1 (which loads Config.ps1 first).
+# Module-internal library -- loaded by Orchestrator.psm1 (which loads Config.ps1 first).
 # Not dot-sourced individually; see ADR-013.
 
 # -- Refine (Backlog toll-gate) ------------------------------------------------
@@ -168,36 +161,26 @@ Return ONLY valid JSON — no markdown fences, no explanation:
     if ($needsPriority -and $parsed -and $parsed.priority -and $parsed.priority -ne 'null')               { $changes += "priority=$($parsed.priority)" }
 
     # ── Self-grill subagent — AFK alignment phase (issue #85) ─────────────────
-    # Spawn the Grill-Me protocol against the refined body. The subagent reads
-    # the codebase, generates an Agent Brief, populates open/decided questions,
-    # and surfaces glossary diffs — see .agents/skills/refine/scripts/grill.ps1.
-    $populatedBy = 'self-grill-subagent'
-    try {
-        Write-Log "  ▶ Self-grill subagent for issue #$Number" -Color DarkGray
-        $refreshed   = gh issue view $Number --repo $KanbanRepo --json title,body | ConvertFrom-Json
-        $grillResult = Invoke-Grill -Title $refreshed.title `
-            -Body ($refreshed.body + (Format-OwnerComments -IssueNumber $Number))
+    # The subagent reads the codebase, writes the Agent Brief and splits the issue's
+    # decisions into decided and open questions. Without it nobody has checked what
+    # the owner must decide, so a failure fails this refine attempt (the conductor
+    # retries it, then marks the issue agent:failed) — it never marks the issue refined.
+    Write-Log "  ▶ Self-grill subagent for issue #$Number" -Color DarkGray
+    $refreshed   = gh issue view $Number --repo $KanbanRepo --json title,body | ConvertFrom-Json
+    $grillResult = Invoke-Grill -Title $refreshed.title `
+        -Body ($refreshed.body + (Format-OwnerComments -IssueNumber $Number))
+    if (-not $grillResult.agent_brief) { throw 'Self-grill subagent returned no Agent Brief.' }
 
-        if ($grillResult -and $grillResult.agent_brief) {
-            Set-AgentBrief -IssueNumber $Number -Brief $grillResult.agent_brief -PopulatedBy $populatedBy
-
-            $open    = @($grillResult.open_questions)
-            $decided = @($grillResult.decided_questions)
-            # Open questions stay IN this issue — the conductor renders them into the
-            # body and asks the owner in a comment; no separate decision issues.
-            Set-PlanningQuestions -IssueNumber $Number -Open $open -Decided $decided
-            $changes += "open_questions=$($open.Count)"
-        } else {
-            Write-Log "  ⚠️ Self-grill returned no agent_brief — falling back to phase-1 stub provenance." -Color Yellow
-            $populatedBy = 'refine (fallback)'
-        }
-    } catch {
-        Write-Log "  ⚠️ Self-grill subagent failed: $_" -Color Yellow
-        $populatedBy = 'refine (fallback)'
-    }
+    Set-AgentBrief -IssueNumber $Number -Brief $grillResult.agent_brief -PopulatedBy 'self-grill-subagent'
+    $open    = @($grillResult.open_questions)
+    $decided = @($grillResult.decided_questions)
+    # Open questions stay IN this issue — the conductor renders them into the body
+    # and asks the owner in a comment; no separate decision issues.
+    Set-PlanningQuestions -IssueNumber $Number -Open $open -Decided $decided
+    $changes += "open_questions=$($open.Count)"
 
     # Mark readiness.refined in the issue-carried state block (cross-runtime carrier).
-    Set-PlanningReadiness -IssueNumber $Number -Stage 'refined' -StageLabel 'refine' -PopulatedBy $populatedBy
+    Set-PlanningReadiness -IssueNumber $Number -Stage 'refined' -StageLabel 'refine' -PopulatedBy 'self-grill-subagent'
 
     Add-Comment -Number $Number -Body "· refined — $($changes -join ', ')"
     Write-Log "  Issue #$Number refined: $($changes -join ', ')" -Color Green
@@ -349,9 +332,7 @@ Return ONLY JSON, no fences:
 #     decompose it into child issues via Lean PRD synthesis (Invoke-PlanDecomposition,
 #     Plan.ps1). That path owns its own readiness/abort semantics.
 #   * ordinary issue — write an ordered implementation plan into the body and mark
-#     readiness.planned. Claude-backed; degrades to a placeholder (still setting
-#     readiness) so forks without a Claude token can still align — mirrors the
-#     self-grill fallback in Invoke-Refine.
+#     readiness.planned. A failure throws: the conductor's attempt loop retries it.
 function Invoke-Plan {
     param([int]$Number)
     Write-Log "  Plan — issue #$Number" -Color Yellow
@@ -382,22 +363,14 @@ Reference the files/modules likely to change (use the Architecture Impact sectio
 above if present). Keep it tight — 3 to 8 numbered steps, no preamble, Markdown only.
 "@
 
-    $populatedBy = 'plan (claude)'
-    $planMd      = $null
-    try {
-        $planMd = if ($KanbanEngine -eq 'gemini') {
-            Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String)
-        } else {
-            Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
-        }
-        if ($LASTEXITCODE -ne 0 -or -not $planMd.Trim()) { $planMd = $null }
-    } catch {
-        $planMd = $null
+    # No plan, no readiness: a failure fails this attempt and the conductor retries.
+    $planMd = if ($KanbanEngine -eq 'gemini') {
+        Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String)
+    } else {
+        Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
     }
-    if (-not $planMd) {
-        Write-Log "  ⚠️ Plan: Claude unavailable — writing placeholder, readiness still set." -Color Yellow
-        $planMd      = '_Implementation plan to be detailed during the Develop phase (automatic generation unavailable)._'
-        $populatedBy = 'plan (fallback)'
+    if ($LASTEXITCODE -ne 0 -or -not "$planMd".Trim()) {
+        throw "Plan: the engine returned no implementation plan (exit code $LASTEXITCODE):`n$("$planMd".Trim())"
     }
 
     $section = "## Implementation Plan`n`n$($planMd.Trim())"
@@ -405,7 +378,7 @@ above if present). Keep it tight — 3 to 8 numbered steps, no preamble, Markdow
         -BeginMarker $KanbanPlanBeginMarker -EndMarker $KanbanPlanEndMarker -Markdown $section
     if ($ok) { Write-Log "  Implementation Plan written to issue #$Number body." -Color DarkGray }
 
-    Set-PlanningReadiness -IssueNumber $Number -Stage 'planned' -StageLabel 'plan' -PopulatedBy $populatedBy
+    Set-PlanningReadiness -IssueNumber $Number -Stage 'planned' -StageLabel 'plan' -PopulatedBy "plan ($KanbanEngine)"
     Add-Comment -Number $Number -Body '· planned — implementation plan written to issue body'
     Write-Log "  Issue #$Number — readiness.planned ✓" -Color Green
 }

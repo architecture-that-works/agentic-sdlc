@@ -1,30 +1,22 @@
 #Requires -Version 7.0
 <#
-    Kanban — the AFK orchestrator library (ADR-013).
+    Orchestrator — the pipeline module (ADR-013, ADR-015).
 
-    Import-Module Orchestrator exposes the orchestration functions; the module's private
-    $Kanban* variables and any internal param() defaults stay in module scope and
-    never reach the caller, so the dot-source scope leak that once ran the pipeline
-    against issue #0 is impossible by construction.
-
-    The thin trigger scripts in ../tasks/ (run/start/runner/retry) import this
-    module and call its functions — chiefly Get-OrchestratorContext and
-    Invoke-Orchestration.
+    Import-Module exposes the functions declared in Orchestrator.psd1; the private
+    $Kanban* variables and module-internal functions stay in module scope, so the
+    dot-source scope leak that once ran the pipeline against issue #0 is impossible
+    by construction. The runnables in ../tasks/ and afk.yml import it and call
+    Get-OrchestratorContext and Invoke-Orchestration.
 
     Load order (dependencies first):
 
-        Config        settings, run context (Get-OrchestratorContext), model selection
-        Util          logging, runtime, lock, ISSUES.md reader
-        GitHub        labels, lanes, comments, board, branches, issue-body state
-        ../Claude     generic Claude helpers (Invoke-ClaudeStreaming, commit msg)
-        _grill        refine self-grill subagent (Invoke-Grill)
-        Refine        Backlog gate — Invoke-Refine + Invoke-Plan + Invoke-Alignment
-        Architecture  Backlog gate, Architect step — blast radius
-        Plan          Backlog gate, Plan decomposition — Lean PRD + child issues
-        Implement     Implementing lane — develop → PR
-        Review        Review lane — self-review loop
-        Merge         Merged lane — squash-merge → CONTEXT.md
-        Orchestrator  conducts the agent:* state machine across the lanes
+        lib/Config     settings, run context (Get-OrchestratorContext), model selection
+        lib/Util       logging, runtime, lock, ISSUES.md reader, engine ping, usage limit
+        lib/GitHub     labels, lanes, comments, board, issue-body carrier sections
+        engines/       Claude and Gemini adapters (streaming, commit messages)
+        lib/Grill      refine's self-grill subagent (Invoke-Grill)
+        stages/        Refine, Architect, Plan, Implement, Review, Ship
+        this file      Invoke-Orchestration, the conductor
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -170,15 +162,6 @@ function Invoke-Orchestration {
             Reset-AttemptCount -IssueNumber $IssueNumber
 
             $state = Get-IssueState -IssueNumber $IssueNumber
-            # Refine and plan degrade to placeholders when the model is unavailable. If
-            # that is a spent allowance, pause rather than queue an issue on a stub plan.
-            $fallback = @('refined', 'planned') | Where-Object {
-                $state -and "$($state.readiness.$_.populated_by)" -like '*fallback*'
-            }
-            if ($fallback) {
-                $until = Test-EngineUsageLimit
-                if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Stage 'refine' -Until $until; return $false }
-            }
             if (Test-Readiness -State $state) {
                 Set-DecisionSection -IssueNumber $IssueNumber -State $state
                 Set-IssueLabel -Number $IssueNumber -Remove 'human:decision'
@@ -238,7 +221,7 @@ function Invoke-Orchestration {
                 }
 
                 $currentStage = 'ship'
-                $merged = Invoke-Ship -IssueNumber $IssueNumber -PRNumber $prNum -Approved
+                $merged = Invoke-Ship -IssueNumber $IssueNumber -PRNumber $prNum
                 Reset-AttemptCount -IssueNumber $IssueNumber
 
                 # Invoke-Ship returns $false when it holds a human:approval issue at

@@ -89,6 +89,15 @@ What changes around it: open questions are asked in the issue (label `human:deci
 `## Decisions` section, multiple-choice options) instead of in child issues, and the owner's
 comment triggers the re-check. Stopping an issue is now done by closing it.
 
+**2026-09-23 (later)** — the gate never opens on a stub. Refine and plan used to degrade to
+placeholders when the model failed ("so forks without a Claude token can still align"), and
+still set their readiness flags. Live on #212 the self-grill's reply was not JSON; refine
+recorded `refine (fallback)`, found no open questions, and granted `agent:backlog` without
+asking the owner the decision the issue reserved for them. A self-grill or plan failure now
+fails the refine attempt: it is retried within `KANBAN_MAX_RETRIES` with the reason in the
+issue's Attempts section, then lands on `agent:failed`. The grill reads the CLI's JSON envelope,
+so running out of turns is reported as that rather than as unparseable output.
+
 ## Pros and Cons of the Options
 
 ### Option A — Patch the gate in place

@@ -17,7 +17,7 @@
 
 .NOTES
     The github-actions bypass allows the orchestrator's post-merge CONTEXT.md
-    direct push (orchestrator.yml) to succeed despite the PR requirement.
+    direct push (afk.yml) to succeed despite the PR requirement.
     If the bypass API call is rejected (e.g. plan limitation), branch protection
     is still applied and the CONTEXT.md push fails gracefully (non-blocking).
 

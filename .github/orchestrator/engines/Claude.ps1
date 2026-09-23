@@ -1,6 +1,6 @@
 #Requires -Version 7.0
 <#
-    Claude.ps1 — generic Claude (LLM) helpers, shared across .github/scripts.
+    Claude.ps1 — generic Claude (LLM) helpers, shared across the orchestrator.
 
     Provider-generic: streaming agentic invocation with live tool/text rendering,
     and a commit-message generator. NOT kanban-specific — callers pass -Model

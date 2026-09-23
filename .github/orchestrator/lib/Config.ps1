@@ -7,7 +7,7 @@
     models, turn budgets) with env overrides, resolves the repo slug and default
     branch WITHOUT GraphQL, and exposes Get-OrchestratorContext — the per-run object
     (issue, retries, repo, branch, runtime) hydrated from the KANBAN_* env
-    transport (ADR-013). Loaded first by Kanban.psm1.
+    transport (ADR-013). Loaded first by Orchestrator.psm1.
 #>
 
 # ── Paths + .env loader ───────────────────────────────────────────────────────
@@ -61,6 +61,15 @@ $OrchestratorConfig = @{
     MaxTurns_Review        = 30   # read-only: inspect code + signal history, no writes
     MaxTurns_ContextUpdate = 15   # diff analysis + generate a unified patch
 
+    # Governance files: a PR touching any of these is held for the owner's merge
+    # (human:approval), never auto-merged — the agent's own review cannot be the last
+    # word on the rules it is bound by. Matched with -like against the PR's paths.
+    GovernancePaths = @(
+        'AGENTS.md', 'CONTEXT.md', 'SECURITY.md', '.out-of-scope.md', '.github/CODEOWNERS',
+        '.github/workflows/*', '.github/orchestrator/*', '.github/checks/*', '.github/tasks/*',
+        'docs/adr/*', '.agents/skills/*'
+    )
+
     # Orchestrator behaviour
     MaxRetries = 3    # failed attempts per round (implement, review, CI, refine) before agent:failed
 }
@@ -105,7 +114,7 @@ if (-not $KanbanRepo) {
 }
 
 # Resolve the default branch WITHOUT a GraphQL call (ADR-012), cheapest first:
-#   1. GITHUB_DEFAULT_BRANCH env (set by orchestrator.yml from the GHA event)
+#   1. GITHUB_DEFAULT_BRANCH env (set by afk.yml from the GHA event)
 #   2. local origin/HEAD symref (written by `git clone`)
 #   3. `git ls-remote --symref` (git protocol, NOT the GraphQL API)
 #   4. `gh repo view` (last resort, one GraphQL call)
@@ -151,7 +160,7 @@ $KanbanPriorityFieldId = if ($env:KANBAN_PRIORITY_FIELD_ID) { $env:KANBAN_PRIORI
 
 # ── Run context — single source of truth for this run's key parameters ───────
 # Hydrated from environment variables: the ONLY transport stable across &-calls,
-# dot-sourcing, nested pwsh and subprocesses. Entry points (orchestrator.yml,
+# dot-sourcing, nested pwsh and subprocesses. Entry points (afk.yml,
 # hitl.ps1) set KANBAN_ISSUE / KANBAN_MAX_RETRIES; everything downstream reads
 # them via Get-OrchestratorContext rather than fragile script-scope variables, which a
 # dot-sourced param() block can silently clobber (ADR-013). Add a new per-run key
