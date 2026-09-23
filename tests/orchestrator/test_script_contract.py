@@ -144,7 +144,9 @@ def test_psscriptroot_paths_resolve_inside_the_repo() -> None:
         for rel in _PSSCRIPTROOT_PATH.findall(script.read_text(encoding="utf-8")):
             target = (script.parent / rel.replace("\\", "/").lstrip("/")).resolve()
             if not target.exists() or not target.is_relative_to(ROOT):
-                bad.append(f"{script.relative_to(ROOT)}: $PSScriptRoot{rel} -> {target}")
+                bad.append(
+                    f"{script.relative_to(ROOT)}: $PSScriptRoot{rel} -> {target}"
+                )
     assert not bad, "unresolvable $PSScriptRoot paths:\n" + "\n".join(bad)
 
 
