@@ -1,34 +1,19 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Ship stage — squash-merge the PR after the CI gate + approval check.
+    Ship stage — rebase, wait for green CI, then merge or hold for the owner.
 
 .DESCRIPTION
-    Orchestrator library — loaded by Orchestrator.psm1, which calls Invoke-Ship.
-
-    Unless called with -Approved (the orchestrator's review stage already
-    approved) or -Force, confirms an approval signal exists (agent:reviewing label
-    on the issue OR a human-approved PR review). Then waits for CI to pass,
-    squash-merges, and deletes the remote branch. Updates CONTEXT.md post-merge.
+    Orchestrator library — loaded by Orchestrator.psm1. Invoke-Ship is reached only
+    after the review stage approved (the conductor) or by the owner's manual
+    dispatch (afk.yml stage=ship), so it does not re-derive approval. It rebases the
+    branch, waits for CI, and then either holds a PR that touches a governance file
+    (human:approval) or squash-merges it, deletes the branch and updates CONTEXT.md.
 #>
 
 $ErrorActionPreference = 'Stop'
 # Module-internal library — loaded by Orchestrator.psm1 (which loads Config.ps1 first).
 # Not dot-sourced individually; see ADR-013.
-
-function Test-HasApproval {
-    param([int]$IssueNumber, [int]$PRNumber)
-
-    # REST, not `gh issue view --json labels` (GraphQL) — ADR-012.
-    $labels = Get-IssueLabel -IssueNumber $IssueNumber
-    if ($labels -contains 'agent:reviewing') { return $true }
-
-    $reviews = gh pr view $PRNumber --json reviews --jq '[.reviews[] | select(.state=="APPROVED")]' |
-        ConvertFrom-Json -ErrorAction SilentlyContinue
-    if ($reviews -and $reviews.Count -gt 0) { return $true }
-
-    return $false
-}
 
 function Invoke-ContextUpdate {
     param([int]$IssueNumber)
@@ -253,7 +238,7 @@ function Test-HoldAnnounced {
 }
 
 function Invoke-Ship {
-    param([int]$IssueNumber = 0, [int]$PRNumber = 0, [switch]$Force, [switch]$Approved)
+    param([int]$IssueNumber = 0, [int]$PRNumber = 0, [switch]$Force)
 
     if ($IssueNumber -eq 0) { $IssueNumber = Get-CurrentIssueNumber }
 
@@ -269,28 +254,15 @@ function Invoke-Ship {
 
     Write-Log "▶ Merge — issue #$IssueNumber / PR #$PRNumber" -Color Cyan
 
-    # ── Human-approval hold: re-entry ─────────────────────────────────────────
-    # The hold itself happens after CI is green (below). Setting agent:reviewing fires
-    # an `issues: labeled` event that runs afk.yml's ship job, which calls straight back
-    # in here; once the hold is announced there is nothing more to do. Keyed off the
-    # hold comment, which exists only once a pass got that far.
+    # ── Human-approval hold: already announced ────────────────────────────────
+    # The hold itself happens after CI is green (below). Once it is announced, a
+    # repeated run (e.g. a manual stage=ship) has nothing to add: the PR waits for a
+    # human merge. Keyed off the hold comment, which exists only once a pass got there.
     if (-not $Force) {
         $labels = @(Get-IssueLabel -IssueNumber $IssueNumber)
         if ($labels -contains 'human:approval' -and (Test-HoldAnnounced -IssueNumber $IssueNumber)) {
             Write-Log "⏸ Issue #$IssueNumber already held for human approval — nothing to do." -Color DarkGray
             return $false
-        }
-    }
-
-    # The orchestrator passes -Approved after its own review stage approves
-    # (run.ps1 "merges on first approval"); only re-derive approval from GitHub
-    # state for standalone/manual merges that did not go through that review.
-    if (-not $Force -and -not $Approved) {
-        $approved = Test-HasApproval -IssueNumber $IssueNumber -PRNumber $PRNumber
-        if (-not $approved) {
-            Write-Log "⛔ No approval found for PR #$PRNumber." -Color Red
-            Write-Log "   Approval required: run 'task hitl ISSUE=$IssueNumber' to drive the full pipeline, or pass -Force to bypass." -Color Yellow
-            exit 1
         }
     }
 
@@ -393,8 +365,8 @@ function Invoke-Ship {
     # governance file (GovernancePaths) is held for the owner to merge, and the issue
     # is labelled human:approval — a state the pipeline sets, like human:decision.
     # The owner can also add the label by hand to hold any issue. The gate lives in
-    # Invoke-Ship, not the conductor, because afk.yml's ship job calls Invoke-Ship
-    # directly. -Force overrides, for a deliberate manual merge.
+    # Invoke-Ship, not the conductor, because a manual stage=ship calls Invoke-Ship
+    # directly. -Force overrides, for a deliberate merge from a local session.
     if (-not $Force) {
         $governance = @(Get-GovernanceFiles -PRNumber $PRNumber)
         $manual     = @(Get-IssueLabel -IssueNumber $IssueNumber) -contains 'human:approval'

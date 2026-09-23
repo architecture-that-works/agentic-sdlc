@@ -4,7 +4,7 @@
     Backlog gate, Plan decomposition -- Lean PRD synthesis + child issues (epics).
 
 .DESCRIPTION
-    Kanban library -- loaded by Kanban.psm1. This is the heavy Plan path: when the
+    Orchestrator library -- loaded by Orchestrator.psm1. This is the heavy Plan path: when the
     Plan step (Refine.ps1 -> Invoke-Plan) sees an EPIC (estimate >= DecomposeThreshold)
     it hands off to Invoke-PlanDecomposition here, which synthesises a Lean PRD and
     fans the epic out into child issues. Ordinary issues keep the lightweight
@@ -13,7 +13,7 @@
     Plan is the third readiness stage (refine -> architect -> plan) -- NOT a kanban
     lane. Per ADR-011/ADR-014 the GitHub issue is the cross-runtime carrier:
       * Blast-radius is read FROM the issue's ARCH-IMPACT body section (written by
-        Architecture.ps1) -- there is no .planning/ directory.
+        Architect.ps1) -- there is no .planning/ directory.
       * The Lean PRD is published as a BODY SECTION of the parent issue (between
         AGENT-PRD markers) -- not as a free-floating comment.
 
@@ -27,7 +27,7 @@
          children[] array sized >= 3.
       3. PRD published into the parent issue body section (AGENT-PRD markers); a
          signal comment announces it for downstream agents and humans.
-      4. Child-issue emission -- sync-issues.ps1 block format (LABELS:/ESTIMATE:/
+      4. Child-issue emission -- tasks/sync.ps1 block format (LABELS:/ESTIMATE:/
          PRIORITY: header + Goal/Description/Requirements/Acceptance Criteria).
          children[0] is the tracer bullet; children land via `gh issue create`.
       5. Heuristic:
@@ -36,7 +36,7 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-# Module-internal library -- loaded by Kanban.psm1 (which loads Config.ps1 and
+# Module-internal library -- loaded by Orchestrator.psm1 (which loads Config.ps1 and
 # GitHub.ps1 first, so $KanbanStopWords, $KanbanRepo, $_Root, the AGENT-PRD /
 # ARCH-IMPACT markers and the issue-body helpers are all in module scope). Not
 # dot-sourced individually; carries no top-level param() block (ADR-013).
@@ -107,7 +107,7 @@ function Find-OpenIssueOverlap {
 }
 
 # ── Blast radius (read from the issue's ARCH-IMPACT body section) ────────────
-# ADR-014: the Architect step (Architecture.ps1) writes the blast-radius impact
+# ADR-014: the Architect step (Architect.ps1) writes the blast-radius impact
 # INTO the issue body between ARCH-IMPACT markers — not a free-standing comment
 # and not a .planning/ file. Read that section back so the Plan heuristic uses
 # the freshest analysis on the cross-runtime carrier.
@@ -147,11 +147,11 @@ function Get-PlanLabel {
     return 'human:decision'
 }
 
-# ── Child-issue block format (matches sync-issues.ps1 ISSUE: ... END_ISSUE) ──
+# ── Child-issue block format (matches tasks/sync.ps1 ISSUE: ... END_ISSUE) ──
 # Returns the body string for one child issue — header fields first, then the
 # Goal / Description / Requirements / Acceptance Criteria body. The block is
 # identical in shape to a hand-written ISSUES.md block so existing tooling
-# (sync-issues.ps1, the refine phase parser) handles them unchanged.
+# (tasks/sync.ps1, the refine phase parser) handles them unchanged.
 
 function Format-ChildIssue {
     param(

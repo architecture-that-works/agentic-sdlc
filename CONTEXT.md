@@ -60,7 +60,7 @@ Navigation index for agents — how to use it is the Context Protocol in `AGENTS
 | checks | `.github/checks/` | `.github/checks/` | `check-module-map.ps1`, `check-script-paths.ps1`, `check-doc-paths.ps1`, `check-module-api.ps1`, `verify-settings.ps1` — all run by `checks.yml` |
 | skills | `.agents/skills/` | `.agents/skills/` | one directory per skill, each with `SKILL.md` |
 | ADRs | `docs/adr/` | `docs/adr/` | `ADR_STRUCTURE.md` (master index) |
-| CI | `.github/workflows/` | (cross-cutting) | `checks.yml` (lint/typecheck/test/audit/guards), `afk.yml` (whole pipeline unattended; `stage` input), `build.yml`, `deploy.yml`, `branch-protection.yml` |
+| CI | `.github/workflows/` | (cross-cutting) | `checks.yml` (lint/typecheck/test/audit/guards), `afk.yml` (the pipeline, driven by issue events; hourly usage-limit resume; `stage` dispatch for overrides), `build.yml`, `deploy.yml`, `branch-protection.yml` |
 | `<domain>` | `src/<domain>/` | declared on first feature | declared on first feature |
 
 ## Issue-Type → Files Index

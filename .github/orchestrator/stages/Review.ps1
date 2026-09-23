@@ -4,7 +4,7 @@
     Review lane — agent self-review of the open PR against acceptance criteria.
 
 .DESCRIPTION
-    Kanban library — loaded by Kanban.psm1; Invoke-Review is called by Orchestrator.ps1.
+    Orchestrator library — loaded by Orchestrator.psm1; Invoke-Review is called by Orchestrator.psm1.
 
     Retrieves the PR diff and the linked issue's acceptance criteria, asks
     Claude Code to review the implementation, and posts the verdict as a
@@ -15,7 +15,7 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-# Module-internal library — loaded by Kanban.psm1 (which loads Config.ps1 first).
+# Module-internal library — loaded by Orchestrator.psm1 (which loads Config.ps1 first).
 # Not dot-sourced individually; see ADR-013.
 
 function Resolve-PR {

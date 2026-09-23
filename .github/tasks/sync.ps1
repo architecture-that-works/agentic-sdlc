@@ -1,5 +1,5 @@
 #Requires -Version 7.0
-# .github/scripts/tasks/sync-issues.ps1
+# .github/tasks/sync.ps1
 # Parses ISSUES.md ISSUE blocks → GitHub Issues + GitHub Project board.
 #
 # For each ISSUE: <title> ... END_ISSUE block below <!-- ISSUES -->:
@@ -19,7 +19,7 @@ $ErrorActionPreference = 'Stop'
 
 # ── Load .env ─────────────────────────────────────────────────────────────────
 
-# tasks/ is three levels below the repo root (.github/scripts/tasks/).
+# tasks/ is two levels below the repo root (.github/tasks/).
 $_Root    = (Resolve-Path "$PSScriptRoot\..\..").ProviderPath
 $_EnvPath = "$_Root\.env"
 
@@ -114,15 +114,14 @@ foreach ($match in $Found) {
     $Body = $Body -replace '(?m)^PRIORITY:\s*P[0-4](\r?\n|$)', ''
     $Body = $Body.TrimStart()
 
-    # Pipeline state (agent:*) is owned by the alignment gate, never by sync.
-    # Issues land un-aligned; align.yml (on issue creation) or `task refine` runs
-    # refine → architect → plan and grants agent:backlog only when ready (ADR-014).
-    # Strip any agent:* labels declared in ISSUES.md so the gate cannot be bypassed.
-    $agentLabels = @($ExtraLabels | Where-Object { $_ -like 'agent:*' })
-    if ($agentLabels.Count -gt 0) {
-        Write-Host "  ⚠️  Ignoring agent:* label(s) [$($agentLabels -join ', ')] — the alignment gate owns pipeline state." -ForegroundColor Yellow
+    # Labels are the pipeline's output: refine sets agent:* and human:decision when the
+    # issue is opened (afk.yml), so sync never applies them. Only human:approval — the
+    # owner forcing a merge hold — passes through.
+    $pipelineLabels = @($ExtraLabels | Where-Object { $_ -like 'agent:*' -or $_ -eq 'human:decision' })
+    if ($pipelineLabels.Count -gt 0) {
+        Write-Host "  ⚠️  Ignoring label(s) [$($pipelineLabels -join ', ')] — refine sets these." -ForegroundColor Yellow
     }
-    $Labels   = @($ExtraLabels | Where-Object { $_ -notlike 'agent:*' })
+    $Labels   = @($ExtraLabels | Where-Object { $_ -notlike 'agent:*' -and $_ -ne 'human:decision' })
     $LabelCsv = $Labels -join ','
 
     Write-Host ""

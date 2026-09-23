@@ -84,7 +84,7 @@ def test_governance_change_is_held_after_green_ci(tmp_path: Path) -> None:
         _SHIP
         + r"""
 $script:Diff = @('src/x.py', '.github/workflows/stale.yml')
-$r = Invoke-Ship -IssueNumber 1 -PRNumber 9 -Approved
+$r = Invoke-Ship -IssueNumber 1 -PRNumber 9
 [pscustomobject]@{ r = $r; log = @($script:Log) } | ConvertTo-Json -Compress
 """,
         tmp_path,
@@ -101,7 +101,7 @@ def test_ordinary_change_merges(tmp_path: Path) -> None:
         _SHIP
         + r"""
 $script:Diff = @('src/utils/m_version.py', 'tests/utils/test_m_version.py')
-$r = Invoke-Ship -IssueNumber 1 -PRNumber 9 -Approved
+$r = Invoke-Ship -IssueNumber 1 -PRNumber 9
 [pscustomobject]@{ r = $r; log = @($script:Log) } | ConvertTo-Json -Compress
 """,
         tmp_path,
@@ -117,7 +117,7 @@ def test_owner_label_still_forces_a_hold(tmp_path: Path) -> None:
         + r"""
 $script:Diff = @('src/x.py')
 $script:Labels = @('human:approval')
-$r = Invoke-Ship -IssueNumber 1 -PRNumber 9 -Approved
+$r = Invoke-Ship -IssueNumber 1 -PRNumber 9
 [pscustomobject]@{ r = $r; log = @($script:Log) } | ConvertTo-Json -Compress
 """,
         tmp_path,

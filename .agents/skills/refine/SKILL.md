@@ -147,8 +147,8 @@ the single cross-runtime carrier (ADR-014 retired `.planning/`).
   `2: own words`). The answer check records each decision or asks a follow-up.
 
 **Readiness lanes.** `refine`, `architect`, and `plan` are NOT kanban lanes —
-they are pre-backlog readiness flags in the same JSON state block. The 4-lane
-FSM (`backlog → implementing → review → merged`) is the only set of lanes the
+they are pre-backlog readiness flags in the same JSON state block. The four
+board lanes (Backlog, Implementing, Review, Shipped) are the only lanes the
 project board surfaces.
 
 **Standalone harness probe.** The subagent is invocable directly for one-shot

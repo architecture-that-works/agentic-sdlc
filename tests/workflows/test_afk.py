@@ -76,3 +76,13 @@ def test_no_decision_child_issues_or_close_trigger():
     assert types, "issues trigger not found"
     assert "closed" not in types.group(1)
     assert "options: [refine, implement, ship]" in text
+
+
+def test_ship_runs_only_on_the_owners_dispatch():
+    """Ship once ran on the agent:reviewing label, which review sets before it
+    approves — a cancelled or crashed run could then merge an unreviewed PR."""
+    ship = _job("ship")
+    assert (
+        "if: github.event_name == 'workflow_dispatch' && inputs.stage == 'ship'" in ship
+    )
+    assert "agent:reviewing" not in ship

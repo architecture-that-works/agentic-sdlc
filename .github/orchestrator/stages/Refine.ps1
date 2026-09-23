@@ -1,33 +1,26 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Backlog gate -- the pre-backlog alignment that grants agent:backlog.
+    Refine stage — structure the issue, self-grill it, and ask the owner what the
+    codebase cannot answer.
 
 .DESCRIPTION
-    Kanban library -- loaded by Kanban.psm1. This file owns the Backlog lane: an
-    issue lands on the board un-aligned and only earns agent:backlog ("refined,
-    architected, planned, ready for processing") once it passes this gate.
+    Orchestrator library — loaded by Orchestrator.psm1, whose conductor runs
+    refine → architect → plan (Invoke-Orchestration -From refine) and grants
+    agent:backlog when the readiness gate clears (refined + architected + planned,
+    zero open questions).
 
-    Invoke-Alignment is the conductor (called by align.yml on issue creation and
-    by tasks/refine.ps1). It runs the three alignment steps in order, then grants
-    agent:backlog only when the readiness gate clears:
+        Invoke-Refine        structure the body, estimate and priority, self-grill:
+                             Agent Brief plus open / decided questions
+        Request-Decisions    ask the open questions in the issue (human:decision)
+        Invoke-AnswerCheck   read the owner's reply back into decided_questions
+        Invoke-Plan          the implementation plan (epics: Plan.ps1 decomposes)
 
-        Refine       Invoke-Refine        structure body, estimate, priority,
-                                           self-grill Agent Brief + open questions
-        Architect    Invoke-Architect  blast-radius impact into the body
-                                           (Architecture.ps1)
-        Plan         Invoke-Plan          implementation plan into the body
-        ── gate ──   Test-Readiness       refined + architected + planned and
-                                           zero open questions → Set-AgentState
-                                           agent:backlog
-
-    Every artefact lives IN the issue body (ADR-011/ADR-014) -- there is no
-    .planning/ directory. Processing (Implement → Review → Merge) is a separate,
-    human-triggered flow (task afk / task hitl); see Orchestrator.ps1.
+    Every artefact lives in the issue body (ADR-011, ADR-014).
 #>
 
 $ErrorActionPreference = 'Stop'
-# Module-internal library -- loaded by Kanban.psm1 (which loads Config.ps1 first).
+# Module-internal library -- loaded by Orchestrator.psm1 (which loads Config.ps1 first).
 # Not dot-sourced individually; see ADR-013.
 
 # -- Refine (Backlog toll-gate) ------------------------------------------------

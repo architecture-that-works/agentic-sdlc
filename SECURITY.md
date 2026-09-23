@@ -93,8 +93,8 @@ A cancelled run can leave the issue on `agent:implementing` or `agent:reviewing`
   - `refine` — refine one issue; `0` refines every issue with no `agent:*` label.
   - `implement` — process that issue if it carries `agent:backlog`, otherwise the oldest
     `agent:backlog` issue.
-  - `ship` — merge the issue's PR. Requires an approval signal (`agent:reviewing` or an
-    approved PR review) and still honours the `human:approval` hold.
+  - `ship` — merge the issue's PR now; your dispatch is the approval. A governance change is
+    still held for you to merge by hand.
   Locally, `task hitl ISSUE=<n>` runs implement → review → ship in your terminal.
 - **Reject the agent's work.** Close the PR without merging and comment on the issue with what
   should change. The agent reads the issue body and your comments — not PR review comments.

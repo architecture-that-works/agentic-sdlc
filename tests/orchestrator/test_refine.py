@@ -397,7 +397,7 @@ function script:Reset-AttemptCount { param($IssueNumber) $script:Log.Add('reset'
 function script:gh { $global:LASTEXITCODE = 0
     if ($args[0] -eq 'pr') { '[{"number":9}]' } else { '{"title":"t","labels":[],"state":"OPEN"}' } }
 function script:Invoke-Review { param($IssueNumber, $PRNumber) $true }
-function script:Invoke-Ship   { param($IssueNumber, $PRNumber, [switch]$Approved) $script:Log.Add('ship'); $true }
+function script:Invoke-Ship   { param($IssueNumber, $PRNumber) $script:Log.Add('ship'); $true }
 $script:Calls = 0
 """
 

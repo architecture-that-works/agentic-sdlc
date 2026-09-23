@@ -1,24 +1,13 @@
 """Tests for the issue-carried orchestrator state schema.
 
-Two complementary surfaces are exercised:
-
-1. ``src/utils/m_planning.py`` — the pydantic contract for the on-issue JSON
-   block. Asserts that the model round-trips to/from JSON without data loss.
-2. ``.github/orchestrator/_common.ps1`` § Test-StateTransition — the 4-lane
-   FSM guard. Asserts every allowed transition succeeds and every disallowed
-   pair raises an error.
-
-The PowerShell surface is verified via an inline snippet that mirrors the
-allowed-transitions table from ``_common.ps1`` exactly, so the test never
-needs the live gh/Kanban environment that dot-sourcing ``_common.ps1`` would
-demand.
+``src/utils/m_planning.py`` is the pydantic contract for the AGENT-STATE JSON block
+in the issue body (ADR-011) and for the self-grill result. The tests assert that the
+models round-trip to and from JSON without data loss and enforce the readiness gate.
 """
 
 from __future__ import annotations
 
 import json
-import shutil
-import subprocess
 from datetime import UTC, datetime
 
 import pytest
@@ -35,109 +24,6 @@ from src.utils.m_planning import (
     ReadinessFlag,
     Transition,
 )
-
-# ── PowerShell test harness ───────────────────────────────────────────────────
-
-PWSH = shutil.which("pwsh") or "pwsh"
-
-pytestmark_ps = pytest.mark.skipif(
-    not shutil.which("pwsh"),
-    reason="pwsh not available",
-)
-
-# Mirrors the allowed-transitions table from .github/orchestrator/_common.ps1.
-# Keep this snippet in lock-step with the production table — both are the
-# 4-lane FSM contract and any divergence is a bug.
-_FSM_SNIPPET = """\
-$KanbanAllowedTransitions = @{
-    'backlog'      = @('implementing')
-    'implementing' = @('review', 'backlog')
-    'review'       = @('merged', 'implementing', 'backlog')
-    'merged'       = @()
-}
-
-function Test-StateTransition {
-    param([Parameter(Mandatory)][string]$From, [Parameter(Mandatory)][string]$To)
-    if (-not $KanbanAllowedTransitions.ContainsKey($From)) {
-        throw "Unknown source lane '$From'."
-    }
-    if ($KanbanAllowedTransitions[$From] -notcontains $To) {
-        throw "Illegal transition '$From' -> '$To'."
-    }
-    return $true
-}
-"""
-
-
-def _ps(script: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [PWSH, "-NoProfile", "-Command", script],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-
-ALLOWED_TRANSITIONS: list[tuple[str, str]] = [
-    ("backlog", "implementing"),
-    ("implementing", "review"),
-    ("review", "merged"),
-    ("review", "implementing"),
-    ("implementing", "backlog"),
-    ("review", "backlog"),
-]
-
-LANES: list[str] = ["backlog", "implementing", "review", "merged"]
-
-DISALLOWED_TRANSITIONS: list[tuple[str, str]] = [
-    (a, b) for a in LANES for b in LANES if (a, b) not in ALLOWED_TRANSITIONS
-]
-
-
-# ── FSM allowed-transition coverage ──────────────────────────────────────────
-
-
-@pytestmark_ps
-@pytest.mark.parametrize(("src", "dst"), ALLOWED_TRANSITIONS)
-def test_allowed_transition_succeeds(src: str, dst: str) -> None:
-    """Every allowed 4-lane transition must clear Test-StateTransition."""
-    result = _ps(
-        _FSM_SNIPPET
-        + f"if (Test-StateTransition -From '{src}' -To '{dst}') {{ exit 0 }} else {{ exit 1 }}"
-    )
-    assert result.returncode == 0, (
-        f"Allowed transition '{src}' -> '{dst}' was rejected by Test-StateTransition.\n"
-        f"stderr: {result.stderr}"
-    )
-
-
-@pytestmark_ps
-@pytest.mark.parametrize(("src", "dst"), DISALLOWED_TRANSITIONS)
-def test_disallowed_transition_rejected(src: str, dst: str) -> None:
-    """Every pair NOT in the allowed-table must raise an error."""
-    result = _ps(
-        _FSM_SNIPPET
-        + f"try {{ Test-StateTransition -From '{src}' -To '{dst}' | Out-Null; exit 0 }} catch {{ exit 1 }}"
-    )
-    assert result.returncode == 1, (
-        f"Disallowed transition '{src}' -> '{dst}' was NOT rejected.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-
-
-@pytestmark_ps
-def test_refining_architecting_planning_are_not_lanes() -> None:
-    """The 4-lane FSM excludes refine/architect/plan — they are pre-backlog
-    readiness gates, not lanes. Test-StateTransition must reject them."""
-    for ghost_lane in ("refining", "architecting", "planning"):
-        result = _ps(
-            _FSM_SNIPPET
-            + f"try {{ Test-StateTransition -From '{ghost_lane}' -To 'backlog' | Out-Null; exit 0 }} catch {{ exit 1 }}"
-        )
-        assert result.returncode == 1, (
-            f"'{ghost_lane}' must NOT be a recognised source lane — refine/architect/plan are pre-backlog gates."
-        )
-
 
 # ── pydantic round-trip ──────────────────────────────────────────────────────
 

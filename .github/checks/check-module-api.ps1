@@ -15,8 +15,6 @@ if (-not $exports) {
 $psm1Files = @(
     Get-ChildItem -Path (Join-Path $RepoRoot ".github/orchestrator") -Filter "*.psm1" -File
     Get-ChildItem -Path (Join-Path $RepoRoot ".github/orchestrator") -Filter "*.ps1" -Recurse -File
-    # _grill.ps1 is dot-sourced by the orchestrator, so it's part of the module's implementation
-    Get-ChildItem -Path (Join-Path $RepoRoot ".agents/skills/refine/scripts/_grill.ps1") -File -ErrorAction SilentlyContinue
 )
 $allFunctions = @()
 foreach ($f in $psm1Files) {
@@ -30,11 +28,11 @@ $allFunctions = $allFunctions | Select-Object -Unique
 $privateFunctions = $allFunctions | Where-Object { $exports -notcontains $_ }
 
 # 3. Check external callers
-# Includes workflows, tasks, skills (excluding the module's own _grill.ps1), and tests (since tests act as API consumers)
+# Includes workflows, tasks and skill scripts.
 $callerFiles = @(
     Get-ChildItem -Path (Join-Path $RepoRoot ".github/workflows") -Filter "*.yml" -File
     Get-ChildItem -Path (Join-Path $RepoRoot ".github/tasks") -Filter "*.ps1" -File
-    Get-ChildItem -Path (Join-Path $RepoRoot ".agents/skills") -Filter "*.ps1" -Recurse -File | Where-Object { $_.Name -ne '_grill.ps1' }
+    Get-ChildItem -Path (Join-Path $RepoRoot ".agents/skills") -Filter "*.ps1" -Recurse -File
 )
 
 $calledExports = @{}

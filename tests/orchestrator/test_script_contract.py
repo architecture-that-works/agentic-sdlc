@@ -150,6 +150,19 @@ def test_psscriptroot_paths_resolve_inside_the_repo() -> None:
     assert not bad, "unresolvable $PSScriptRoot paths:\n" + "\n".join(bad)
 
 
+def test_task_scripts_set_the_module_state_they_use() -> None:
+    """$Kanban* variables are private to the module (ADR-013), so a task script that
+    uses one must set it itself — retry.ps1 once passed an unset $KanbanRepo to
+    `gh workflow run --repo`, which failed every refine retry."""
+    missing = []
+    for script in sorted((ROOT / ".github" / "tasks").glob("*.ps1")):
+        text = script.read_text(encoding="utf-8")
+        for var in sorted(set(re.findall(r"\$(Kanban[A-Za-z_]+)", text))):
+            if not re.search(rf"\${var}\s*=", text):
+                missing.append(f"{script.name}: ${var}")
+    assert not missing, "task scripts use unset module state:\n" + "\n".join(missing)
+
+
 # ── Pipeline-flow contract (ADR-014) ─────────────────────────────────────────
 # Alignment (refine → architect → plan) is the pre-backlog gate that grants
 # agent:backlog. Processing (Implement → Review → Merge) is a separate, already-

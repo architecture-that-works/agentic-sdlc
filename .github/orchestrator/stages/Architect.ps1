@@ -4,8 +4,8 @@
     Backlog gate, Architect step -- blast-radius impact written into the issue.
 
 .DESCRIPTION
-    Kanban library -- loaded by Kanban.psm1; Invoke-Architect is called by
-    Invoke-Alignment (Refine.ps1) between Refine and Plan, as part of the
+    Orchestrator library -- loaded by Orchestrator.psm1; Invoke-Architect is called by
+    the conductor (Invoke-Orchestration -From refine) between Refine and Plan, as part of the
     pre-backlog alignment that grants agent:backlog.
 
     Computes the architectural blast radius for the change and records it as the
@@ -21,7 +21,7 @@
 #>
 
 $ErrorActionPreference = 'Stop'
-# Module-internal library -- loaded by Kanban.psm1 (which loads Config.ps1 first).
+# Module-internal library -- loaded by Orchestrator.psm1 (which loads Config.ps1 first).
 # Not dot-sourced individually; see ADR-013.
 
 # ── AST-based codebase analysis ───────────────────────────────────────────────
