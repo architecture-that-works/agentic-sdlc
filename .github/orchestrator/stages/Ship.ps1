@@ -52,10 +52,10 @@ function Invoke-ContextUpdate {
 You are updating CONTEXT.md for a software project after a PR was merged.
 
 Analyse the merged diff (src/ only), the issue body, and the current CONTEXT.md.
-Produce targeted patches to any of the three sections below if new content is warranted:
+Produce targeted patches to either section below if new content is warranted:
   1. Glossary         — new domain terms introduced by this change
   2. Bounded Contexts — ownership changes if new modules or contexts were added
-  3. Out of Scope     — decisions explicitly deferred or rejected during implementation
+Deferred or rejected decisions belong in .out-of-scope.md, not CONTEXT.md — do not add them here.
 
 STRICT OUTPUT RULES:
 - Return ONLY a valid unified diff for CONTEXT.md, starting with "--- a/CONTEXT.md" and "+++ b/CONTEXT.md".

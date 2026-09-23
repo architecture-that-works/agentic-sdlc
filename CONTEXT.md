@@ -45,7 +45,7 @@ __PROJECT_DESCRIPTION__
 
 ## Module Map
 
-Navigation index for agents. Read CONTEXT.md, identify the target bounded context, then open only the files in that row. Rows added when a new top-level `src/<domain>/` directory is introduced (enforced by `ship` per ADR-009).
+Navigation index for agents — how to use it is the Context Protocol in `AGENTS.md`. A new top-level `src/<domain>/` adds a row in the same PR (ADR-009).
 
 | Module | Path | Bounded Context | Entry points |
 |---|---|---|---|
@@ -90,25 +90,16 @@ Invariants that must not be violated in any implementation.
 - **Lint gate** — `ruff check` + `ruff format --check` must pass before any commit.
 - **`src/utils/` is generic** — no project-specific logic in `m_*.py` modules.
 - **Standard library first** — prefer stdlib over third-party packages.
-- **Dual-Engine AI** — Claude and Gemini are co-primary engines for the pipeline, orchestrated via `KANBAN_ENGINE` per run. Claude remains the template default.
+- **Claude-first AI** — Claude is the default engine and the only one in the cloud (`afk.yml` pins it). Gemini is an optional local engine, selected by `KANBAN_ENGINE` for `task hitl`.
 - **PowerShell 7+** — all `.ps1` scripts target `#Requires -Version 7.0`. Never target PS 5.1.
 - **pydantic-settings `extra="ignore"`** — Settings class must always ignore unknown env vars.
 - **This repo is simultaneously a project and a Copier template of itself** — anything under `tests/`, `pyproject.toml`, or the skill tree usually has a second home under the template root (a `.jinja2` suffix, or an entry in `copier.yml` `_exclude`). Check for a parallel path before assuming one edit is enough; missing it has broken generated projects twice.
-- **Module Map is the source of truth** (ADR-009) — every new top-level `src/<domain>/` directory MUST add a row to the Module Map in the same PR. Enforced by the `ship` skill.
 - **Skills travel with generated projects** (ADR-009) — every skill referenced in `AGENTS.md` MUST be physically present under `.agents/skills/` in every generated project. Skill files local to `~/.claude/skills/` alone do not satisfy this constraint.
-- **Context Protocol is mandatory** (ADR-009) — agents MUST follow `AGENTS.md` §Session Initialisation → Context Protocol before reading any source file.
-- **KISS (Keep It Simple, Stupid)** — Avoid premature abstractions, heavy frameworks, or complex architectures when simpler standard-library implementations suffice. Example: `src/main.py` uses `http.server` instead of pulling in a web framework for a minimal healthcheck.
-- **Dependency Inversion** — External I/O (HTTP, filesystem, subprocess) MUST be hidden behind an interface declared in `src/`. Exception: `src/tools/` is explicitly exempt to allow thin CLI utilities (e.g. `src/tools/commit.py` calls `subprocess.run` directly).
-- **DRY (Rule of Three)** — Code must be duplicated three times before extraction to `src/utils/` is permitted to avoid premature abstraction. The `architect` stage should identify if functionality is duplicated and propose leveraging or generalizing an existing module if the threshold is met.
+- **KISS** — no premature abstractions or heavy frameworks where a simple standard-library implementation suffices (e.g. `src/main.py` uses `http.server`, not a web framework).
+- **Dependency Inversion** — external I/O (HTTP, filesystem, subprocess) sits behind an interface declared in `src/`. `src/tools/` is exempt: thin CLI utilities may call I/O directly.
+- **DRY (Rule of Three)** — extract to `src/utils/` only once code is duplicated three times. `architect` flags duplication that meets the threshold.
 
 ## Out of Scope
 
-Top-5 summary of explicitly deferred or rejected concepts. Full ledger with date and source ADR cross-links: [`.out-of-scope.md`](.out-of-scope.md). Plan-phase deduplication MUST search `.out-of-scope.md`, not this table.
-
-| Concept | Reason deferred | Date |
-|---------|-----------------|------|
-| Embedded web framework (FastAPI/Flask) in the hello-world starter | Standard Library First constraint; stdlib http.server is sufficient | 2026-05-12 |
-| Separate `CLAUDE.md` for behavioural rules | Rejected in ADR-009; `AGENTS.md` is the single standing-instructions file (cross-tool convention) | 2026-05-11 |
-| Generic Module Map per project_type (separate maps for application / agent / ml) | Rejected in ADR-009; single Map at template-time lists only invariant rows; project_type-specific rows added as first feature lands | 2026-05-11 |
-| Codespace as HITL validation surface | HITL surface is the developer's laptop indefinitely; persistent Cloud Run Orchestrator Service is the Phase-3 cloud-runtime north star, not Codespaces | 2026-05-12 |
-| LangGraph (or any agent-framework library) as orchestrator runtime | Drag too high for a template — forks should not need to learn LangGraph. Steal patterns (declarative graph, checkpoint, interrupt) without the dependency | 2026-05-12 |
+Rejected and deferred concepts live in one ledger, [`.out-of-scope.md`](.out-of-scope.md) — search it
+before proposing anything new.

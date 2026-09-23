@@ -1,174 +1,60 @@
 # Security
 
-This document describes the secrets required by this project, the rationale behind each,
-and how to configure them per environment.
+Secrets this project uses and why, accepted risks, and how a human halts, overrides or rolls
+back the agent pipeline. Setup steps live in the [README](README.md).
+
+## Reporting a vulnerability
+
+Report privately through GitHub: the repository's **Security** tab → **Report a vulnerability**
+(enable *Private vulnerability reporting* under Settings → Code security). Do not open a public
+issue for a suspected vulnerability.
 
 ---
 
-## GH_TOKEN
+## Secrets
 
-**Purpose:** Authenticates GitHub CLI (`gh`) calls within the AFK workflow (`afk.yml`) — creating
-issues, moving kanban cards, and mutating GitHub Projects v2 boards. It must be a PAT rather than
-the workflow's built-in `GITHUB_TOKEN`: label changes made with `GITHUB_TOKEN` do not trigger
-workflows, and the `ship` job is triggered by the `agent:reviewing` label.
-
-**Why classic PAT, not fine-grained PAT:** GitHub Projects v2 mutations (add/move/archive
-project items) require the `project` OAuth scope. Fine-grained PATs do not expose this scope;
-they are scoped to repository permissions only. Until GitHub extends fine-grained PATs to
-cover Projects v2, a classic PAT with `project`, `read:org`, `repo`, `user`, `workflow` scopes is the only supported option. Each scope earns its place: `project` for kanban board mutations, `repo` for issue/PR/commit operations, `workflow` for any PR that touches `.github/workflows/*.yml` (the orchestrator self-edits CI on occasion), `read:org` for org-owned projects, `user` for identity calls (`gh api user`).
-
-**Accepted risk:** Classic PATs carry broader permissions than fine-grained PATs. Mitigations:
-- Scope the token to `project`, `read:org`, `repo`, `user`, `workflow` only — no `admin:*`, `delete_repo`, or `write:packages`.
-- Never share the token across projects; generate one per repository.
-- Rotate on the schedule below.
-
-**Shared rate-limit budget (accepted, see ADR-012):** Because the cloud orchestrator and the
-developer's local `gh` authenticate as the *same* user, they share one GraphQL budget
-(5000 pts/hr). A dedicated CI identity (bot-account PAT, since GitHub Apps cannot mutate a
-*user-owned* Projects v2 board) would isolate it, but is **deferred** — the orchestrator's
-GraphQL footprint was instead cut (default-branch + label ops moved off GraphQL; rate-limit
-pre-flight). Revisit if a backlog drain plus interactive use exhausts the budget. See
-`docs/adr/ADR-012-orchestrator-graphql-budget.md`.
-
-**Rotation guidance:**
-1. Open GitHub → Settings → Developer Settings → Personal access tokens → Tokens (classic).
-2. Generate a new token scoped to `project`, `read:org`, `repo`, `user`, `workflow`.
-3. Copy the new token value.
-4. Update the secret in every environment (see table below).
-5. Verify the next AFK run completes a successful kanban-lane move.
-6. Revoke the old token.
-
----
-
-## ANTHROPIC_API_KEY
-
-**Purpose:** Authenticates calls to the Anthropic Claude API made by AI-backed endpoints in this
-project, and by `src/tools/commit.py` when the Claude CLI is not installed. The orchestrator does
-not use it — it authenticates with `CLAUDE_CODE_OAUTH_TOKEN`.
-
-**Scope:** One key per project is sufficient. Do not share a key across multiple production
-services — per-service keys make compromise blast-radius containment and rotation easier.
-
-**Rotation guidance:**
-1. Open console.anthropic.com → API Keys.
-2. Create a new key and label it with the project name and date (e.g., `my-project-2026-05`).
-3. Copy the new key value.
-4. Update the secret in every environment (see table below).
-5. Run `uv run pytest` against the staging environment to confirm the new key is active.
-6. Delete the old key from the Anthropic console.
-
----
-
-## Secrets Architecture by Environment
-
-| Secret | Local dev (`.env`) | CI (GitHub Actions) | Production — corporate | Production — personal |
+| Secret | Used by | Local dev | CI | Production |
 |---|---|---|---|---|
-| `GH_TOKEN` | `.env` (git-ignored) | GitHub Actions Secret | Azure Key Vault | GCP Secret Manager |
-| `ANTHROPIC_API_KEY` | `.env` (git-ignored) | GitHub Actions Secret | Azure Key Vault | GCP Secret Manager |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Not applicable — developer credential | GitHub Actions Secret | N/A — developer credential | N/A — developer credential |
+| `GH_TOKEN` | every `gh` call in the pipeline — issues, labels, board, PRs, merges; `task` commands locally | `.env` | Actions secret | Azure Key Vault (corporate) / GCP Secret Manager (personal) |
+| `CLAUDE_CODE_OAUTH_TOKEN` | every `claude` call in the pipeline — refine, plan, implement, review, commit messages, CONTEXT.md update | your own `claude` login | Actions secret | — (developer credential) |
+| `ANTHROPIC_API_KEY` | AI-backed endpoints in `src/`; `src/tools/commit.py` when the Claude CLI is absent. Not used by the pipeline | `.env` | Actions secret | Azure Key Vault / GCP Secret Manager |
 
-**Local dev:** Copy `.env.example` to `.env` and populate values. The `.env` file is
-git-ignored and must never be committed.
+`.env` is git-ignored and must never be committed. In production, secrets are read at runtime
+through workload identity (Azure) or the attached service account (GCP) — no secret value is
+stored in the repository or in host environment variables (ADR-008).
 
-**CI:** Store secrets under the repository's Settings → Secrets and variables → Actions.
-Reference them in workflows as `${{ secrets.SECRET_NAME }}`.
+Give every token an expiry, rotate it before it lapses, and rotate immediately on any suspected
+exposure. After rotating, update it everywhere in the table and confirm the next AFK run (or AI
+call) succeeds before revoking the old value.
 
-**Production — corporate:** Retrieve secrets from Azure Key Vault at runtime via the
-workload-identity federation configured in the deployment pipeline. No secret value is
-ever stored in the repository or environment variables of the host.
+### GH_TOKEN — classic PAT
 
-**Production — personal:** Retrieve secrets from GCP Secret Manager at runtime via the
-service account attached to the Cloud Run or GCE instance. No secret value is stored
-in the repository.
-
----
-
-## Orchestrator Credentials
-
-The orchestrator (`.github/orchestrator/`) takes an issue through six stages: **refine →
-architect → plan → implement → review → ship**. In the cloud it runs as `afk.yml` on a
-GitHub-hosted `ubuntu-latest` runner; a self-hosted runner is an opt-in
-(`KANBAN_RUNNER_PROFILE=self-hosted`). The two halves start differently:
-
-- **refine → architect → plan** runs automatically when an issue is opened. It grants
-  `agent:backlog` only when the issue has zero open questions (ADR-014).
-- **implement → review → ship** runs only when a human starts it — `task afk`, or Actions →
-  AFK → Run workflow with `stage=implement`. `agent:backlog` means *ready*, not *go*. The run
-  drains the whole `agent:backlog` queue, oldest first.
-
-### Pipeline secrets
-
-| Secret | Role in pipeline |
-|---|---|
-| `GH_TOKEN` | Authenticates all `gh` CLI calls — creating/updating issues, moving kanban cards, opening PRs, and squash-merging |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates all `claude` CLI calls — refine (incl. the self-grill), plan, implement, review, commit-message generation, and the post-merge CONTEXT.md update. Architect is static analysis and makes no LLM call |
-
-The cloud engine is pinned to Claude in `afk.yml`; the `KANBAN_ENGINE` repository variable only
-selects the engine for local `task hitl` runs.
+- **Scopes:** exactly `project`, `read:org`, `repo`, `user`, `workflow` — `project` for board
+  mutations, `repo` for issues/PRs/commits, `workflow` for PRs that touch
+  `.github/workflows/`, `read:org` for org-owned boards, `user` for identity calls. Never
+  `admin:*`, `delete_repo` or `write:packages`.
+- **Why classic:** fine-grained PATs cannot mutate Projects v2 boards. **Why a PAT at all:**
+  label changes made with the workflow's built-in `GITHUB_TOKEN` do not trigger workflows, and
+  the `ship` job is triggered by the `agent:reviewing` label.
+- **Accepted risk:** a classic PAT is broader than a fine-grained one. Generate one per
+  repository and never share it across projects.
+- **Accepted risk (ADR-012):** the cloud pipeline and your local `gh` authenticate as the same
+  user and share one GraphQL budget (5000 points/hour). A separate bot account would isolate it
+  but is deferred; the pipeline's GraphQL use was cut instead.
+- **Create/rotate:** GitHub → Settings → Developer settings → Personal access tokens → Tokens
+  (classic).
 
 ### CLAUDE_CODE_OAUTH_TOKEN
 
-**Purpose:** Authenticates every non-interactive `claude` invocation in the pipeline (see the table above).
+- **Create/rotate:** run `claude setup-token` (requires a Claude subscription) and copy the
+  long-lived token it prints — it is shown once.
+- **Accepted risk:** it grants full Claude Code access under your account. Store it only as an
+  Actions secret — never in `.env` or a committed file.
 
-**How to obtain:**
-1. Open claude.ai → click your profile → **Settings**.
-2. Navigate to the **Claude Code** tab.
-3. Under **OAuth Token**, click **Generate** (or **Regenerate** to rotate).
-4. Copy the displayed token immediately — it is not shown again.
+### ANTHROPIC_API_KEY
 
-**Accepted risk:** The token grants full Claude Code CLI access under your Anthropic account.
-Mitigations:
-- Store the token exclusively as a GitHub Actions Secret — never in `.env` or committed files.
-- Rotate on the schedule below.
-
-**Rotation guidance:**
-1. Open claude.ai → Settings → Claude Code → OAuth Token → **Regenerate**.
-2. Copy the new token value.
-3. Update the `CLAUDE_CODE_OAUTH_TOKEN` secret in GitHub: Settings → Secrets and variables → Actions.
-4. Verify the next AFK run completes without a `claude` authentication error.
-5. The old token is invalidated automatically on regeneration.
-
-### Self-hosted runner
-
-With `KANBAN_RUNNER_PROFILE=self-hosted`, the `refine` and `implement` jobs require a
-self-hosted runner registered with the `gha-project` label (see `runs-on` in
-`.github/workflows/afk.yml`); the `ship` job always runs on `ubuntu-latest`. The runner must
-have `uv`, `claude` (Claude Code CLI), `git`, `gh` and `pwsh` pre-installed.
-
-- **Start:** run `./run.sh` (`run.cmd` on Windows) from the registered runner directory, or
-  install it as a service (`svc.sh install` / `svc.cmd install`) for unattended operation.
-- **Stop:** Ctrl+C in the foreground, or `svc.sh stop` / `svc.cmd stop` for the service.
-
-`task afk` dispatches the `agent:backlog` queue to the cloud — it does not start the
-runner process.
-
-### Cloud runner operation checklist
-
-One-time setup steps for a freshly generated project:
-
-1. **Create the repository** — push the generated project to GitHub.
-2. **Create a GitHub Project (v2)** — add a Status field (single-select) with four options:
-   Backlog, Implementing, Review, Shipped. Optionally add Estimate (number) and Priority
-   (single-select) fields.
-3. **Populate `.env`** — copy `.env.example` to `.env` and set:
-   - `GH_TOKEN` — your classic PAT with `project`, `read:org`, `repo`, `user`, `workflow` scopes
-   - `KANBAN_PROJECT_NUMBER` — the project number from the GitHub Project URL
-   - `KANBAN_PROJECT_OWNER` — your GitHub username or organisation
-4. **Add GitHub Actions Secrets** — in repository Settings → Secrets and variables → Actions,
-   create:
-   - `GH_TOKEN` — the same classic PAT as above
-   - `CLAUDE_CODE_OAUTH_TOKEN` — obtained from claude.ai → Settings → Claude Code
-5. **Run project setup** — `task setup` — queries the GitHub Project for field/option IDs,
-   writes them to `.env` and as GitHub Actions repository variables, and provisions the
-   `agent:*` and `human:*` labels.
-6. **(Self-hosted profile only)** — if you set `KANBAN_RUNNER_PROFILE=self-hosted`, register a
-   runner at `github.com/<org>/<repo>/settings/actions/runners/new` with the custom label
-   `gha-project`, then start it. On the default `hosted` profile, skip this.
-7. **Sync issues** — `task sync` — pushes the local `ISSUES.md` backlog to GitHub Issues. Each
-   new issue triggers refine; `agent:*` labels declared in `ISSUES.md` are ignored so the
-   readiness gate cannot be bypassed.
-8. **Trigger** — `task afk`, or Actions → AFK → Run workflow with `stage=implement`, drains the
-   `agent:backlog` queue in the cloud.
+- **Create/rotate:** console.anthropic.com → API Keys; label it with the project and date.
+- Use one key per service so a compromise can be contained and rotated in isolation.
 
 ---
 

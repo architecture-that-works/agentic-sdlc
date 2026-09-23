@@ -25,7 +25,7 @@ END_ISSUE
 Header fields — all optional, must appear before the body, in any order:
 
 - `LABELS:` — comma-separated subset of the allowed label set. Agents must not create new labels. Allowed values:
-  - *(no label)* — unattended is the **default**: the pipeline runs refine through ship without stopping
+  - *(no label)* — the **default**: refine runs on creation; once you trigger it, implement → review → ship run unattended
   - `human:approval` — implemented and self-reviewed unattended, then held for a human to merge the PR
   - `human:decision` — a question for a human; never enters the pipeline at all
   - `agent:backlog` `agent:implementing` `agent:reviewing` `agent:shipped` `agent:failed` — orchestrator state machine; set by the orchestrator, never by humans or agents writing issues
@@ -65,7 +65,7 @@ A true 1 is rare as a standalone issue — in practice issues bundle and land at
 - If unsure between two values, pick the higher.
 - Estimates include the full cost: implementation, tests, review, and any documentation AC requires.
 - If a dependency is unresolved, do not estimate — flag for refinement first.
-- `ESTIMATE: 13` or above requires `LABELS: human:approval`. The agent implements and self-reviews, then holds for a human to merge.
+- `ESTIMATE: 13` or above is an epic: the plan stage decomposes it into child issues rather than implementing it directly.
 
 ---
 

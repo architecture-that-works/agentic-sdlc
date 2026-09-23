@@ -35,7 +35,8 @@ Prevents premature implementation by forcing full alignment on domain language, 
 
 ## Primary Outputs
 
-- `CONTEXT.md` with glossary, bounded contexts, architectural constraints, and out-of-scope declarations
+- `CONTEXT.md` with glossary, bounded contexts, and architectural constraints
+- `.out-of-scope.md` entries for rejected concepts
 - `AGENTS.md` persistence rules (one-time setup; updated only in `refine` sessions)
 - ADRs (one per architectural decision made during grilling)
 - Agent Brief (interface-first specification; input to `plan`)
@@ -132,8 +133,7 @@ above without a human in the loop and emits a structured `GrillResult`
 decided questions, and proposed glossary diffs.
 
 **Carrier (post-ADR-011).** The output is written into the GitHub issue body —
-the single cross-runtime carrier. `.planning/` remains runtime-only scratch and
-never carries state across environments.
+the single cross-runtime carrier (ADR-014 retired `.planning/`).
 
 - Agent Brief → Markdown section bounded by `<!-- AGENT-BRIEF:BEGIN/END -->`
   markers. Frontmatter records `populated_by: self-grill-subagent`.

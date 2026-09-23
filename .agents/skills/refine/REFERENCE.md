@@ -72,7 +72,7 @@ After every grilling round:
 1. Any decision that was debated → write an ADR (`docs/adr/ADR-NNN.md`, MADR format).
 2. Any constraint that changed → update `CONTEXT.md` Architectural Constraints.
 3. Any new glossary term → update `CONTEXT.md` Glossary.
-4. Any rejected concept → add to `CONTEXT.md` Out of Scope with date.
+4. Any rejected concept → add a dated `## ` entry to `.out-of-scope.md`.
 
 ---
 
