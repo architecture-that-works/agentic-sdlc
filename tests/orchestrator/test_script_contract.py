@@ -113,16 +113,39 @@ def test_task_scripts_are_not_dot_sourced() -> None:
     """Task entry points own a param() and are invoked, never dot-sourced."""
     sourced = _dot_sourced_basenames()
     for entry in (
-        "start.ps1",
-        "runner.ps1",
+        "afk.ps1",
+        "hitl.ps1",
+        "refine.ps1",
         "retry.ps1",
         "setup.ps1",
-        "sync-issues.ps1",
-        "align.ps1",
+        "sync.ps1",
+        "protect.ps1",
     ):
         assert entry not in sourced, (
             f"{entry} is a task entry point and must not be dot-sourced"
         )
+
+
+_PSSCRIPTROOT_PATH = re.compile(r"\$PSScriptRoot([\\/][^\"'\s)]*)")
+
+
+def test_psscriptroot_paths_resolve_inside_the_repo() -> None:
+    """Every $PSScriptRoot-relative path in a runnable must resolve inside the repo.
+
+    check-script-paths.ps1 only scans workflows and Taskfile.yml, so when the
+    runnables moved from scripts/ to .github/tasks/ their `..\\..\\orchestrator`
+    imports went on pointing one level too high and every local task failed on
+    Import-Module, while setup.ps1 resolved its .env one level above the repo.
+    """
+    bad = []
+    for script in sorted((ROOT / ".github").glob("*/*.ps1")):
+        if script.parent.name not in ("tasks", "checks"):
+            continue
+        for rel in _PSSCRIPTROOT_PATH.findall(script.read_text(encoding="utf-8")):
+            target = (script.parent / rel.replace("\\", "/").lstrip("/")).resolve()
+            if not target.exists() or not target.is_relative_to(ROOT):
+                bad.append(f"{script.relative_to(ROOT)}: $PSScriptRoot{rel} -> {target}")
+    assert not bad, "unresolvable $PSScriptRoot paths:\n" + "\n".join(bad)
 
 
 # ── Pipeline-flow contract (ADR-014) ─────────────────────────────────────────

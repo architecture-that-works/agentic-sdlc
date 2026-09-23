@@ -27,7 +27,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Import-Module "$PSScriptRoot\..\..\orchestrator\Orchestrator.psd1" -Force
+Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
 $ctx                 = Get-OrchestratorContext
 $KanbanRepo          = $ctx.Repo
 $KanbanProjectNumber = $ctx.ProjectNumber
