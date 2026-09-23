@@ -3,7 +3,9 @@
 human:approval is a state the pipeline sets, like human:decision: ship decides it
 from the PR's actual diff once CI is green. A PR touching a governance file is held
 for the owner to merge; any other PR merges. The owner can still force a hold by
-adding the label. gh and git are in-memory fakes at module script scope.
+adding the label. When the owner merges or closes a held PR, Complete-HeldPR ships
+the issue or re-opens it for a comment. gh and git are in-memory fakes at module
+script scope.
 """
 
 import json
@@ -138,3 +140,62 @@ $r = Invoke-Ship -IssueNumber 1 -PRNumber 9
         tmp_path,
     )
     assert out == {"r": False, "log": []}
+
+
+# The owner merges or closes a held PR (afk.yml, pull_request closed).
+_HELD = r"""
+$script:Log = [System.Collections.Generic.List[string]]::new()
+$script:Labels = @('agent:reviewing', 'human:approval')
+function script:Get-IssueLabel { param($IssueNumber) $script:Log.Add("read:$IssueNumber"); $script:Labels }
+function script:Set-IssueLabel { param($Number, $Add, $Remove) $script:Log.Add("label:-$Remove") }
+function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
+function script:Set-AgentFailedState { param($IssueNumber, $FailedAt, $Reason) $script:Log.Add("failed:$FailedAt") }
+function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:" + ($Body -split "`n")[0]) }
+function script:Invoke-ContextUpdate { param($IssueNumber) $script:Log.Add("context:$IssueNumber") }
+function script:git { $global:LASTEXITCODE = 0 }
+"""
+
+
+def _held(call: str, tmp_path: Path) -> list[str]:
+    out = _run(
+        _HELD
+        + call
+        + "\n[pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress",
+        tmp_path,
+    )
+    return out["log"]
+
+
+def test_owner_merge_of_a_held_pr_ships_the_issue(tmp_path: Path) -> None:
+    log = _held(
+        "Complete-HeldPR -PRNumber 9 -Branch 'feature/212-x' -Merged $true", tmp_path
+    )
+    assert log == [
+        "read:212",
+        "label:-human:approval",
+        "state:agent:shipped",
+        "comment:🤖✅ Merged",
+        "context:212",
+    ]
+
+
+def test_owner_close_of_a_held_pr_waits_for_their_comment(tmp_path: Path) -> None:
+    log = _held(
+        "Complete-HeldPR -PRNumber 9 -Branch 'feature/212-x' -Merged $false", tmp_path
+    )
+    assert "failed:review" in log
+    assert "comment:🤖⏸ PR #9 closed without merging" in log
+    assert "state:agent:shipped" not in log
+
+
+def test_pr_that_was_never_held_is_left_alone(tmp_path: Path) -> None:
+    unheld = _held(
+        "$script:Labels = @('agent:shipped')\n"
+        "Complete-HeldPR -PRNumber 9 -Branch 'feature/212-x' -Merged $true",
+        tmp_path,
+    )
+    assert unheld == ["read:212"]
+    foreign = _held(
+        "Complete-HeldPR -PRNumber 9 -Branch 'dependabot/x' -Merged $true", tmp_path
+    )
+    assert foreign == []

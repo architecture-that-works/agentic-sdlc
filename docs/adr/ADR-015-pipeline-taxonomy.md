@@ -438,6 +438,12 @@ a governance path (`GovernancePaths` in `lib/Config.ps1`) is held and the issue 
 other PR merges. The owner can still add the label to force a hold. The plan stage no longer
 labels child issues; its human:decision heuristic becomes a note in the child's body for refine.
 
+**2026-09-23 (exercised)** — the hold ran end-to-end on #212 and exposed its missing end: after
+the owner merged the held PR the issue kept `agent:reviewing` + `human:approval` and CONTEXT.md
+was never updated. The PR's closed event now finishes a held issue (`Complete-HeldPR`): merged →
+`agent:shipped` and the CONTEXT.md update, the same path as the pipeline's own merge; closed
+unmerged → `agent:failed` at review, so the owner's comment starts the next attempt.
+
 Amendment rather than supersession: this ADR carries a living Implementation section by its
 own design, and the refactor it describes had not finished landing when these surfaced.
 

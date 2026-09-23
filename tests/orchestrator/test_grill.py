@@ -148,27 +148,6 @@ def test_agent_brief_markers_present_in_github_ps1() -> None:
     assert "<!-- AGENT-BRIEF:END -->" in github
 
 
-def test_decision_child_title_truncates_long_questions() -> None:
-    """A 200-character question must be truncated to <= 100 chars in the title
-    so the GitHub issue list remains scannable."""
-    long_text = "Should the new endpoint " + ("xyz " * 60)
-    snippet = f"""
-$Question = [pscustomobject]@{{ text = '{long_text.strip()}' }}
-$ParentNumber = 99
-$shortText = ($Question.text -replace '\\s+', ' ').Trim()
-if ($shortText.Length -gt 60) {{ $shortText = $shortText.Substring(0, 57) + '...' }}
-$title = "human:decision needed (#${{ParentNumber}}): $shortText"
-Write-Output $title
-"""
-    result = _ps(snippet)
-    assert result.returncode == 0, result.stderr
-    title = result.stdout.strip()
-    assert len(title) <= 110, (
-        f"Truncated title too long ({len(title)} chars): {title!r}"
-    )
-    assert title.endswith("..."), f"Long titles must end with '...': {title!r}"
-
-
 # ── GrillResult contract — the Python and PowerShell sides agree ─────────────
 
 
@@ -241,11 +220,76 @@ def test_grill_result_validates_subagent_example_payload() -> None:
 
 
 def test_grill_never_decides_a_choice_the_issue_reserves_for_the_owner() -> None:
-    """Live on #212 the grill resolved a build/defer/drop decision the issue
-    explicitly reserved for the owner, and the pipeline built it. The exception to
-    Rule 1 keeps such choices as open questions, with the recommendation."""
+    """A build/defer/drop choice the issue reserves for the owner is never the
+    grill's to make: the exception to Rule 1 keeps such choices as open questions,
+    with the recommendation."""
     prompt = (
         Path(__file__).parents[2] / ".github" / "orchestrator" / "lib" / "Grill.ps1"
     ).read_text(encoding="utf-8")
     assert "reserves a choice for the owner" in prompt
     assert "Put it in\n           `open_questions[]` with your recommendation" in prompt
+
+
+# ── The subagent's run, read from the CLI's JSON envelope ────────────────────
+# Live on #212 the subagent's reply was not JSON; refine carried on with a stub and
+# granted agent:backlog without asking the owner anything. Every way the run can
+# go wrong now throws with the reason, so the refine attempt fails instead.
+
+_PAYLOAD = {
+    "agent_brief": {
+        "feature_name": "x",
+        "problem_statement": "p",
+        "interfaces": [],
+        "constraints": [],
+        "out_of_scope": [],
+        "tracer_bullet": "t",
+    },
+    "open_questions": [],
+    "decided_questions": [],
+    "glossary_diffs": [],
+}
+
+
+def _grill_with_output(lines: list[str]) -> subprocess.CompletedProcess[str]:
+    fake = "; ".join(f"'{ln.replace(chr(39), chr(39) * 2)}'" for ln in lines)
+    return _ps(
+        f". '{GRILL_LIB.as_posix()}'\n"
+        f"function claude {{ $input | Out-Null; $global:LASTEXITCODE = 0; {fake} }}\n"
+        "try { $r = Invoke-Grill -Title 'T' -Body 'B'; 'OK:' + $r.agent_brief.feature_name }\n"
+        "catch { 'ERR:' + $_.Exception.Message }"
+    )
+
+
+def _envelope(subtype: str, result: str, turns: int = 3) -> str:
+    return json.dumps(
+        {
+            "type": "result",
+            "subtype": subtype,
+            "is_error": subtype != "success",
+            "num_turns": turns,
+            "result": result,
+        }
+    )
+
+
+def test_grill_reads_the_answer_even_with_prose_around_it() -> None:
+    reply = "Here is the result:\n" + json.dumps(_PAYLOAD) + "\nDone."
+    out = _grill_with_output(["trust warning on stderr", _envelope("success", reply)])
+    assert out.stdout.strip() == "OK:x", out.stdout + out.stderr
+
+
+def test_grill_that_runs_out_of_turns_fails_with_the_reason() -> None:
+    out = _grill_with_output([_envelope("error_max_turns", "", turns=40)])
+    assert out.stdout.startswith("ERR:"), out.stdout + out.stderr
+    assert "error_max_turns" in out.stdout and "40 turn(s)" in out.stdout
+
+
+def test_grill_without_a_result_or_valid_answer_fails() -> None:
+    no_result = _grill_with_output(["Error: something broke"])
+    assert (
+        "gave no result" in no_result.stdout and "something broke" in no_result.stdout
+    )
+    prose = _grill_with_output([_envelope("success", "I could not decide.")])
+    assert (
+        "not a valid GrillResult" in prose.stdout and "could not decide" in prose.stdout
+    )

@@ -86,3 +86,15 @@ def test_ship_runs_only_on_the_owners_dispatch():
         "if: github.event_name == 'workflow_dispatch' && inputs.stage == 'ship'" in ship
     )
     assert "agent:reviewing" not in ship
+
+
+def test_owner_closing_a_held_pr_finishes_the_issue():
+    """A held PR is merged (or closed) by the owner, outside the pipeline: its
+    closed event ships the issue, or re-opens it for the owner's comment."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert re.search(r"pull_request:\s*\n\s*types: \[closed\]", text)
+    job = _job("held-pr-closed")
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in job
+    assert "startsWith(github.event.pull_request.head.ref, 'feature/')" in job
+    assert "human:approval" in job
+    assert "Complete-HeldPR" in job

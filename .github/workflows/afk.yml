@@ -3,14 +3,16 @@ name: AFK
 # AFK pipeline: Refine → Architect → Plan → Implement → Review → Ship.
 # Requires secrets: GH_TOKEN (classic PAT, project scope), CLAUDE_CODE_OAUTH_TOKEN.
 #
-# The issue is the interface. Every trigger is an issue event; the dispatch inputs
-# are for backfill and manual overrides.
+# The issue is the interface. Every trigger is an issue event — or the owner's merge of
+# a held PR; the dispatch inputs are for backfill and manual overrides.
 #
 #   issue opened                                → refine (refine → architect → plan)
 #   agent:backlog label added                   → implement → review → ship
 #   comment by the owner or a collaborator      → refine: judge the reply against the open
 #     (not a 🤖/· pipeline comment)                questions, or refine an un-refined issue;
 #                                                  on an agent:failed issue → retry that stage
+#   the owner merges or closes a held PR        → merged: agent:shipped + CONTEXT.md update;
+#     (human:approval)                             closed: agent:failed, your comment retries
 #   hourly schedule                             → resume agent:paused issues once the Claude
 #                                                  usage limit has reset (max 5 h pause)
 #   workflow_dispatch stage=refine, issue 0     → refine every issue with no agent:* label
@@ -27,6 +29,8 @@ on:
     types: [opened, labeled]
   issue_comment:
     types: [created]
+  pull_request:
+    types: [closed]
   schedule:
     - cron: '17 * * * *'
   workflow_dispatch:
@@ -269,6 +273,59 @@ jobs:
           if ($issue -le 0) { throw "stage=ship needs an issue number." }
           git fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
           $null = Invoke-Ship -IssueNumber $issue -PRNumber (Resolve-PR -IssueNumber $issue)
+
+  # ── Held PR closed — the owner merged it, or closed it to ask for changes ────
+  held-pr-closed:
+    name: Finish a held issue
+    # Only the pipeline's own branches; Complete-HeldPR acts only when the issue is
+    # held (human:approval) — the pipeline completes its own merges in-process.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'feature/')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: held-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+      PR_MERGED: ${{ github.event.pull_request.merged }}
+    steps:
+      # Cheap check first: the pipeline's own merges were never held — nothing to do.
+      - name: Was the issue held?
+        id: held
+        shell: bash
+        run: |
+          issue=$(sed -nE 's#^feature/([0-9]+)-.*#\1#p' <<< "$PR_BRANCH")
+          held=false
+          if [ -n "$issue" ] && gh api "repos/$GITHUB_REPOSITORY/issues/$issue/labels" \
+               --jq '.[].name' | grep -qx 'human:approval'; then held=true; fi
+          echo "held=$held" >> "$GITHUB_OUTPUT"
+
+      # The default branch, not the PR: the CONTEXT.md update commits on top of it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.held.outputs.held == 'true'
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Install tooling
+        if: steps.held.outputs.held == 'true'
+        shell: bash
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          sudo npm install -g @anthropic-ai/claude-code
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Ship or re-open the held issue
+        if: steps.held.outputs.held == 'true'
+        shell: pwsh
+        run: |
+          Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
+          Complete-HeldPR -PRNumber ([int]$env:PR_NUMBER) -Branch $env:PR_BRANCH -Merged ($env:PR_MERGED -eq 'true')
 
   # ── Resume (hourly) — issues paused on the Claude usage limit ────────────────
   resume:

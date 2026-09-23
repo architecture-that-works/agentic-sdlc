@@ -138,14 +138,27 @@ function ConvertFrom-ClaudeJsonResponse {
     if ($text -match '(?s)```(?:json)?\s*(\{.+\})\s*```') {
         return $Matches[1]
     }
+    # Prose around the object ("Here is the result: {...}") — keep the object.
+    $first = $text.IndexOf('{'); $last = $text.LastIndexOf('}')
+    if ($first -gt 0 -and $last -gt $first) { return $text.Substring($first, $last - $first + 1) }
     return $text
+}
+
+# The end of a subagent reply, for an error message that lands in the issue's
+# Attempts section: enough to see what went wrong, never the whole transcript.
+function Get-GrillOutputTail {
+    param([string]$Raw, [int]$MaxChars = 800)
+    $text = "$Raw".Trim()
+    if (-not $text) { return '(empty output)' }
+    if ($text.Length -le $MaxChars) { return $text }
+    return '…' + $text.Substring($text.Length - $MaxChars)
 }
 
 function Test-GrillResultSchema {
     param([string]$Json)
     # Round-trip through the pydantic model so failures surface as the same
     # ValidationError messages Python callers would see. Returns the normalised
-    # JSON on success, or $null on validation failure (caller logs and aborts).
+    # JSON on success; throws the last error line plus the answer's tail otherwise.
     $tmpIn  = New-TemporaryFile
     $tmpOut = New-TemporaryFile
     try {
@@ -163,8 +176,8 @@ pathlib.Path(r'$($tmpOut.FullName)').write_text(
 "@
         $err = $py | uv run python - 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "GrillResult validation failed:`n$err"
-            return $null
+            $why = @($err -split '\r?\n' | Where-Object { $_.Trim() })[-1]
+            throw "Self-grill subagent's answer is not a valid GrillResult: $why`n$(Get-GrillOutputTail -Raw $Json)"
         }
         return (Get-Content $tmpOut.FullName -Raw).Trim()
     } finally {
@@ -182,7 +195,7 @@ function Invoke-Grill {
         [string]$Body     = '',
         [switch]$DryRun,
         [string]$Model    = '',
-        [int]   $MaxTurns = 25
+        [int]   $MaxTurns = 40   # reading CONTEXT, AGENTS, the skill, ADRs and sources takes turns
     )
 
     if ($Issue -gt 0) {
@@ -213,19 +226,29 @@ function Invoke-Grill {
     $resolvedModel = Resolve-GrillModel -Requested $Model
 
     # The subagent is read-only — restrict tools so it cannot accidentally write
-    # to the working tree. The orchestrator alone owns mutations.
+    # to the working tree. The orchestrator alone owns mutations. The JSON envelope
+    # says how the run ended: a run that stops on its turn budget has no answer, and
+    # plain text output would hide that behind an empty or partial reply.
     $raw = $fullPrompt | claude `
         --model $resolvedModel `
         --allowedTools 'Read,Glob,Grep' `
-        --max-turns   $MaxTurns 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0) {
-        throw "Claude self-grill subagent exited with code ${LASTEXITCODE}:`n$raw"
+        --max-turns   $MaxTurns `
+        --output-format json 2>&1 | Out-String
+    $exit = $LASTEXITCODE
+
+    $envelope = $null
+    foreach ($line in ($raw -split '\r?\n')) {
+        if ($line -match '^\s*\{.*"type"\s*:\s*"result"') {
+            try { $envelope = $line | ConvertFrom-Json -ErrorAction Stop } catch {}
+        }
+    }
+    if (-not $envelope) {
+        throw "Self-grill subagent gave no result (exit code $exit):`n$(Get-GrillOutputTail -Raw $raw)"
+    }
+    if ($envelope.subtype -ne 'success' -or $envelope.is_error) {
+        throw "Self-grill subagent stopped with '$($envelope.subtype)' after $($envelope.num_turns) turn(s) (limit $MaxTurns):`n$(Get-GrillOutputTail -Raw "$($envelope.result)")"
     }
 
-    $json = ConvertFrom-ClaudeJsonResponse -Raw $raw
-    $validated = Test-GrillResultSchema -Json $json
-    if (-not $validated) {
-        throw "Self-grill subagent returned JSON that failed pydantic validation."
-    }
+    $validated = Test-GrillResultSchema -Json (ConvertFrom-ClaudeJsonResponse -Raw "$($envelope.result)")
     return ($validated | ConvertFrom-Json)
 }

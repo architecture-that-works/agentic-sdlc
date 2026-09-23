@@ -8,7 +8,9 @@
     after the review stage approved (the conductor) or by the owner's manual
     dispatch (afk.yml stage=ship), so it does not re-derive approval. It rebases the
     branch, waits for CI, and then either holds a PR that touches a governance file
-    (human:approval) or squash-merges it, deletes the branch and updates CONTEXT.md.
+    (human:approval) or squash-merges it, deletes the branch and updates CONTEXT.md
+    (Complete-Ship). Complete-HeldPR finishes a held issue once the owner merges or
+    closes its PR (afk.yml, pull_request closed).
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -357,9 +359,6 @@ function Invoke-Ship {
         throw "CI did not complete within ${CICompletionTimeoutSec}s for PR #$PRNumber."
     }
 
-    # --squash to match the docstring, the afk.yml merge job, and the
-    # repo convention (one squashed commit per issue). Previously --merge, which
-    # silently diverged AFK merges (merge commits) from label-triggered squashes.
     # ── Human-approval hold ───────────────────────────────────────────────────
     # Decided here, from the actual diff, once CI is green: a PR that touches a
     # governance file (GovernancePaths) is held for the owner to merge, and the issue
@@ -383,30 +382,65 @@ function Invoke-Ship {
         }
     }
 
+    # A -Force merge can carry the label; drop it first so the PR's closed event does
+    # not complete the issue a second time (Complete-HeldPR).
+    if ($Force) { Set-IssueLabel -Number $IssueNumber -Remove 'human:approval' }
     gh pr merge $PRNumber --squash --delete-branch 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "gh pr merge failed for PR #$PRNumber" }
 
-    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:shipped'
-    Add-Comment -Number $IssueNumber -Body "🤖✅ Merged`n`nPR #$PRNumber squash-merged. Issue closed."
+    Complete-Ship -IssueNumber $IssueNumber -PRNumber $PRNumber -How 'squash-merged'
+    return $true
+}
 
-    # From here the merge has already happened, so every exit returns $true — the
-    # CONTEXT.md update is best-effort and its failure must not read as "not merged".
+# ── After the merge ───────────────────────────────────────────────────────────
+# Shared by the pipeline's own merge and the owner's merge of a held PR: the issue
+# reaches agent:shipped and CONTEXT.md learns what changed. The merge has already
+# happened, so the CONTEXT.md update is best-effort.
+function Complete-Ship {
+    param([int]$IssueNumber, [int]$PRNumber, [string]$How)
+
+    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:shipped'
+    Add-Comment -Number $IssueNumber -Body "🤖✅ Merged`n`nPR #$PRNumber $How. Issue closed."
+
     $default = $KanbanDefaultBranch
     git checkout --quiet $default
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Could not switch to $default after merge — context update skipped." -Color Yellow
-        return $true
+        return
     }
     git fetch --quiet origin $default 2>$null
     git reset --hard --quiet "origin/$default" 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Could not sync $default with origin — context update skipped." -Color Yellow
-        return $true
+        return
     }
 
     Invoke-ContextUpdate -IssueNumber $IssueNumber
-
     Write-Log "✅ Merged PR #$PRNumber — issue #$IssueNumber complete." -Color Green
-    return $true
 }
 
+# The owner merged or closed a PR that ship held for approval (afk.yml, on the PR's
+# closed event). Merged: the issue ships as if the pipeline had merged it. Closed
+# unmerged: the issue lands on agent:failed at review, so the owner's comment saying
+# what should change starts the next attempt (retry.ps1). A PR that was never held
+# is left alone — the pipeline completes its own merges in Invoke-Ship.
+function Complete-HeldPR {
+    param([int]$PRNumber, [string]$Branch, [bool]$Merged)
+
+    if ($Branch -notmatch '^feature/(\d+)-') { return }
+    $issue = [int]$Matches[1]
+    if (@(Get-IssueLabel -IssueNumber $issue) -notcontains 'human:approval') {
+        Write-Log "PR #$PRNumber closed; issue #$issue was not held — nothing to do." -Color DarkGray
+        return
+    }
+
+    Set-IssueLabel -Number $issue -Remove 'human:approval'
+    if ($Merged) {
+        Complete-Ship -IssueNumber $issue -PRNumber $PRNumber -How 'merged by you'
+        return
+    }
+    Set-AgentFailedState -IssueNumber $issue -FailedAt 'review' -Reason "The owner closed PR #$PRNumber without merging it."
+    Add-Comment -Number $issue -Body ("🤖⏸ PR #$PRNumber closed without merging`n`n" +
+        'Comment on this issue with what should change; the next attempt starts from your comment.')
+    Write-Log "⏸ Issue #$issue — PR #$PRNumber closed unmerged; waiting on the owner's comment." -Color Yellow
+}

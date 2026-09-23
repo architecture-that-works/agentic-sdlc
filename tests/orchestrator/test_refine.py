@@ -303,6 +303,31 @@ function script:gh { throw 'gh must not be called when the board could not be re
     assert out == {"added": False}
 
 
+# ── Refine: no Agent Brief, no readiness ────────────────────────────────────
+
+
+def test_failed_grill_fails_refine_and_never_marks_it_refined() -> None:
+    """Live on #212 the grill failed and refine still set readiness.refined, so the
+    issue earned agent:backlog without anyone checking what the owner must decide."""
+    out = _run(
+        r"""
+$script:Log = [System.Collections.Generic.List[string]]::new()
+function script:gh { $global:LASTEXITCODE = 0; '{"title":"t","body":"**Goal**: g","comments":[]}' }
+function script:Get-IssueTemplate { '**Goal**: <goal>' }
+function script:Get-ProjectFieldValues { param($IssueNumber) [pscustomobject]@{ estimate = 3; priority = 'P2' } }
+function script:Format-OwnerComments { param($IssueNumber) '' }
+function script:Invoke-Grill { param($Title, $Body) throw "Self-grill subagent stopped with 'error_max_turns'" }
+function script:Set-PlanningReadiness { param($IssueNumber, $Stage, $StageLabel, $PopulatedBy) $script:Log.Add("ready:$Stage") }
+function script:Add-Comment { param($Number, $Body) $script:Log.Add('comment') }
+$err = $null
+try { Invoke-Refine -Number 7 } catch { $err = $_.Exception.Message }
+[pscustomobject]@{ err = $err; log = @($script:Log) } | ConvertTo-Json -Compress
+"""
+    )
+    assert "error_max_turns" in out["err"]
+    assert out["log"] == []
+
+
 # ── Conductor ────────────────────────────────────────────────────────────────
 
 _CONDUCTOR_FAKES = r"""
@@ -442,3 +467,20 @@ Invoke-Orchestration -IssueNumber 50 -MaxRetries 3
     ]
     assert "failed:review" in log and "ship" not in log
     assert any(e.startswith("comment:🤖❌ Failed after 3 attempts") for e in log)
+
+
+def test_refine_failures_use_the_attempt_budget_then_fail(tmp_path: Path) -> None:
+    out = _conductor(
+        _IMPLEMENT_FAKES
+        + r"""
+function script:Get-IssueState { param($IssueNumber) $null }
+function script:Invoke-Refine { param($Number) $script:Calls++; throw 'Self-grill subagent gave no result' }
+function script:Test-Readiness { param($State) $true }
+$r = Invoke-Orchestration -From refine -IssueNumber 50 -MaxRetries 3
+[pscustomobject]@{ r = $r; log = @($script:Log); calls = $script:Calls } | ConvertTo-Json -Compress
+""",
+        tmp_path,
+    )
+    assert out["r"] is False and out["calls"] == 3
+    assert "failed:refine" in out["log"]
+    assert "state:agent:backlog" not in out["log"]

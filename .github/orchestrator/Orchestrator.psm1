@@ -162,15 +162,6 @@ function Invoke-Orchestration {
             Reset-AttemptCount -IssueNumber $IssueNumber
 
             $state = Get-IssueState -IssueNumber $IssueNumber
-            # Refine and plan degrade to placeholders when the model is unavailable. If
-            # that is a spent allowance, pause rather than queue an issue on a stub plan.
-            $fallback = @('refined', 'planned') | Where-Object {
-                $state -and "$($state.readiness.$_.populated_by)" -like '*fallback*'
-            }
-            if ($fallback) {
-                $until = Test-EngineUsageLimit
-                if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Stage 'refine' -Until $until; return $false }
-            }
             if (Test-Readiness -State $state) {
                 Set-DecisionSection -IssueNumber $IssueNumber -State $state
                 Set-IssueLabel -Number $IssueNumber -Remove 'human:decision'
