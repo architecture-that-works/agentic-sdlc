@@ -15,6 +15,11 @@ Load in this order before any task:
 4. The task — issue body, PR diff, or prompt. If steps 1–4 would exceed ~100k tokens, keep it on
    disk and read it on demand.
 
+**Context health.** Past ~150k tokens, finish the current stage, write large tool output (logs,
+dumps) to disk with a short summary in its place, and compact. Past ~250k, stop: record the
+stage, files changed, suite status and next action in the issue body (never a local file —
+ADR-011), then start a fresh session from step 1 and re-run the suite before continuing.
+
 ## Context Protocol (ADR-009)
 
 Mandatory before opening any source file (`.py`, `.ps1`, `.yml`):
@@ -85,4 +90,3 @@ Load only when the task needs it:
 
 - Testing conventions, fixtures, coverage floor — `docs/TESTING.md`
 - Skill invocation protocol and lifecycle — `docs/SKILLS.md`
-- Development environment and context-window management — `docs/HARNESS.md`

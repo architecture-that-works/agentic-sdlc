@@ -17,7 +17,7 @@ Covers the design and implementation of autonomous AI agents. An agent is distin
 
 **Owns:** Plan-Act-Observe loop design and state management, tool definition standard (Pydantic → JSON Schema), structured output enforcement with correction on parse failure, provider-agnostic action executor, multi-agent coordination (Orchestrator + Handoff patterns), context window management within agent loops (sliding window, prompt caching), agent state persistence (Checkpointer pattern), agent testing patterns, OTel span emission per loop iteration.
 
-**Does not own:** Single-turn Claude API calls and AI-backed REST endpoints (→ `application-engineering`), agent deployment infrastructure and environment provisioning (see `docs/HARNESS.md`), data pipeline patterns used by agents (→ `data-engineering`), domain model design (→ `refine`).
+**Does not own:** Single-turn Claude API calls and AI-backed REST endpoints (→ `application-engineering`), agent deployment infrastructure and environment provisioning (`.github/workflows/`, `.devcontainer/`), data pipeline patterns used by agents (→ `data-engineering`), domain model design (→ `refine`).
 
 **Interfaces with:** `application-engineering` — agents are exposed to clients via thin API endpoints; single-call AI patterns and streaming SSE to client live there. `implement` — agent behaviour verified via RED-GREEN-REFACTOR; domain-specific testing patterns extend REFACTOR here.
 
@@ -33,7 +33,7 @@ Covers the design and implementation of autonomous AI agents. An agent is distin
 
 **Do NOT use for:**
 - Single-turn Claude calls within an API request (→ `application-engineering`)
-- Agent deployment and infrastructure (see `docs/HARNESS.md`)
+- Agent deployment and infrastructure (`.github/workflows/`)
 - Data pipelines that agents consume (→ `data-engineering`)
 
 ## Required Inputs
@@ -337,7 +337,7 @@ For streaming agent text output **to a client** (SSE to browser/CLI) → `applic
 
 ### Agent Observability
 
-Emit OpenTelemetry spans — one span per loop iteration. General OTel setup see `docs/HARNESS.md`. For agent-specific visualisation tooling → `docs/adr/ADR-006-agent-observability.md`.
+Emit OpenTelemetry spans — one span per loop iteration. General OTel setup: `docs/adr/ADR-003-observability.md`. For agent-specific visualisation tooling → `docs/adr/ADR-006-agent-observability.md`.
 
 ```python
 from opentelemetry import trace

@@ -144,7 +144,7 @@ tests/                pytest suite mirroring src/
 .github/tasks/        one runnable per Taskfile target
 .github/checks/       validators run by checks.yml
 .github/workflows/    checks.yml (CI gates), afk.yml (the pipeline), build, deploy
-docs/                 ADRs and conditional agent context (TESTING, SKILLS, HARNESS)
+docs/                 ADRs and conditional agent context (TESTING, SKILLS)
 ```
 
 The Module Map in [`CONTEXT.md`](CONTEXT.md) is the authoritative index.

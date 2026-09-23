@@ -112,15 +112,15 @@ LABELS: human:decision
 ESTIMATE: 5
 PRIORITY: P4
 **Goal**: The harness content describing a Planner/Generator/Evaluator agent split, an `emitEvent` durable event log, and tool-call offloading rules either becomes implemented template machinery or is dropped — it stops living in a document as unimplemented aspiration.
-**Description**: ADR-015 retired the `harness` skill and moved its content to `docs/HARNESS.md`. Reviewed against the repository, the PGE split, the event log and the offloading rules are implemented nowhere in `.github/orchestrator/` — no function emits an event, and nothing splits generation from evaluation. Documentation carries settled knowledge; in-flight intent belongs on an issue. The context-management thresholds and the Dev Container pointer stayed in `docs/HARNESS.md` because both describe something real. This issue decides the fate of the rest rather than leaving a document that describes machinery the repository does not have.
+**Description**: ADR-015 retired the `harness` skill and moved its content to `docs/HARNESS.md`. Reviewed against the repository, the PGE split, the event log and the offloading rules are implemented nowhere in `.github/orchestrator/` — no function emits an event, and nothing splits generation from evaluation. Documentation carries settled knowledge; in-flight intent belongs on an issue. The context-management thresholds and the Dev Container invariants survive in `AGENTS.md` and `CONTEXT.md` because both describe something real; `docs/HARNESS.md` was then removed. This issue decides the fate of the rest rather than leaving a document that describes machinery the repository does not have.
 **Requirements**:
 1. Decide per component — PGE split, `emitEvent` log, tool-call offloading rules — build, defer, or drop.
 2. For each "build", raise a child issue with acceptance criteria written against `.github/orchestrator/`.
 3. For each "drop", add an entry to `.out-of-scope.md` with the date and this issue as the source, so plan-phase deduplication finds it.
-4. Do not re-expand `docs/HARNESS.md` to hold the deferred design; the issue is the carrier for in-flight intent (ADR-011).
+4. Do not recreate a harness document to hold the deferred design; the issue is the carrier for in-flight intent (ADR-011).
 **Acceptance Criteria**:
 - Given the decision is recorded, no component remains undecided.
 - Given a component is dropped, `.out-of-scope.md` carries it with a date and source link.
 - Given a component is built, a child issue exists with acceptance criteria naming the orchestrator files it touches.
-- `docs/HARNESS.md` is unchanged in length by this issue — it describes only what exists.
+- No document describes an undecided component as though it exists.
 END_ISSUE

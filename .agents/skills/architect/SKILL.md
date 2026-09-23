@@ -15,7 +15,7 @@ Prevents structural drift and unplanned side-effects by making the dependency to
 
 **Owns:** Dependency graph generation and visualisation, circular dependency and layer-violation detection, deep/shallow module identification, fragility and coupling metric interpretation, blast-radius computation, GitHub Issue cross-reference loop, refactoring demand enforcement.
 
-**Does not own:** Domain model design decisions (→ `refine`), infrastructure and deployment topology (see `docs/HARNESS.md`), CI/CD pipeline configuration (see `docs/HARNESS.md`).
+**Does not own:** Domain model design decisions (→ `refine`), infrastructure, deployment topology and CI/CD configuration (`.github/workflows/`).
 
 **Interfaces with:** `refine` — topology validates the boundaries declared in `CONTEXT.md`. `plan` — blast-radius findings gate scope decisions in the Lean PRD. `review` — blast-radius report is posted as a PR comment for reviewer visibility.
 

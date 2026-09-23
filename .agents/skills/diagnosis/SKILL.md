@@ -21,7 +21,7 @@ statement (a test failure and a CI/workflow failure).
 
 **Owns:** Structured fault-isolation protocol, hypothesis-driven debugging, error-reading discipline, minimal reproduction procedure, symptom-vs-root-cause distinction.
 
-**Does not own:** Writing the fix (→ `implement`), provisioning test environments (see `docs/HARNESS.md`), code review after the fix (→ `review`).
+**Does not own:** Writing the fix (→ `implement`), provisioning test environments (`.devcontainer/`), code review after the fix (→ `review`).
 
 **Interfaces with:** `implement` — diagnosis ends when the root cause is confirmed; `implement` begins with that root-cause statement as the RED-phase acceptance criterion.
 

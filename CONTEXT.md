@@ -91,6 +91,7 @@ Invariants that must not be violated in any implementation.
 - **`src/utils/` is generic** — no project-specific logic in `m_*.py` modules.
 - **Standard library first** — prefer stdlib over third-party packages.
 - **Claude-first AI** — Claude is the default engine and the only one in the cloud (`afk.yml` pins it). Gemini is an optional local engine, selected by `KANBAN_ENGINE` for `task hitl`.
+- **Dev Container is the environment spec** — `.devcontainer/` defines it; keep its base image on the `requires-python` version, `uv sync` in the post-create step, and the `github-cli` and `powershell` features. One container per task — never reuse one across issues.
 - **PowerShell 7+** — all `.ps1` scripts target `#Requires -Version 7.0`. Never target PS 5.1.
 - **pydantic-settings `extra="ignore"`** — Settings class must always ignore unknown env vars.
 - **This repo is simultaneously a project and a Copier template of itself** — anything under `tests/`, `pyproject.toml`, or the skill tree usually has a second home under the template root (a `.jinja2` suffix, or an entry in `copier.yml` `_exclude`). Check for a parallel path before assuming one edit is enough; missing it has broken generated projects twice.

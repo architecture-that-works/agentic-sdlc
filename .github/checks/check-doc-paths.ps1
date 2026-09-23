@@ -38,7 +38,7 @@ $docsToCheck = @(
         Where-Object { $_.Name -ne 'EXAMPLES.md' }
     # docs/*.md routed from AGENTS.md § Conditional Context
     Get-ChildItem -Path (Join-Path $RepoRoot 'docs') -Filter '*.md' -File |
-        Where-Object { $_.Name -in @('TESTING.md', 'SKILLS.md', 'HARNESS.md') }
+        Where-Object { $_.Name -in @('TESTING.md', 'SKILLS.md') }
 )
 
 # Backtick-quoted spans and markdown link targets — the two ways these documents cite a path.
