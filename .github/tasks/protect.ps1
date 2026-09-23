@@ -54,6 +54,9 @@ $BodyObject = [ordered]@{
     required_pull_request_reviews    = [ordered]@{
         required_approving_review_count = 0
         dismiss_stale_reviews           = $false
+        # false: agent PRs are opened under the owner's PAT; GitHub prevents an author from approving
+        # their own PR, so requiring code-owner review would block every merge. Enforcement is
+        # delegated to the human:approval label (GovernancePaths in lib/Config.ps1) instead.
         require_code_owner_reviews      = $false
         require_last_push_approval      = $false
         bypass_pull_request_allowances  = [ordered]@{

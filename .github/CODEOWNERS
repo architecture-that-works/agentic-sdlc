@@ -1,2 +1,8 @@
 CONTEXT.md @ysuurme
 AGENTS.md @ysuurme
+SECURITY.md @ysuurme
+.github/CODEOWNERS @ysuurme
+docs/adr/ @ysuurme
+.github/workflows/ @ysuurme
+.github/checks/ @ysuurme
+.github/orchestrator/ @ysuurme
