@@ -7,8 +7,10 @@ and how to configure them per environment.
 
 ## GH_TOKEN
 
-**Purpose:** Authenticates GitHub CLI (`gh`) calls within the Orchestrator Workflow — creating
-issues, moving kanban cards, and mutating GitHub Projects v2 boards.
+**Purpose:** Authenticates GitHub CLI (`gh`) calls within the AFK workflow (`afk.yml`) — creating
+issues, moving kanban cards, and mutating GitHub Projects v2 boards. It must be a PAT rather than
+the workflow's built-in `GITHUB_TOKEN`: label changes made with `GITHUB_TOKEN` do not trigger
+workflows, and the `ship` job is triggered by the `agent:reviewing` label.
 
 **Why classic PAT, not fine-grained PAT:** GitHub Projects v2 mutations (add/move/archive
 project items) require the `project` OAuth scope. Fine-grained PATs do not expose this scope;
@@ -33,15 +35,16 @@ pre-flight). Revisit if a backlog drain plus interactive use exhausts the budget
 2. Generate a new token scoped to `project`, `read:org`, `repo`, `user`, `workflow`.
 3. Copy the new token value.
 4. Update the secret in every environment (see table below).
-5. Verify the Orchestrator Workflow completes a successful kanban-lane move.
+5. Verify the next AFK run completes a successful kanban-lane move.
 6. Revoke the old token.
 
 ---
 
 ## ANTHROPIC_API_KEY
 
-**Purpose:** Authenticates calls to the Anthropic Claude API made by agent skills and any
-AI-backed endpoints in this project.
+**Purpose:** Authenticates calls to the Anthropic Claude API made by AI-backed endpoints in this
+project, and by `src/tools/commit.py` when the Claude CLI is not installed. The orchestrator does
+not use it — it authenticates with `CLAUDE_CODE_OAUTH_TOKEN`.
 
 **Scope:** One key per project is sufficient. Do not share a key across multiple production
 services — per-service keys make compromise blast-radius containment and rotation easier.
@@ -82,29 +85,30 @@ in the repository.
 
 ## Orchestrator Credentials
 
-The orchestrator is a label-driven pipeline. By default it runs on a GitHub-hosted
-`ubuntu-latest` runner; a self-hosted runner is an opt-in (`KANBAN_RUNNER_PROFILE=self-hosted`).
-When an issue receives the `agent:backlog` label, the runner executes a full PowerShell
-pipeline: **Refine → Develop → PR → Review loop → Squash-merge → CONTEXT.md update**. Two
-secrets drive the pipeline at runtime.
+The orchestrator (`.github/orchestrator/`) takes an issue through six stages: **refine →
+architect → plan → implement → review → ship**. In the cloud it runs as `afk.yml` on a
+GitHub-hosted `ubuntu-latest` runner; a self-hosted runner is an opt-in
+(`KANBAN_RUNNER_PROFILE=self-hosted`). The two halves start differently:
+
+- **refine → architect → plan** runs automatically when an issue is opened. It grants
+  `agent:backlog` only when the issue has zero open questions (ADR-014).
+- **implement → review → ship** runs only when a human starts it — `task afk`, or Actions →
+  AFK → Run workflow with `stage=implement`. `agent:backlog` means *ready*, not *go*. The run
+  drains the whole `agent:backlog` queue, oldest first.
 
 ### Pipeline secrets
 
 | Secret | Role in pipeline |
 |---|---|
 | `GH_TOKEN` | Authenticates all `gh` CLI calls — creating/updating issues, moving kanban cards, opening PRs, and squash-merging |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates all `claude` CLI calls — Refine, Develop, Review, commit-message generation, and post-merge CONTEXT.md update |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates all `claude` CLI calls — refine (incl. the self-grill), plan, implement, review, commit-message generation, and the post-merge CONTEXT.md update. Architect is static analysis and makes no LLM call |
+
+The cloud engine is pinned to Claude in `afk.yml`; the `KANBAN_ENGINE` repository variable only
+selects the engine for local `task hitl` runs.
 
 ### CLAUDE_CODE_OAUTH_TOKEN
 
-**Purpose:** Authenticates every `claude -p` / `claude --print` invocation in the pipeline.
-Used in all five phases:
-
-- **Refine** — structures the issue body and assigns estimate/priority
-- **Develop** — runs Claude Code non-interactively to implement requirements and verify with `uv run pytest`
-- **Review** — agent self-review of the PR diff against acceptance criteria
-- **Commit-message** — generates a conventional commit message from the staged diff
-- **Context update** — patches `CONTEXT.md` after the PR is squash-merged
+**Purpose:** Authenticates every non-interactive `claude` invocation in the pipeline (see the table above).
 
 **How to obtain:**
 1. Open claude.ai → click your profile → **Settings**.
@@ -121,19 +125,19 @@ Mitigations:
 1. Open claude.ai → Settings → Claude Code → OAuth Token → **Regenerate**.
 2. Copy the new token value.
 3. Update the `CLAUDE_CODE_OAUTH_TOKEN` secret in GitHub: Settings → Secrets and variables → Actions.
-4. Verify the next orchestrator run completes without a `claude` authentication error.
+4. Verify the next AFK run completes without a `claude` authentication error.
 5. The old token is invalidated automatically on regeneration.
 
 ### Self-hosted runner
 
-With `KANBAN_RUNNER_PROFILE=self-hosted`, the `implement` job requires a self-hosted runner
-registered with the `gha-project` label (see `runs-on: [self-hosted, gha-project]` in
-`.github/workflows/afk.yml`). The runner must have `uv`, `claude` (Claude Code CLI),
-`git`, and `gh` pre-installed.
+With `KANBAN_RUNNER_PROFILE=self-hosted`, the `refine` and `implement` jobs require a
+self-hosted runner registered with the `gha-project` label (see `runs-on` in
+`.github/workflows/afk.yml`); the `ship` job always runs on `ubuntu-latest`. The runner must
+have `uv`, `claude` (Claude Code CLI), `git`, `gh` and `pwsh` pre-installed.
 
-- **Start:** run `./run.cmd` from the registered runner directory, or install it as a service
-  (`svc.cmd install`) for unattended operation.
-- **Stop:** Ctrl+C in the foreground, or `svc.cmd stop` for the service.
+- **Start:** run `./run.sh` (`run.cmd` on Windows) from the registered runner directory, or
+  install it as a service (`svc.sh install` / `svc.cmd install`) for unattended operation.
+- **Stop:** Ctrl+C in the foreground, or `svc.sh stop` / `svc.cmd stop` for the service.
 
 `task afk` dispatches the `agent:backlog` queue to the cloud — it does not start the
 runner process.
@@ -143,9 +147,9 @@ runner process.
 One-time setup steps for a freshly generated project:
 
 1. **Create the repository** — push the generated project to GitHub.
-2. **Create a GitHub Project (v2)** — add a Status field (single-select) with at least four
-   options: Backlog, Implementing, Review, Merged. Optionally add Estimate (number) and
-   Priority (single-select) fields.
+2. **Create a GitHub Project (v2)** — add a Status field (single-select) with four options:
+   Backlog, Implementing, Review, Shipped. Optionally add Estimate (number) and Priority
+   (single-select) fields.
 3. **Populate `.env`** — copy `.env.example` to `.env` and set:
    - `GH_TOKEN` — your classic PAT with `project`, `read:org`, `repo`, `user`, `workflow` scopes
    - `KANBAN_PROJECT_NUMBER` — the project number from the GitHub Project URL
@@ -154,16 +158,72 @@ One-time setup steps for a freshly generated project:
    create:
    - `GH_TOKEN` — the same classic PAT as above
    - `CLAUDE_CODE_OAUTH_TOKEN` — obtained from claude.ai → Settings → Claude Code
-5. **Run project setup** — `task setup` — queries the GitHub Project for field/option IDs
-   and writes them to `.env` and as GitHub Actions repository variables.
+5. **Run project setup** — `task setup` — queries the GitHub Project for field/option IDs,
+   writes them to `.env` and as GitHub Actions repository variables, and provisions the
+   `agent:*` and `human:*` labels.
 6. **(Self-hosted profile only)** — if you set `KANBAN_RUNNER_PROFILE=self-hosted`, register a
    runner at `github.com/<org>/<repo>/settings/actions/runners/new` with the custom label
-   `gha-project`, then start it (`./run.cmd` or install as a service). On the default `hosted`
-   profile, skip this — runs execute on `ubuntu-latest`.
-7. **Sync issues** — `task sync` — pushes the local `ISSUES.md` backlog to GitHub Issues and
-   applies the `agent:backlog` label to ready items.
-8. **Trigger** — apply `agent:backlog` to any open issue to auto-start it, or run `task afk`
-   to drain the entire `agent:backlog` queue in the cloud.
+   `gha-project`, then start it. On the default `hosted` profile, skip this.
+7. **Sync issues** — `task sync` — pushes the local `ISSUES.md` backlog to GitHub Issues. Each
+   new issue triggers refine; `agent:*` labels declared in `ISSUES.md` are ignored so the
+   readiness gate cannot be bypassed.
+8. **Trigger** — `task afk`, or Actions → AFK → Run workflow with `stage=implement`, drains the
+   `agent:backlog` queue in the cloud.
+
+---
+
+## Human Oversight
+
+Every agent action can be halted, overridden or rolled back by a human. All mechanisms below
+are manual; the pipeline never escalates, retries or rolls back on its own beyond its bounded
+review loop (`KANBAN_MAX_RETRIES` implement → review cycles, then `agent:failed`). Each
+browser step also works from the GitHub mobile web UI.
+
+### Halt
+
+| To stop… | Do this |
+|---|---|
+| Everything, immediately | Actions → AFK → **⋯ → Disable workflow** (`gh workflow disable afk.yml`). No stage runs, including refine on new issues, until re-enabled. |
+| The current run | Actions → the running AFK run → **Cancel workflow** (`gh run cancel <run-id>`). The feature branch and any open PR are kept. |
+| The queue after the current issue | Remove `agent:backlog` from the issues you want held. The drain only re-dispatches while `agent:backlog` issues remain. |
+| An issue from auto-merging | Add `human:approval`, at any point before ship. The pipeline implements and self-reviews, then holds at `agent:reviewing` and comments on the issue; only a human merges the PR. |
+
+A cancelled run can leave the issue on `agent:implementing` or `agent:reviewing`. Resume it
+with `task retry ISSUE=<n>`: it re-dispatches refine or ship when that stage failed, and
+otherwise re-queues the issue to `agent:backlog` for the next `task afk`.
+
+### Override
+
+- **Correct a refine decision.** The issue body is the pipeline's only state (ADR-011) and the
+  implement stage reads it verbatim. Edit the **Agent Brief** section, or move an entry from
+  `open_questions[]` to `decided_questions[]` in the `AGENT-STATE` block with your
+  `decision`, then re-run refine (`task refine ISSUE=<n>`, or Run workflow with
+  `stage=refine`). Architecture Impact and Implementation Plan are regenerated on every refine
+  run, so edit them once the issue has `agent:backlog`; from then on edits take effect at the
+  next implement without a re-run.
+- **Run a specific stage.** Actions → AFK → **Run workflow** with `stage` and `issue_number`:
+  - `refine` — re-align one issue.
+  - `implement` — process that issue if it carries `agent:backlog`, otherwise the oldest
+    `agent:backlog` issue; `0` drains the queue.
+  - `ship` — merge the issue's PR. Requires an approval signal (`agent:reviewing` or an
+    approved PR review) and still honours the `human:approval` hold.
+  Locally, `task hitl ISSUE=<n>` runs implement → review → ship in your terminal.
+- **Reject the agent's work.** Close the PR without merging. To have the agent try again, put
+  your feedback in the issue body (e.g. the Agent Brief) and run `task retry ISSUE=<n>`. The
+  agent reads the issue body and its 🤖 signal comments — not PR review comments.
+
+### Roll back
+
+Ship squash-merges one commit per issue, then may push a follow-up `chore(context)` commit that
+updates CONTEXT.md directly on the default branch.
+
+1. On the merged PR, click **Revert** and merge the revert PR (or `git revert <squash-sha>`
+   through a PR). Revert the follow-up CONTEXT.md commit too, if there is one — `git log -3
+   -- CONTEXT.md` on the default branch shows it.
+2. Reopen the issue (`gh issue reopen <n>`) and remove `agent:shipped`.
+3. To redo it, run `task retry ISSUE=<n>` then `task afk` — the refine/architect/plan state in
+   the issue body is kept, so it re-enters `agent:backlog` directly. Otherwise close it as not
+   planned.
 
 ---
 
