@@ -77,6 +77,18 @@ function f($t) { $r = Get-UsageLimitResume -Text $t -Now $now; if ($r) { $r.ToSt
     }
 
 
+def test_probe_without_a_runnable_cli_is_not_a_limit() -> None:
+    """A missing or crashing engine CLI is not a usage limit — and must not throw."""
+    out = _run(
+        r"""
+function script:claude { throw "The term 'claude' is not recognized" }
+function script:agy    { throw "The term 'agy' is not recognized" }
+[pscustomobject]@{ limited = ($null -ne (Test-EngineUsageLimit)) } | ConvertTo-Json -Compress
+"""
+    )
+    assert out == {"limited": False}
+
+
 _CONDUCTOR = r"""
 $script:Log = [System.Collections.Generic.List[string]]::new()
 $script:State = [pscustomobject]@{ attempts = @(); attempt_count = 0 }

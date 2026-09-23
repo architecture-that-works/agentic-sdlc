@@ -142,14 +142,19 @@ function Get-UsageLimitResume {
     return $until
 }
 
-# One tiny engine call. $null when the engine answers (or fails for another
-# reason); the UTC resume time when it reports a usage limit.
+# One tiny engine call. $null when the engine answers or fails for another reason
+# — including a CLI that cannot run at all, which is not a usage limit; the probe
+# must never be what breaks the caller. The UTC resume time when it reports a limit.
 function Test-EngineUsageLimit {
     $ctx = Get-OrchestratorContext
-    $out = if ($ctx.Engine -eq 'gemini') {
-        "ping" | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String
-    } else {
-        "ping" | claude --model $KanbanModel_Aux 2>&1 | Out-String
+    try {
+        $out = if ($ctx.Engine -eq 'gemini') {
+            "ping" | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String
+        } else {
+            "ping" | claude --model $KanbanModel_Aux 2>&1 | Out-String
+        }
+    } catch {
+        return $null
     }
     return Get-UsageLimitResume -Text $out
 }

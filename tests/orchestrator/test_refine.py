@@ -318,6 +318,8 @@ function script:Set-AgentFailedState { param($IssueNumber, $FailedAt, $Reason) $
 function script:Set-DecisionSection { param($IssueNumber, $State) }
 function script:Format-ErrorBlock { param($Raw) $Raw }
 function script:git { $global:LASTEXITCODE = 1 }
+# Never call a real model from a test: the usage-limit probe answers "not limited".
+function script:Test-EngineUsageLimit { $null }
 """
 
 
