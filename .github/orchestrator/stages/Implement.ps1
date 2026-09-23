@@ -170,15 +170,35 @@ function Invoke-CommitAndPR {
     $fmtOut = uv run ruff format . 2>&1 | Out-String
     Write-Log "  ruff format: $($fmtOut.Trim())" -Color DarkGray
 
-    # Stage only known-safe paths rather than git add . — an agent implementation
-    # can create .env files, credentials, or other sensitive artefacts; the allowlist
-    # ensures nothing outside these directories ever reaches the index.
-    # Stage every tracked + untracked change that .gitignore allows. The denylist
-    # below is the final safety net for sensitive leaf names. Previously a static
-    # allowlist silently dropped legitimate edits to files like SECURITY.md and
-    # .devcontainer/devcontainer.json, leading to "Already implemented — no new
-    # changes" false positives and PR-creation failures despite real work on disk.
-    git add -A 2>&1 | Out-Null
+    # ── Allowlist gate ────────────────────────────────────────────────────────────
+    # A missing or empty WritablePaths is a hard failure — never a silent pass.
+    if (-not $OrchestratorConfig.ContainsKey('WritablePaths') -or -not $OrchestratorConfig.WritablePaths) {
+        throw "OrchestratorConfig.WritablePaths is missing or empty — agent staging is disabled as a safety measure."
+    }
+    $writablePaths = $OrchestratorConfig.WritablePaths
+
+    # Enumerate all changed paths before any git add.
+    $changedPaths = @(@(git status --porcelain 2>&1) |
+        Where-Object { $_.Trim() } |
+        ForEach-Object {
+            $entry = $_.Substring(3).Trim()
+            if ($entry -match ' -> ') { ($entry -split ' -> ')[1] } else { $entry }
+        } | Where-Object { $_ })
+
+    # Throw with every out-of-bounds path named — no git add until all paths clear.
+    $outOfBounds = @($changedPaths | Where-Object {
+        $p = $_
+        -not ($writablePaths | Where-Object { $p -like $_ })
+    })
+    if ($outOfBounds.Count -gt 0) {
+        $offending = ($outOfBounds | ForEach-Object { "  - $_" }) -join "`n"
+        throw "Agent staging blocked — the following changed paths are outside WritablePaths:`n$offending"
+    }
+
+    # Stage only in-bounds paths (allowlist is the primary layer).
+    foreach ($p in $changedPaths) {
+        git add -- $p 2>&1 | Out-Null
+    }
 
     # Guard: inspect every staged path against a denylist and silently unstage any match.
     # docs/adr/ is exempt — ADR filenames legitimately contain words like "secret" or
