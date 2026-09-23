@@ -270,6 +270,8 @@ $script:KanbanProjectNumber = 5
 $script:_CachedItems = @([pscustomobject]@{
     id = 'PVTI_other'; content = [pscustomobject]@{ number = 1; repository = 'octocat/sandbox' }
 })
+$script:KanbanOpt_Backlog = 'opt_backlog'
+$script:_CachedProjectId = 'PVT_1'
 function script:Get-ResolvedOwner { 'octocat' }
 $script:Calls = @()
 function script:gh { $script:Calls += ($args -join ' '); $global:LASTEXITCODE = 0; '{"id":"PVTI_new"}' }
@@ -277,17 +279,18 @@ $added = Add-IssueToBoard -IssueNumber 42
 $again = Add-IssueToBoard -IssueNumber 42
 [pscustomobject]@{
     added = $added; again = $again; itemId = (Get-ProjectItemId -IssueNumber 42)
-    calls = @($script:Calls).Count; url = ($script:Calls[0] -match 'issues/42')
+    calls = @($script:Calls); status = (Get-ProjectStatus -IssueNumber 42)
 } | ConvertTo-Json -Compress
 """
     )
-    assert out == {
-        "added": True,
-        "again": True,
-        "itemId": "PVTI_new",
-        "calls": 1,
-        "url": True,
-    }
+    assert out["added"] is True and out["again"] is True
+    assert out["itemId"] == "PVTI_new"
+    # Added once, then placed in Backlog once: an item without a Status can be
+    # hidden by a board view.
+    add, edit = out["calls"]
+    assert add.startswith("project item-add") and "issues/42" in add
+    assert edit.startswith("project item-edit") and "opt_backlog" in edit
+    assert out["status"] == "Backlog"
 
 
 def test_board_unreadable_means_no_add() -> None:

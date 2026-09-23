@@ -988,6 +988,8 @@ function Move-ToLane {
 # `task sync`, so it is not on the board: every lane move would skip it and refine
 # could not set its estimate. Add it once, and record it in the item cache so the
 # same pass sees it (with empty estimate/priority, which refine then fills in).
+# It lands in Backlog — not started: being refined, or waiting on the owner — so it
+# is never an item without a Status, which board views can hide.
 function Add-IssueToBoard {
     param([int]$IssueNumber)
     if (Get-ProjectItemId -IssueNumber $IssueNumber) { return $true }
@@ -1014,6 +1016,7 @@ function Add-IssueToBoard {
         priority = $null
     }
     Write-Log "  Issue #$IssueNumber added to the project board." -Color DarkGray
+    Move-ToLane -IssueNumber $IssueNumber -OptionId $KanbanOpt_Backlog -LaneName 'Backlog'
     return $true
 }
 

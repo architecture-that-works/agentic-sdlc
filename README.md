@@ -86,7 +86,8 @@ flowchart LR
   never the pipeline's own (they start with 🤖 or ·). No @-mention or keyword is needed. Edits to
   the issue body do not trigger anything — add a short comment after editing.
 - **Refine** writes an Agent Brief, Architecture Impact and Implementation Plan into the body,
-  adds the issue to the board, and grants `agent:backlog` only when no question is open.
+  adds the issue to the board (in Backlog until it starts), and grants `agent:backlog` only
+  when no question is open.
 - **Failures retry themselves.** Test failures, review rejections, red CI (with its log) and
   refine errors (a self-grill that gives no usable answer included) each count as one attempt; the next attempt re-implements with every earlier
   failure in view. After 3 (`KANBAN_MAX_RETRIES`) the issue lands on `agent:failed`.
