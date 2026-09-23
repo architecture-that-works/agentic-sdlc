@@ -22,15 +22,16 @@ __PROJECT_DESCRIPTION__
 | Task | A command in `Taskfile.yml`. Each target is backed by one runnable of the same name in `.github/tasks/`. | — |
 | Library | A PowerShell file dot-sourced by the module loader. PascalCase. Declares no top-level `param()` — dot-sourcing executes that block in the caller's scope (ADR-013). | Opposite of a Runnable |
 | Runnable | A PowerShell file invoked directly. lowercase. Owns its `param()`. | Opposite of a Library |
-| Carrier | The GitHub issue body. Holds the `AGENT-STATE` block, `open_questions[]`, `decided_questions[]`, `failed_at`, and the Architecture Impact, Implementation Plan and Agent Brief sections. | The only cross-runtime state medium (ADR-011) |
-| AFK | Execution mode: unattended, on GitHub Actions. Entry point `task afk`, workflow `afk.yml`. The default. | A mode, never a label |
+| Carrier | The GitHub issue body. Holds the `AGENT-STATE` block (`open_questions[]`, `decided_questions[]`, `attempts[]`, `failed_at`) and the Agent Brief, Decisions, Architecture Impact, Implementation Plan and Attempts sections. | The only cross-runtime state medium (ADR-011). The owner talks to the pipeline in comments; the pipeline answers in the carrier |
+| AFK | Execution mode: unattended, on GitHub Actions (`afk.yml`), driven by issue events — opened, `agent:backlog` added, owner comment. The default. `task afk` only backfills refine. | A mode, never a label |
 | HITL | Execution mode: interactive, on the local machine. Entry point `task hitl`. Has no workflow. | A mode, never a label |
 | `agent:` | Label prefix — the agent holds the ball. Exactly one `agent:` label at a time. | — |
-| `human:` | Label prefix — a human holds the ball; nothing advances until they act. `human:approval` = merge authority; `human:decision` = a question, never a work item. | `human:approval`, not `human:review` — "review" already names the agent's own stage |
+| `human:` | Label prefix — a human holds the ball; nothing advances until they act. `human:approval` = merge authority; `human:decision` = the issue waits on answers to the questions listed in it. | `human:approval`, not `human:review` — "review" already names the agent's own stage |
 | `KANBAN_*` variables | Deliberately retained — the one exception to the single-vocabulary rule. `KANBAN_ENGINE` and `KANBAN_RUNNER_PROFILE` are live GitHub repository variables; renaming them means touching repository Settings and every generated project's setup for no functional gain. Do not "fix" them. | The module is `Orchestrator`; only the variable prefix is legacy |
 | ISSUES.md | Local backlog of Agile User Story blocks, synced to GitHub Issues via `task sync` | Separate from GitHub Issues themselves |
 | Signal comment | Issue comment starting with the robot emoji; posted by the orchestrator for agent decisions and outcomes (review results, failures, CI). Retrieved by agents by that prefix to reconstruct issue history | Not orchestrator log noise |
-| Noise comment | Issue comment starting with a middle dot; orchestrator log entry (state transitions, stage starts). Never retrieved by agents | All other issue comments are noise |
+| Noise comment | Issue comment starting with a middle dot; orchestrator log entry (state transitions, stage starts). Never retrieved by agents | — |
+| Owner comment | Any other comment by someone with write access — answers, context, guidance. Triggers the pipeline and is passed to every agent prompt | The pipeline posts with the owner's PAT, so the 🤖/· prefix is the only thing telling its comments apart; `Add-Comment` enforces it |
 
 ## Bounded Contexts
 

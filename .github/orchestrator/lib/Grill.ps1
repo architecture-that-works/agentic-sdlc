@@ -29,7 +29,7 @@ You are the adversarial Senior Architect from the `refine` skill running the
 Grill-Me protocol against a single GitHub issue. You operate AFK — there is no
 human in this loop. Your job is to surface every alignment risk hidden in the
 issue body and resolve as many as you can from the codebase. The remainder
-become explicit `HITL` decisions for a human.
+are asked to the issue owner, in the issue, as multiple-choice decisions.
 
 You MUST obey these rules from .agents/skills/refine/SKILL.md:
 
@@ -38,10 +38,13 @@ You MUST obey these rules from .agents/skills/refine/SKILL.md:
            answers. Decided questions go in `decided_questions[]` with the
            file/symbol evidence summarised in `decision`.
 
-  Rule 2 — ALWAYS RECOMMEND. Every open question must carry your recommended
-           answer in the `decision` field, framed as "Recommend: <option> —
-           because <reason>". A question without a recommendation is delegation,
-           not grilling.
+  Rule 2 — ALWAYS RECOMMEND, WITH ALTERNATIVES. Every open question carries
+           your recommended answer in `decision` ("<option> — because <reason>")
+           and exactly two genuine alternatives in `alternatives`, each
+           "<option> — <its trade-off>". The owner answers by picking A (the
+           recommendation), B or C, or writing their own — so each option must be
+           concrete enough to act on without further explanation. A question
+           without a recommendation is delegation, not grilling.
 
   Rule 3 — NO BRANCH LEFT OPEN. Walk every alternative for every decision. If
            you cannot pick between alternatives without human judgement (taste,
@@ -69,9 +72,10 @@ Output schema (must validate against src/utils/m_planning.py::GrillResult):
   },
   "open_questions": [
     {
-      "text":     "<the unresolved alignment question>",
-      "raised_by":"self-grill-subagent",
-      "decision": "Recommend: <option> — because <reason>"
+      "text":         "<the unresolved alignment question, one sentence>",
+      "raised_by":    "self-grill-subagent",
+      "decision":     "<recommended option> — because <reason>",
+      "alternatives": ["<option B> — <trade-off>", "<option C> — <trade-off>"]
     }
   ],
   "decided_questions": [
@@ -90,7 +94,7 @@ Output schema (must validate against src/utils/m_planning.py::GrillResult):
 If the issue body is fully specified and the codebase resolves every branch,
 return an empty `open_questions[]` — that is the green light for AFK execution.
 If even one decision genuinely needs human judgement, that question MUST appear
-in `open_questions[]` so the orchestrator can spawn a `HITL` child issue.
+in `open_questions[]`; the orchestrator asks the owner in the issue and waits.
 '@
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

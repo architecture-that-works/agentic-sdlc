@@ -52,68 +52,66 @@ Replace `HelloHandler` in `src/main.py` with your first feature.
 
 ## How the pipeline works
 
+**The issue is the interface.** You write issues and comments, from a phone if you like; the
+pipeline does the rest and writes everything it knows — brief, questions, decisions, plan,
+attempts — into the issue body.
+
 ```mermaid
 flowchart LR
-    N([issue opened]) --> R([refine]) --> AR([architect]) --> P([plan])
-    P -- open questions --> Q([human:decision issue])
-    Q -- answer + close --> R
-    P -- ready --> B([agent:backlog])
-    B -- task afk / task hitl --> I([agent:implementing])
-    I --> V([agent:reviewing])
-    V -- rejected --> I
-    V -- approved --> S([agent:shipped])
-    V -- human:approval --> H([held: a human merges])
-    I -- error or retries exhausted --> F([agent:failed])
-    F -- task retry --> B
+    N([issue opened]) --> R([refine → architect → plan])
+    R -- open questions --> D([human:decision])
+    D -- your comment --> R
+    R -- nothing open --> B([agent:backlog])
+    B -- starts automatically --> I([implement → review → ship])
+    I -- failed attempt, up to 3 --> I
+    I -- merged --> S([agent:shipped])
+    I -- human:approval --> H([held: you merge the PR])
+    I -- 3 attempts failed --> F([agent:failed])
+    F -- your comment --> I
 ```
 
-- **One trigger.** `task afk` — or Actions → **AFK** → **Run workflow** with the default
-  `stage=all`, which works from a phone — refines every un-aligned issue, then runs implement →
-  review → ship on everything that is ready, oldest first. `agent:backlog` means *ready*, not
-  *go* (ADR-014): nothing is implemented until you trigger it.
-- **Refine → architect → plan** also runs by itself when an issue is opened, writes its output
-  (Agent Brief, Architecture Impact, Implementation Plan) into the issue body, and adds the issue
-  to the board. It grants `agent:backlog` only when no open questions remain.
-- **Questions come to you as `human:decision` issues.** Answer by commenting and closing the
-  issue — closing without a comment accepts the agent's recommendation. The parent is re-refined
-  automatically once its last question closes, and the next trigger processes it.
-- Review may send work back to implement up to `KANBAN_MAX_RETRIES` times (3 in the cloud, 2
-  locally by default); after that the issue lands on `agent:failed`.
-- Ship waits for CI, squash-merges, and updates `CONTEXT.md`. An issue labelled `human:approval`
-  stops before the merge.
-
-| Label | Board lane | Meaning |
+| When the issue has… | The pipeline is… | You… |
 |---|---|---|
-| _(none)_ | Backlog | Not yet aligned |
-| `agent:backlog` | Backlog | Aligned and ready to process |
-| `agent:implementing` | Implementing | Branch created, agent implementing |
-| `agent:reviewing` | Review | PR open, self-review running or passed |
-| `agent:shipped` | Shipped | PR squash-merged, issue closed |
-| `agent:failed` | Backlog | Needs a human — see `failed_at` in the issue body |
-| `human:approval` | — | Implement and review unattended; a human merges |
-| `human:decision` | — | A question for a human, never a work item |
+| no label | refining it (starts when the issue is opened) | nothing |
+| `human:decision` | waiting on questions listed in the issue, each with a recommended answer (A), two alternatives (B, C) and "other" | reply in a comment: `ok` accepts every recommendation; `1B`, `2C` or `2: your own words` answer one question |
+| `agent:backlog` → `agent:implementing` → `agent:reviewing` | building, reviewing and shipping it — `agent:backlog` starts it | nothing; comments you add are passed to the agent |
+| `human:approval` + a held PR | done, waiting for your merge | review and merge the PR |
+| `agent:failed` | stopped after 3 failed attempts, each listed in the issue's **Attempts** section | fix it hands-on or explain what to change, then comment — any comment (e.g. `retry`) starts a new round of 3 attempts |
+| `agent:shipped` | done: merged and closed | nothing |
 
-**What needs you** — each with a comment on the issue saying what is needed:
-[`label:human:decision`](../../issues?q=is%3Aopen+label%3Ahuman%3Adecision) (answer and close),
-[`label:human:approval`](../../issues?q=is%3Aopen+label%3Ahuman%3Aapproval) (review and merge the
-PR once it is held), [`label:agent:failed`](../../issues?q=is%3Aopen+label%3Aagent%3Afailed) (fix
-the cause, then `task retry`). To halt, override or roll back anything the pipeline does, see
-[`SECURITY.md` § Human Oversight](SECURITY.md#human-oversight).
+- **Your comment is the trigger.** Only comments from people with write access count, and
+  never the pipeline's own (they start with 🤖 or ·). No @-mention or keyword is needed. Edits to
+  the issue body do not trigger anything — add a short comment after editing.
+- **Refine** writes an Agent Brief, Architecture Impact and Implementation Plan into the body,
+  adds the issue to the board, and grants `agent:backlog` only when no question is open.
+- **Failures retry themselves.** Test failures, review rejections, red CI (with its log) and
+  refine errors each count as one attempt; the next attempt re-implements with every earlier
+  failure in view. After 3 (`KANBAN_MAX_RETRIES`) the issue lands on `agent:failed`.
+- **Ship** waits for CI, squash-merges and updates `CONTEXT.md` — unless the issue carries
+  `human:approval`, which holds the PR for you.
+
+**What needs you:**
+[`human:decision`](../../issues?q=is%3Aopen+label%3Ahuman%3Adecision) ·
+[held PRs](../../issues?q=is%3Aopen+label%3Ahuman%3Aapproval+label%3Aagent%3Areviewing) ·
+[`agent:failed`](../../issues?q=is%3Aopen+label%3Aagent%3Afailed). To halt, override or roll back
+anything, see [`SECURITY.md` § Human Oversight](SECURITY.md#human-oversight).
 
 ### Commands
 
+Nothing needs a command day to day. These are for setup, backfill and local runs:
+
 ```bash
-task sync              # push ISSUES.md blocks to GitHub Issues (each then triggers refine)
-task afk               # cloud, the one trigger: refine everything un-aligned, then process all that is ready
-task refine [ISSUE=N]  # local: align one issue, or every un-aligned one
+task afk               # cloud backfill: refine every issue with no agent:* label
+task sync              # push ISSUES.md blocks to GitHub Issues (each is then refined)
+task refine [ISSUE=N]  # local: refine one issue, or every issue with no agent:* label
 task hitl [ISSUE=N]    # local: pick a backlog issue and run it in this terminal
-task retry ISSUE=N     # resume a failed or stuck issue
+task retry ISSUE=N     # resume a failed issue (same as commenting on it)
 task setup             # one-time board, label and variable setup
 task protect           # apply branch protection to main
 ```
 
-Actions → **AFK** → **Run workflow** runs `all` (default), or a single stage — `refine`,
-`implement` or `ship` — for one issue number.
+Actions → **AFK** → **Run workflow** runs one stage — `refine` (issue `0` = backfill),
+`implement` or `ship` — as a manual override.
 
 ### Runner profile
 

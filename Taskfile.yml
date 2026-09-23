@@ -28,7 +28,7 @@ tasks:
       - pwsh -NoProfile -File .github/tasks/hitl.ps1 -Issue {{.ISSUE}} -MaxRetries {{.RETRIES}}
 
   afk:
-    desc: "AFK — the one trigger: refine every un-aligned issue in the cloud, then implement → review → ship all that is ready"
+    desc: "AFK backfill — refine every issue with no agent:* label in the cloud; ready ones start implementing on their own"
     cmds:
       - pwsh -NoProfile -File .github/tasks/afk.ps1 {{.CLI_ARGS}}
 

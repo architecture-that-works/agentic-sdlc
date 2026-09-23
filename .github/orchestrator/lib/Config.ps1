@@ -62,7 +62,7 @@ $OrchestratorConfig = @{
     MaxTurns_ContextUpdate = 15   # diff analysis + generate a unified patch
 
     # Orchestrator behaviour
-    MaxRetries = 2    # implement→review cycles before agent:failed
+    MaxRetries = 3    # failed attempts per round (implement, review, CI, refine) before agent:failed
 }
 
 # ── Project constants (env, with defaults) ────────────────────────────────────

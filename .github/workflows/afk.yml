@@ -3,37 +3,41 @@ name: AFK
 # AFK pipeline: Refine → Architect → Plan → Implement → Review → Ship.
 # Requires secrets: GH_TOKEN (classic PAT, project scope), CLAUDE_CODE_OAUTH_TOKEN.
 #
-# Trigger summary:
-#   workflow_dispatch (stage=all)              → refine every un-aligned issue, then drain
-#                                                agent:backlog — the one trigger (task afk)
-#   issue opened (not human:decision, not agent:backlog) → refine
-#   human:decision issue closed                → re-refine its parent (the answer is read back)
-#   workflow_dispatch (stage=refine)           → refine one issue, or every un-aligned one (0)
-#   workflow_dispatch (stage=implement)        → drain the agent:backlog queue
-#   workflow_dispatch (stage=ship)             → ship one approved PR manually
-#   agent:reviewing label                      → ship job (resilient handoff for review→ship)
+# The issue is the interface. Every trigger is an issue event; the dispatch inputs
+# are for backfill and manual overrides.
+#
+#   issue opened                                → refine (refine → architect → plan)
+#   agent:backlog label added                   → implement → review → ship
+#   comment by the owner or a collaborator      → refine: judge the reply against the open
+#     (not a 🤖/· pipeline comment)                questions, or refine an un-refined issue;
+#                                                  on an agent:failed issue → retry that stage
+#   agent:reviewing label                       → ship job (resilient handoff for review→ship)
+#   workflow_dispatch stage=refine, issue 0     → refine every issue with no agent:* label
+#   workflow_dispatch stage=implement / ship    → manual override for one issue
 #
 # Queue behaviour:
-#   The implement job uses a concurrency group so only one run executes at a time.
-#   A drain step at the end of each run re-dispatches if further backlog items
-#   remain, so a single `task afk` drains the whole queue, oldest first.
+#   implement runs one at a time (concurrency group). A pending run can be replaced by
+#   a newer one, so each run's drain step re-dispatches while agent:backlog issues
+#   remain — nothing labelled is ever skipped, oldest first.
 
 on:
   issues:
-    types: [opened, labeled, closed]
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
   workflow_dispatch:
     inputs:
       issue_number:
-        description: Issue number (0 = every un-aligned issue for refine, oldest agent:backlog for implement)
+        description: Issue number (refine 0 = every issue with no agent:* label; implement 0 = oldest agent:backlog)
         required: false
         default: '0'
         type: string
       stage:
-        description: Stage to run (all = refine everything un-aligned, then implement → review → ship)
+        description: Stage to run
         required: true
         type: choice
-        default: all
-        options: [all, refine, implement, ship]
+        default: refine
+        options: [refine, implement, ship]
 
 permissions:
   contents: write
@@ -53,18 +57,23 @@ jobs:
   # ── Refine (refine → architect → plan → grant agent:backlog) ─────────────────
   refine:
     name: Refine issue
+    # Comments: only people with write access, never the pipeline's own (it posts with
+    # the owner's PAT, recognisable only by its 🤖/· prefix), never on PRs, and only
+    # while the issue waits on a human: no agent:* label, or agent:failed.
     if: >-
-      (github.event_name == 'workflow_dispatch' && (inputs.stage == 'refine' || inputs.stage == 'all')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.stage == 'refine') ||
       (github.event_name == 'issues' && github.event.action == 'opened' &&
-       !contains(github.event.issue.labels.*.name, 'human:decision') &&
        !contains(github.event.issue.labels.*.name, 'agent:backlog')) ||
-      (github.event_name == 'issues' && github.event.action == 'closed' &&
-       contains(github.event.issue.labels.*.name, 'human:decision'))
+      (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
+       github.event.issue.state == 'open' &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+       !startsWith(github.event.comment.body, '🤖') && !startsWith(github.event.comment.body, '·') &&
+       (!contains(join(github.event.issue.labels.*.name, ','), 'agent:') ||
+        contains(github.event.issue.labels.*.name, 'agent:failed')))
     runs-on: ${{ vars.KANBAN_RUNNER_PROFILE == 'self-hosted' && fromJSON('["self-hosted","gha-project"]') || 'ubuntu-latest' }}
     concurrency:
-      # Closed decision issues share one group: two answers to the same parent must
-      # not re-refine it concurrently.
-      group: refine-${{ github.event.action == 'closed' && 'decision' || (github.event.issue.number || inputs.issue_number) }}
+      # Per issue: two quick comments on one issue queue instead of racing.
+      group: refine-${{ github.event.issue.number || inputs.issue_number }}
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -86,8 +95,7 @@ jobs:
       KANBAN_PRIORITY_OPT_P3: ${{ vars.KANBAN_PRIORITY_OPT_P3 }}
       KANBAN_PRIORITY_OPT_P4: ${{ vars.KANBAN_PRIORITY_OPT_P4 }}
       KANBAN_ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
-      EVENT_ACTION: ${{ github.event.action }}
-      DECISION_BODY: ${{ github.event.action == 'closed' && github.event.issue.body || '' }}
+      ISSUE_LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -106,43 +114,29 @@ jobs:
       - name: Refine (refine → architect → plan → grant agent:backlog when ready)
         shell: pwsh
         run: |
-          if ($env:EVENT_ACTION -eq 'closed') {
-            # A human:decision issue was answered: re-refine the issue it belongs to.
-            if ($env:DECISION_BODY -notmatch '\*\*Parent\*\*:\s*#(\d+)') {
-              Write-Output "Standalone decision issue — no parent to re-refine."
-              exit 0
-            }
-            $env:KANBAN_ISSUE = $Matches[1]
+          if ($env:GITHUB_EVENT_NAME -eq 'issue_comment' -and ",$env:ISSUE_LABELS," -like '*,agent:failed,*') {
+            # The owner commented on a failed issue: resume from the stage that failed.
+            # The comment reaches the agent as owner guidance.
+            pwsh -NoProfile -File "$env:GITHUB_WORKSPACE/.github/tasks/retry.ps1" -Issue ([int]$env:KANBAN_ISSUE)
+            exit $LASTEXITCODE
           }
           if ([int]$env:KANBAN_ISSUE -gt 0) {
             Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
             $null = Invoke-Orchestration -From refine -IssueNumber ([int]$env:KANBAN_ISSUE)
           } else {
-            # Every open issue with no agent:* label that is not a human:decision.
+            # Backfill: every open issue with no agent:* label.
             pwsh -NoProfile -File "$env:GITHUB_WORKSPACE/.github/tasks/refine.ps1" -Issue 0
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-
-      - name: Drain the backlog (stage=all)
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.stage == 'all'
-        shell: pwsh
-        run: |
-          $ready = gh issue list --repo $env:GITHUB_REPOSITORY --label 'agent:backlog' --state open `
-            --json number --jq 'length' 2>$null
-          if ([int]$ready -gt 0) {
-            Write-Output "$ready issue(s) ready — dispatching implement → review → ship."
-            gh workflow run afk.yml --repo $env:GITHUB_REPOSITORY --ref "$env:GITHUB_REF_NAME" `
-              --field stage=implement --field issue_number=0
-          } else {
-            Write-Output "Nothing is ready for implementation."
+            exit $LASTEXITCODE
           }
 
   # ── Implement (full pipeline: implement → review loop → ship) ────────────────
   implement:
     name: Implement
+    # agent:backlog is the go signal: refine grants it when nothing waits on the owner.
     if: >-
-      github.event_name == 'workflow_dispatch' &&
-      inputs.stage == 'implement'
+      (github.event_name == 'workflow_dispatch' && inputs.stage == 'implement') ||
+      (github.event_name == 'issues' && github.event.action == 'labeled' &&
+       github.event.label.name == 'agent:backlog')
     runs-on: ${{ vars.KANBAN_RUNNER_PROFILE == 'self-hosted' && fromJSON('["self-hosted","gha-project"]') || 'ubuntu-latest' }}
     concurrency:
       group: implement-pipeline

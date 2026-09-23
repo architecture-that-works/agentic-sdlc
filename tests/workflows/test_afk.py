@@ -36,20 +36,43 @@ def _job(name: str) -> str:
     return match.group(1)
 
 
-def test_all_is_the_default_dispatch_and_drains_after_refining():
-    """One trigger: stage=all refines everything un-aligned, then drains the backlog."""
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert re.search(r"default: all\s+options: \[all, refine, implement, ship\]", text)
-    refine = _job("refine")
-    assert "inputs.stage == 'all'" in refine
-    drain = refine[refine.index("name: Drain") :]
-    assert "stage=implement" in drain, "stage=all must dispatch the implement drain"
+def test_agent_backlog_label_starts_implementation():
+    """agent:backlog is the go signal: adding the label runs implement → review → ship."""
+    implement = _job("implement")
+    assert "github.event.action == 'labeled'" in implement
+    assert "github.event.label.name == 'agent:backlog'" in implement
 
 
-def test_closing_a_decision_issue_re_refines_its_parent():
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert "types: [opened, labeled, closed]" in text
+def test_every_new_issue_is_refined():
     refine = _job("refine")
-    assert "github.event.action == 'closed'" in refine
-    assert "contains(github.event.issue.labels.*.name, 'human:decision')" in refine
-    assert "Parent" in refine, "the parent is read from the decision issue body"
+    assert "github.event.action == 'opened'" in refine
+    assert "!contains(github.event.issue.labels.*.name, 'human:decision')" not in refine
+
+
+def test_owner_comment_re_refines_or_retries():
+    """A comment from someone with write access drives refine (or a retry when the
+    issue is agent:failed); the pipeline's own 🤖/· comments and outsiders never do."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert re.search(r"issue_comment:\s*\n\s*types: \[created\]", text)
+    refine = _job("refine")
+    for guard in (
+        "github.event_name == 'issue_comment'",
+        "!github.event.issue.pull_request",
+        '["OWNER","MEMBER","COLLABORATOR"]',
+        "github.event.comment.author_association",
+        "!startsWith(github.event.comment.body, '🤖')",
+        "!startsWith(github.event.comment.body, '·')",
+        "contains(github.event.issue.labels.*.name, 'agent:failed')",
+    ):
+        assert guard in refine, guard
+    assert "tasks/retry.ps1" in refine, (
+        "a comment on agent:failed resumes the failed stage"
+    )
+
+
+def test_no_decision_child_issues_or_close_trigger():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    types = re.search(r"issues:\s*\n\s*types: \[([^\]]*)\]", text)
+    assert types, "issues trigger not found"
+    assert "closed" not in types.group(1)
+    assert "options: [refine, implement, ship]" in text

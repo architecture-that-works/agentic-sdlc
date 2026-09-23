@@ -33,7 +33,7 @@
         'Move-ToLane'
         'Add-Comment'
         'Resolve-PR'
-        'Clear-IssueReviewCount'
+        'Reset-AttemptCount'
 
         # Carrier read + label primitive — task retry resumes from failed_at
         'Get-IssueState'

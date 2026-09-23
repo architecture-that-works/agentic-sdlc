@@ -79,6 +79,16 @@ ISSUES.md ──task sync──▶ issue created (un-aligned, no agent:* label)
 * `tests/scripts/test_architecture.py` covers the file-count gate, the trivial-impact Markdown, the marker-bounded body-section upsert, and `$safeStr` truncation.
 * Full `uv run pytest` green; module import smoke clean.
 
+## Amendments
+
+**2026-09-23** — at the owner's request, *ready* is now also *go*. Granting `agent:backlog`
+starts implement → review → ship (`afk.yml` triggers on the label), so the owner never has to
+trigger processing. What stays: the gate itself — `agent:backlog` is granted only when the issue
+is refined, architected and planned with zero open questions — and everything in the issue body.
+What changes around it: open questions are asked in the issue (label `human:decision`, a
+`## Decisions` section, multiple-choice options) instead of in child issues, and the owner's
+comment triggers the re-check. Stopping an issue is now done by closing it.
+
 ## Pros and Cons of the Options
 
 ### Option A — Patch the gate in place

@@ -425,6 +425,13 @@ rather than the `agent:reviewing` label, which the review stage always sets firs
 Constraints; the rest restated the `implement` skill. Skills that pointed to it for CI/CD,
 deployment, telemetry and secrets now point to where those live.
 
+**2026-09-23** — `human:decision` is a state of the issue, not a separate issue. Refine asks its
+open questions in the issue it blocks — multiple choice, recommendation first — and labels it
+`human:decision`; the owner's comment is read back, and the label is removed when nothing is
+open. One attempt budget (`KANBAN_MAX_RETRIES`) now covers every failure after `agent:backlog`
+(tests, review rejection, CI, conflicts), recorded in an Attempts section; `agent:failed` means
+the budget ran out, and a comment starts a new round. The file-based review counter is gone.
+
 Amendment rather than supersession: this ADR carries a living Implementation section by its
 own design, and the refactor it describes had not finished landing when these surfaced.
 

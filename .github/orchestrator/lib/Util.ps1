@@ -2,8 +2,8 @@
 <#
     Util.ps1 — cross-cutting local utilities for the Kanban module.
 
-    Logging, runtime detection, the orchestrator lock, the file-based review-cycle
-    counter, and the ISSUES.md template reader. These touch only the local
+    Logging, runtime detection, the orchestrator lock, and the ISSUES.md template
+    reader. These touch only the local
     filesystem / process environment (no gh, no Claude). Loaded after Config.ps1
     (it reads $KanbanLogFile / $_Root from there).
 #>
@@ -59,28 +59,6 @@ function Acquire-OrchestratorLock {
 
 function Release-OrchestratorLock {
     Remove-Item $OrchestratorLockFile -Force -ErrorAction SilentlyContinue
-}
-
-# ── Persistent review-cycle counter (file-based — no labels) ─────────────────
-
-function Get-IssueReviewCount {
-    param([int]$IssueNumber)
-    $path = "$_Root\logs\cycle-$IssueNumber.txt"
-    if (Test-Path $path) {
-        try { return [int](Get-Content $path -Raw -ErrorAction Stop).Trim() } catch {}
-    }
-    return 0
-}
-
-function Set-IssueReviewCount {
-    param([int]$IssueNumber, [int]$Count)
-    $null = New-Item -ItemType Directory -Force -Path "$_Root\logs" -ErrorAction SilentlyContinue
-    "$Count" | Set-Content "$_Root\logs\cycle-$IssueNumber.txt" -Encoding utf8 -NoNewline
-}
-
-function Clear-IssueReviewCount {
-    param([int]$IssueNumber)
-    Remove-Item "$_Root\logs\cycle-$IssueNumber.txt" -Force -ErrorAction SilentlyContinue
 }
 
 # ── Issue template reader (from ISSUES.md header) ─────────────────────────────

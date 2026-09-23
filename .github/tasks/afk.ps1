@@ -1,32 +1,27 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    AFK runner — the one trigger. Dispatches afk.yml (stage=all) so the cloud
-    refines every un-aligned issue and then processes everything that is ready,
-    and returns immediately so the laptop can be closed.
+    AFK backfill — dispatch afk.yml (stage=refine, issue 0) so the cloud refines
+    every open issue with no agent:* label, then return so the laptop can be closed.
 
 .DESCRIPTION
-    stage=all refines every open issue with no agent:* label that is not a
-    human:decision, then — if anything carries agent:backlog — dispatches the
-    implement drain: the oldest agent:backlog issue runs implement → review →
-    ship, and the drain re-dispatches until the queue is empty (serialised by the
-    implement-pipeline concurrency group). Issues that need a human end on
-    human:decision questions, a human:approval hold, or agent:failed, each with
-    a comment saying what is needed.
-
-    This is the cloud counterpart to `task hitl` (HITL, local). It does NOT run
-    anything in this terminal beyond the dispatch — close the laptop afterwards.
+    Normally nothing needs triggering: afk.yml refines an issue when it is opened
+    or when the owner comments, and the agent:backlog label that refine grants
+    starts implement → review → ship on its own. This command covers issues that
+    predate that, or that were never refined. Issues that need a human end on
+    human:decision (answer in a comment), a human:approval hold (merge the PR) or
+    agent:failed (comment to retry), each with a comment saying what is needed.
 
     Pre-flight:
       - Warns (and confirms, unless -Force) if KANBAN_RUNNER_PROFILE=self-hosted,
         since then a self-hosted runner must be online for the queue to drain.
-      - Prints the queue and the Actions URL to watch.
+      - Prints what will be refined and the Actions URL to watch.
 
 .PARAMETER Force
     Skip the self-hosted confirmation prompt (for non-interactive use).
 
 .EXAMPLE
-    task afk             # dispatch the cloud drain, then walk away
+    task afk             # dispatch the cloud backfill refine, then walk away
     task afk -- -Force   # same, no prompt even on a self-hosted profile
 #>
 param([switch]$Force)
@@ -61,21 +56,16 @@ if ($LASTEXITCODE -ne 0) {
     throw "Failed to read open issues (gh exited $LASTEXITCODE):`n$raw"
 }
 $open      = @($raw | ConvertFrom-Json)
-$backlog   = @($open | Where-Object { @($_.labels.name) -contains 'agent:backlog' })
-$unaligned = @($open | Where-Object {
-    $names = @($_.labels.name)
-    -not ($names | Where-Object { $_ -like 'agent:*' }) -and ($names -notcontains 'human:decision')
-})
-if ($backlog.Count -eq 0 -and $unaligned.Count -eq 0) {
-    Write-Log "Nothing to refine and nothing ready — no dispatch needed." -Color Yellow
+$unaligned = @($open | Where-Object { -not (@($_.labels.name) | Where-Object { $_ -like 'agent:*' }) })
+if ($unaligned.Count -eq 0) {
+    Write-Log "Every open issue is already refined or in progress — no dispatch needed." -Color Yellow
     exit 0
 }
 
 Write-Host ""
-Write-Host "  $KanbanRepo — $($unaligned.Count) to refine, $($backlog.Count) ready to implement" -ForegroundColor Cyan
+Write-Host "  $KanbanRepo — $($unaligned.Count) issue(s) to refine" -ForegroundColor Cyan
 Write-Host "  $('─' * 60)" -ForegroundColor DarkGray
-foreach ($i in $unaligned) { Write-Host ("  refine  #{0,-4} {1}" -f $i.number, $i.title) -ForegroundColor White }
-foreach ($i in $backlog)   { Write-Host ("  ready   #{0,-4} {1}" -f $i.number, $i.title) -ForegroundColor White }
+foreach ($i in $unaligned) { Write-Host ("  #{0,-4} {1}" -f $i.number, $i.title) -ForegroundColor White }
 Write-Host ""
 
 # ── Where will it run? ───────────────────────────────────────────────────────
@@ -97,12 +87,12 @@ if ($runnerProfile -eq 'self-hosted') {
     Write-Log "  Runner: hosted (ubuntu-latest) — laptop can be closed after dispatch." -Color Green
 }
 
-# ── Dispatch: refine everything, then drain ──────────────────────────────────
+# ── Dispatch the backfill refine ─────────────────────────────────────────────
 gh workflow run afk.yml --repo $KanbanRepo `
-    --field stage=all --field issue_number=0
+    --field stage=refine --field issue_number=0
 if ($LASTEXITCODE -ne 0) { throw "Failed to dispatch afk.yml" }
 
-Write-Log "  🚀 Dispatched — refine, then an oldest-first drain of everything that is ready." -Color Green
+Write-Log "  🚀 Dispatched — each issue that comes out ready starts implementing on its own." -Color Green
 Write-Log "  Watch: https://github.com/$KanbanRepo/actions/workflows/afk.yml" -Color Cyan
 Write-Host ""
 Write-Log "  You can walk away. What needs you: label:human:decision, label:human:approval, label:agent:failed." -Color DarkGray

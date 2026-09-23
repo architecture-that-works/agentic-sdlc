@@ -70,6 +70,16 @@ $KanbanPlanEndMarker   = '<!-- PLAN:END -->'
 $KanbanPrdBeginMarker = '<!-- AGENT-PRD:BEGIN -->'
 $KanbanPrdEndMarker   = '<!-- AGENT-PRD:END -->'
 
+# DECISIONS is the human-readable view of the open/decided questions in AGENT-STATE,
+# re-rendered whenever they change, so the owner reads (and answers) them in the issue.
+$KanbanDecisionsBeginMarker = '<!-- DECISIONS:BEGIN -->'
+$KanbanDecisionsEndMarker   = '<!-- DECISIONS:END -->'
+
+# ATTEMPTS is the failure history: every failed attempt (stage, what failed, when)
+# and the current status, so the next attempt — agent or human — sees what was tried.
+$KanbanAttemptsBeginMarker = '<!-- ATTEMPTS:BEGIN -->'
+$KanbanAttemptsEndMarker   = '<!-- ATTEMPTS:END -->'
+
 # 4-lane FSM. agent:failed returns the issue to the 'backlog' lane — it is an
 # in-Backlog label, not a separate lane.
 $KanbanAllowedTransitions = @{
@@ -397,54 +407,172 @@ function Set-IssueBodySection {
     return $true
 }
 
-# Spawns one human:decision child issue per unresolvable open_question. Each child links
-# back to the parent and frames the question as "decision needed".
-function New-DecisionChildIssue {
-    param(
-        [Parameter(Mandatory)][int]$ParentNumber,
-        [Parameter(Mandatory)][string]$ParentTitle,
-        [Parameter(Mandatory)][pscustomobject]$Question
-    )
-
-    $shortText = ($Question.text -replace '\s+', ' ').Trim()
-    if ($shortText.Length -gt 60) { $shortText = $shortText.Substring(0, 57) + '...' }
-    $title = "human:decision needed (#${ParentNumber}): $shortText"
-
-    $recommendation = if ($Question.decision) { $Question.decision } else { '_(no recommendation supplied)_' }
-    $body = @"
-**Decision needed** — surfaced by the self-grill subagent while refining #$ParentNumber ($ParentTitle).
-
-**Question**
-$($Question.text)
-
-**Agent's recommendation**
-$recommendation
-
-**Why this needs a human**
-The self-grill subagent could not resolve this branch from the codebase alone — it requires user judgement (taste, policy, deadline, or strategic trade-off).
-
-**How to answer**
-Comment with your decision, then close this issue. Closing without a comment accepts the recommendation above. Your latest comment is recorded in #$ParentNumber's ``decided_questions[]``, and #$ParentNumber is re-refined automatically once its last open question is closed.
-
-**Parent**: #$ParentNumber
-"@
-
-    $tmp = New-TemporaryFile
-    try {
-        $body | Out-File $tmp.FullName -Encoding utf8
-        $url = gh issue create `
-            --repo $KanbanRepo `
-            --title $title `
-            --body-file $tmp.FullName `
-            --label 'human:decision' 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) {
-            Write-Log "  ⚠️ Could not create human:decision child for #${ParentNumber}: $($url.Trim())" -Color Yellow
-            return $null
+# ── Decisions in the issue (the carrier) ─────────────────────────────────────
+# Open questions are asked IN the issue they block: a "## Decisions" body section
+# rendered from the AGENT-STATE block, plus a 🤖⏸ comment. The owner answers with a
+# plain comment; Invoke-AnswerCheck (Refine.ps1) reads it back.
+# Open questions as multiple choice: A is the recommendation, B and C the
+# alternatives, "Other" the owner's own words. Shared by the body section and the
+# 🤖⏸ comment so both read the same.
+function Format-DecisionQuestions {
+    param([object[]]$Questions)
+    $n = 1
+    $blocks = foreach ($q in @($Questions | Where-Object { $_ })) {
+        $lines = @("**$n. $($q.text)**")
+        if ($q.decision) { $lines += "- **A — recommended:** $($q.decision)" }
+        $letter = [int][char]'B'
+        foreach ($alt in @($q.alternatives | Where-Object { $_ })) {
+            $lines += "- **$([char]$letter):** $alt"
+            $letter++
         }
-        return $url.Trim()
-    } finally {
-        Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+        $lines += '- **Other:** your own answer'
+        if ($q.PSObject.Properties['follow_up'] -and $q.follow_up) { $lines += "- _Still needed:_ $($q.follow_up)" }
+        $n++
+        $lines -join "`n"
     }
+    return ($blocks -join "`n`n")
+}
+
+$KanbanReplyGuide = @'
+**How to reply** — a plain comment on this issue; no @-mention or keyword needed:
+- `ok` — accept every recommendation (A)
+- `1B` or `2C` — pick an option per question
+- `2: <your own words>` — your own answer
+- mix them: `ok, but 2B` · `1A, 2: only for src/`
+
+Your reply is checked automatically: answered questions are recorded under **Decisions** in the issue, anything unclear comes back as a follow-up, and implementation starts on its own once nothing is open.
+'@
+
+function Set-DecisionSection {
+    param([Parameter(Mandatory)][int]$IssueNumber, [Parameter(Mandatory)]$State)
+
+    $open    = @($State.open_questions    | Where-Object { $_ })
+    $decided = @($State.decided_questions | Where-Object { $_ })
+    if ($open.Count -eq 0 -and $decided.Count -eq 0) { return }
+
+    $sb = [System.Text.StringBuilder]::new()
+    $null = $sb.AppendLine('## Decisions')
+    if ($open.Count -gt 0) {
+        $null = $sb.AppendLine()
+        $null = $sb.AppendLine('### Waiting on you')
+        $null = $sb.AppendLine()
+        $null = $sb.AppendLine((Format-DecisionQuestions -Questions $open))
+        $null = $sb.AppendLine()
+        $null = $sb.AppendLine($KanbanReplyGuide)
+    }
+    if ($decided.Count -gt 0) {
+        $null = $sb.AppendLine()
+        $null = $sb.AppendLine('### Decided')
+        $null = $sb.AppendLine()
+        foreach ($q in $decided) {
+            $by = if ($q.decided_by) { " _($($q.decided_by))_" } else { '' }
+            $null = $sb.AppendLine("- $($q.text) → $($q.decision)$by")
+        }
+    }
+    $null = Set-IssueBodySection -IssueNumber $IssueNumber `
+        -BeginMarker $KanbanDecisionsBeginMarker -EndMarker $KanbanDecisionsEndMarker `
+        -Markdown $sb.ToString().TrimEnd()
+}
+
+# Comments written by a person with write access — the owner's answers and
+# guidance. Excluded: pipeline comments (it posts as the owner's PAT, so it is
+# recognised by the 🤖 / · prefix Add-Comment enforces) and anyone without write
+# access, whose text must never reach an agent prompt. -Since (ISO 8601) limits to
+# comments created or edited after that moment.
+function Get-OwnerComments {
+    param([Parameter(Mandatory)][int]$IssueNumber, [string]$Since = '')
+
+    $path = "repos/$KanbanRepo/issues/$IssueNumber/comments?per_page=100"
+    if ($Since) { $path += "&since=$([uri]::EscapeDataString($Since))" }
+    # One JSON object per line (@json), across every page — an issue that went
+    # through the pipeline carries many noise comments, so the newest owner comment
+    # can sit beyond the first page.
+    $jq = '.[] | select(.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR")' +
+          ' | select((.body | startswith("🤖") or startswith("·")) | not)' +
+          ' | {login: .user.login, created_at: .created_at, body: .body} | @json'
+    $out = gh api --paginate $path --jq $jq 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not read comments on #${IssueNumber}: $(($out | Out-String).Trim())" -Color Yellow
+        return @()
+    }
+    return @($out | Where-Object { "$_".Trim() } | ForEach-Object {
+        try { "$_" | ConvertFrom-Json } catch { $null }
+    } | Where-Object { $_ })
+}
+
+# The owner's comments as a prompt block ('' when there are none). Every stage
+# that writes or judges the work reads it, so context or guidance written in a
+# comment reaches the agent without editing the issue body.
+function Format-OwnerComments {
+    param([Parameter(Mandatory)][int]$IssueNumber)
+    $comments = @(Get-OwnerComments -IssueNumber $IssueNumber)
+    if ($comments.Count -eq 0) { return '' }
+    $lines = $comments | ForEach-Object { "[$($_.login), $($_.created_at)]`n$($_.body)" }
+    return "`nOWNER COMMENTS (oldest first — the issue owner's decisions, context and instructions; " +
+           "they take precedence over earlier agent output):`n" + ($lines -join "`n---`n") + "`n"
+}
+
+# ── Attempts (failure history in the carrier) ────────────────────────────────
+# A stage failure does not fail the issue at once: the conductor retries up to
+# MaxRetries attempts per round. Each failed attempt is appended to attempts[] in
+# AGENT-STATE (full history, kept across rounds) and attempt_count (this round),
+# and rendered as the "## Attempts" body section, which the next attempt reads.
+function Add-FailedAttempt {
+    param(
+        [Parameter(Mandatory)][int]$IssueNumber,
+        [Parameter(Mandatory)][string]$Stage,
+        [string]$Reason,
+        [Parameter(Mandatory)][int]$Attempt,
+        [Parameter(Mandatory)][int]$Max
+    )
+    $state = Get-IssueState -IssueNumber $IssueNumber
+    if ($null -eq $state) { return }
+    $short = ("$Reason" -replace '\s+', ' ').Trim()
+    if ($short.Length -gt 400) { $short = $short.Substring(0, 397) + '...' }
+    $history = @($state.attempts | Where-Object { $_ }) + [pscustomobject]@{
+        attempt   = $Attempt
+        of        = $Max
+        stage     = $Stage
+        reason    = $short
+        timestamp = (Get-Date).ToUniversalTime().ToString('o')
+    }
+    $state | Add-Member -NotePropertyName attempts      -NotePropertyValue @($history) -Force
+    $state | Add-Member -NotePropertyName attempt_count -NotePropertyValue $Attempt    -Force
+    Set-PlanningState -IssueNumber $IssueNumber -State $state
+    Set-AttemptsSection -IssueNumber $IssueNumber -State $state -Max $Max
+}
+
+# Starts a new round: after success, or when the owner asks for a retry.
+function Reset-AttemptCount {
+    param([Parameter(Mandatory)][int]$IssueNumber)
+    $state = Get-IssueState -IssueNumber $IssueNumber
+    if ($null -eq $state -or -not $state.PSObject.Properties['attempt_count'] -or -not $state.attempt_count) { return }
+    $state | Add-Member -NotePropertyName attempt_count -NotePropertyValue 0 -Force
+    Set-PlanningState -IssueNumber $IssueNumber -State $state
+    Set-AttemptsSection -IssueNumber $IssueNumber -State $state
+}
+
+function Set-AttemptsSection {
+    param([Parameter(Mandatory)][int]$IssueNumber, [Parameter(Mandatory)]$State, [int]$Max = 0)
+    $history = @($State.attempts | Where-Object { $_ })
+    if ($history.Count -eq 0) { return }
+    $count  = if ($State.PSObject.Properties['attempt_count']) { [int]$State.attempt_count } else { 0 }
+    $status = if ($count -eq 0)                    { 'no failure in the current round' }
+              elseif ($Max -gt 0 -and $count -ge $Max) { "failed $count/$Max — waiting on you: fix it hands-on or comment with guidance, then comment to retry" }
+              elseif ($Max -gt 0)                  { "retrying — $count/$Max attempts used" }
+              else                                 { "$count failed attempt(s) this round" }
+
+    $sb = [System.Text.StringBuilder]::new()
+    $null = $sb.AppendLine('## Attempts')
+    $null = $sb.AppendLine()
+    $null = $sb.AppendLine("**Status:** $status")
+    $null = $sb.AppendLine()
+    foreach ($a in $history) {
+        $null = $sb.AppendLine("- **Attempt $($a.attempt)/$($a.of)** · $($a.stage) · $($a.timestamp) — $($a.reason)")
+    }
+    $null = Set-IssueBodySection -IssueNumber $IssueNumber `
+        -BeginMarker $KanbanAttemptsBeginMarker -EndMarker $KanbanAttemptsEndMarker `
+        -Markdown $sb.ToString().TrimEnd()
 }
 
 # ── Atomic state transition (label + lane in one call) ───────────────────────
@@ -542,6 +670,12 @@ function Get-IssueLabel {
 
 function Add-Comment {
     param([int]$Number, [string]$Body)
+    # Every pipeline comment starts with 🤖 (signal) or · (noise). The pipeline posts
+    # with the owner's PAT, so this prefix is the only thing that tells its comments
+    # apart from the owner's — afk.yml ignores prefixed comments, and a missing prefix
+    # would make the pipeline react to its own output.
+    $lead = $Body.TrimStart()
+    if (-not ($lead.StartsWith('🤖') -or $lead.StartsWith('·'))) { $Body = "· $Body" }
     $tmp = New-TemporaryFile
     try {
         $Body | Out-File $tmp.FullName -Encoding utf8

@@ -14,7 +14,7 @@
     Load order (dependencies first):
 
         Config        settings, run context (Get-OrchestratorContext), model selection
-        Util          logging, runtime, lock, review counter, ISSUES.md reader
+        Util          logging, runtime, lock, ISSUES.md reader
         GitHub        labels, lanes, comments, board, branches, issue-body state
         ../Claude     generic Claude helpers (Invoke-ClaudeStreaming, commit msg)
         _grill        refine self-grill subagent (Invoke-Grill)
@@ -53,11 +53,13 @@ $ErrorActionPreference = 'Stop'
 # Sequences the six stages for one issue and owns every lane transition. This is
 # the only component that decides what runs next (ADR-015).
 #
-#   -From refine     refine -> architect -> plan, stopping at agent:backlog
-#                    ("ready" is not "go" -- ADR-014)
+#   -From refine     refine -> architect -> plan. Grants agent:backlog when nothing
+#                    waits on the owner (the label then starts implement in afk.yml);
+#                    otherwise asks in the issue and labels it human:decision
 #   -From implement  implement -> review -> ship
 #
-# Any error, or exhausted review retries, lands the issue on agent:failed.
+# A failure is retried up to MaxRetries attempts per round, each recorded in the
+# issue's Attempts section; only an exhausted round lands the issue on agent:failed.
 #
 # There is no Export-ModuleMember call: the public surface is declared in
 # Orchestrator.psd1 FunctionsToExport, which is data rather than logic and lets
@@ -95,57 +97,76 @@ function Invoke-Orchestration {
                 Write-Log "  Issue #$IssueNumber already agent:backlog — alignment already granted." -Color DarkGray
                 return $true
             }
-            if ($labels -contains 'human:decision') {
-                Write-Log "  Issue #$IssueNumber is a human decision — skipping alignment." -Color DarkGray
+            if (@($labels | Where-Object { $_ -in @('agent:implementing', 'agent:reviewing', 'agent:shipped') }).Count -gt 0) {
+                Write-Log "  Issue #$IssueNumber is already past refine — skipping alignment." -Color DarkGray
                 return $false
             }
 
             $null = Add-IssueToBoard -IssueNumber $IssueNumber
 
-            # Answers first: a closed human:decision issue resolves its open question.
-            # While any decision is still pending on an already-refined issue there is
-            # nothing to re-run — skip the architect/plan LLM passes until the last
-            # answer is in, so each closed decision issue costs one cheap check.
-            $null  = Resolve-DecisionAnswers -IssueNumber $IssueNumber
-            $state = Get-IssueState -IssueNumber $IssueNumber
-            $pending = if ($state -and $state.open_questions) { @($state.open_questions) } else { @() }
-            if ($state -and $state.readiness.refined.done -and $pending.Count -gt 0) {
-                Write-Log "⏸ Issue #$IssueNumber still waits on $($pending.Count) decision(s) — not re-running refine." -Color Yellow
-                return $false
+            # The owner's reply first. An issue that is refined and waiting on decisions
+            # only needs its new comments judged against the open questions; with no new
+            # owner comment there is nothing to do, and no model is called.
+            $state   = Get-IssueState -IssueNumber $IssueNumber
+            $waiting = $state -and $state.readiness.refined.done -and
+                       @($state.open_questions | Where-Object { $_ }).Count -gt 0
+            if ($waiting) {
+                $check = Invoke-AnswerCheck -IssueNumber $IssueNumber
+                if ($check.Error) {
+                    Add-Comment -Number $IssueNumber -Body "🤖⚠️ Could not check your reply — comment again to retry.`n``````text`n$($check.Error)`n``````"
+                    return $false
+                }
+                if (-not $check.Evaluated) {
+                    Write-Log "⏸ Issue #$IssueNumber waits on $($check.Open) decision(s); no new reply from the owner." -Color Yellow
+                    return $false
+                }
+                if ($check.Open -gt 0) {
+                    Request-Decisions -IssueNumber $IssueNumber -Answered $check.Answered
+                    return $false
+                }
+                # Every question answered: fall through, so architect and plan re-run with
+                # the decisions (refine itself short-circuits — the Agent Brief exists).
             }
 
-            try {
-                $currentStage = 'refine'
-                Invoke-Refine    -Number      $IssueNumber
-                $currentStage = 'architect'
-                Invoke-Architect -IssueNumber $IssueNumber
-                $currentStage = 'plan'
-                Invoke-Plan      -Number      $IssueNumber
-            } catch {
-                Set-AgentFailedState -IssueNumber $IssueNumber -FailedAt $currentStage -Reason $_.Exception.Message
-                Add-Comment -Number $IssueNumber -Body "🤖❌ Alignment Failed`n``````text`n`$_`n``````"
-                Write-Log "❌ Alignment error for issue #$IssueNumber : `$_" -Color Red
-                return $false
+            # Refine failures (model or tool errors) get the same attempt budget as
+            # implementation, recorded in the issue the same way.
+            $attempt = if ($state -and $state.PSObject.Properties['attempt_count']) { [int]$state.attempt_count } else { 0 }
+            while ($true) {
+                try {
+                    $currentStage = 'refine'
+                    Invoke-Refine    -Number      $IssueNumber
+                    $currentStage = 'architect'
+                    Invoke-Architect -IssueNumber $IssueNumber
+                    $currentStage = 'plan'
+                    Invoke-Plan      -Number      $IssueNumber
+                    break
+                } catch {
+                    $reason = $_.Exception.Message
+                    $attempt++
+                    Add-FailedAttempt -IssueNumber $IssueNumber -Stage $currentStage -Reason $reason -Attempt $attempt -Max $MaxRetries
+                    if ($attempt -ge $MaxRetries) {
+                        Set-AgentFailedState -IssueNumber $IssueNumber -FailedAt $currentStage -Reason $reason
+                        Add-Comment -Number $IssueNumber -Body "🤖❌ Refine failed after $attempt attempts at $currentStage — needs you. Every attempt is listed in the issue's **Attempts** section; comment on this issue to retry.`n``````text`n$reason`n``````"
+                        Write-Log "❌ Alignment error for issue #$IssueNumber : $reason" -Color Red
+                        return $false
+                    }
+                    Write-Log "  🔁 Refine attempt $attempt/$MaxRetries failed at $currentStage — retrying." -Color Yellow
+                }
             }
+            Reset-AttemptCount -IssueNumber $IssueNumber
 
             $state = Get-IssueState -IssueNumber $IssueNumber
             if (Test-Readiness -State $state) {
+                Set-DecisionSection -IssueNumber $IssueNumber -State $state
+                Set-IssueLabel -Number $IssueNumber -Remove 'human:decision'
                 Set-AgentState -IssueNumber $IssueNumber -Label 'agent:backlog'
-                Add-Comment -Number $IssueNumber -Body "🤖✅ Aligned — refined, architected, planned, zero open questions. Queued in Backlog (agent:backlog); run ``task afk`` (or Actions → AFK → Run workflow, stage=implement) to process."
+                Add-Comment -Number $IssueNumber -Body "🤖✅ Ready — refined, architected and planned, with nothing waiting on you. Implementation starts automatically (agent:backlog)."
                 Write-Log "✅ Issue #$IssueNumber aligned — agent:backlog granted." -Color Green
                 return $true
             }
 
-            $openQs  = if ($state -and $state.open_questions) { @($state.open_questions) } else { @() }
-            $open    = $openQs.Count
-            $links   = @($openQs | Where-Object { $_.child_issue } | ForEach-Object { "#$($_.child_issue)" }) -join ', '
-            $howTo   = if ($links) {
-                "Answer each by commenting on it and closing it: $links. Closing without a comment accepts the agent's recommendation. This issue is re-refined automatically when the last one closes."
-            } else {
-                "Record each answer in ``decided_questions[]`` of the AGENT-STATE block, then re-run ``task refine ISSUE=$IssueNumber`` (or Actions → AFK → Run workflow, stage=refine)."
-            }
-            Add-Comment -Number $IssueNumber -Body "🤖⏸ Needs your decision — $open open question(s) block this issue from the backlog. $howTo"
-            Write-Log "⏸ Issue #$IssueNumber NOT aligned — readiness gate unmet (open questions=$open). agent:backlog withheld." -Color Yellow
+            Request-Decisions -IssueNumber $IssueNumber
+            Write-Log "⏸ Issue #$IssueNumber NOT aligned — waiting on the owner's decision(s)." -Color Yellow
             return $false
         }
 
@@ -157,73 +178,79 @@ function Invoke-Orchestration {
         $stashOut = git stash 2>&1
         $stashed  = $stashOut -notmatch 'No local changes'
 
-        $currentStage = 'implement'
-        $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:$Force
+        # One budget of $MaxRetries attempts per round covers every failure after
+        # agent:backlog — an implement error, failing tests, a review rejection, red CI
+        # on the PR, a rebase conflict. A failed attempt is recorded in the issue
+        # (Add-FailedAttempt) and the next one re-implements on top of the existing
+        # branch with that history in its prompt. The count lives in the issue, so a
+        # lost runner resumes the round rather than restarting it.
+        $state    = Get-IssueState -IssueNumber $IssueNumber
+        $attempt  = if ($state -and $state.PSObject.Properties['attempt_count']) { [int]$state.attempt_count } else { 0 }
+        $retrying = $attempt -gt 0 -or @($state.attempts | Where-Object { $_ }).Count -gt 0
 
-        if ($null -eq $implementResult) {
-            # Implement signalled "already satisfied" — branch has no commits ahead of
-            # the default branch (typical for tracker/coordinator issues whose work
-            # was delivered by previously-merged child PRs). Mark merged, close,
-            # skip the review/merge stages.
-            Clear-IssueReviewCount -IssueNumber $IssueNumber
-            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:shipped'
-            gh issue close $IssueNumber --repo $ctx.Repo --reason completed 2>&1 | Out-Null
-            Write-Log "🎉 Issue #$IssueNumber complete — already implemented; closed without PR." -Color Green
-            return
-        }
+        while ($true) {
+            $currentStage = 'implement'
+            try {
+                $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:($Force -or $retrying)
 
-        $branch = Get-BranchName -Number $IssueNumber -Title $meta.title
-        $prList = gh pr list --head $branch --json number --limit 1 | ConvertFrom-Json
-        if ($prList.Count -eq 0) { throw "No PR found for branch $branch after implement stage." }
-        $prNum = $prList[0].number
+                if ($null -eq $implementResult) {
+                    # Implement signalled "already satisfied" — the branch has no commits
+                    # ahead of the default branch (typical for tracker issues whose work
+                    # landed through child PRs). Mark shipped and close; no review or ship.
+                    Reset-AttemptCount -IssueNumber $IssueNumber
+                    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:shipped'
+                    gh issue close $IssueNumber --repo $ctx.Repo --reason completed 2>&1 | Out-Null
+                    Write-Log "🎉 Issue #$IssueNumber complete — already implemented; closed without PR." -Color Green
+                    return
+                }
 
-        # ── implementing → review loop (up to MaxRetries) ─────────────────────
-        # Read the CUMULATIVE review count — persists across stall recovery and GHA reruns.
-        $cyclesDone = Get-IssueReviewCount -IssueNumber $IssueNumber
-        $approved   = $false
+                $branch = Get-BranchName -Number $IssueNumber -Title $meta.title
+                $prList = gh pr list --head $branch --json number --limit 1 | ConvertFrom-Json
+                if ($prList.Count -eq 0) { throw "No PR found for branch $branch after implement stage." }
+                $prNum = $prList[0].number
 
-        while ($cyclesDone -lt $MaxRetries) {
-            Write-Log "  Review cycle $($cyclesDone + 1) / $MaxRetries" -Color DarkGray
-            $currentStage = 'review'
-            $approved = Invoke-Review -IssueNumber $IssueNumber -PRNumber $prNum
-            $cyclesDone++
-            Set-IssueReviewCount -IssueNumber $IssueNumber -Count $cyclesDone
+                $currentStage = 'review'
+                if (-not (Invoke-Review -IssueNumber $IssueNumber -PRNumber $prNum)) {
+                    throw 'Review rejected the implementation — the latest 🤖❌ Review Rejected comment lists what to fix.'
+                }
 
-            if ($approved) { break }
+                $currentStage = 'ship'
+                $merged = Invoke-Ship -IssueNumber $IssueNumber -PRNumber $prNum -Approved
+                Reset-AttemptCount -IssueNumber $IssueNumber
 
-            if ($cyclesDone -lt $MaxRetries) {
-                Write-Log "  Review rejected — re-running implement (cycle $($cyclesDone + 1)/$MaxRetries)..." -Color Yellow
-                Invoke-Implement -IssueNumber $IssueNumber -Force | Out-Null
+                # Invoke-Ship returns $false when it holds a human:approval issue at
+                # agent:reviewing rather than merging — report that honestly.
+                if ($false -eq $merged) {
+                    Write-Log "⏸ Issue #$IssueNumber implemented and held at review — merge PR #$prNum to complete." -Color Yellow
+                } else {
+                    Write-Log "🎉 Issue #$IssueNumber complete." -Color Green
+                }
+                return
+            } catch {
+                $reason = $_.Exception.Message
+                $attempt++
+                Add-FailedAttempt -IssueNumber $IssueNumber -Stage $currentStage -Reason $reason -Attempt $attempt -Max $MaxRetries
+                if ($attempt -ge $MaxRetries) {
+                    Set-AgentFailedState -IssueNumber $IssueNumber -FailedAt $currentStage -Reason $reason
+                    $errBlock = Format-ErrorBlock -Raw $reason
+                    Add-Comment -Number $IssueNumber -Body ("🤖❌ Failed after $attempt attempts — needs you`n`n" +
+                        "The last attempt failed at **$currentStage**:`n`n$errBlock`n`n" +
+                        "Every attempt is listed in the issue's **Attempts** section. Fix it hands-on, or explain what " +
+                        "should change, then comment on this issue (for example ""retry"", or your guidance) — that " +
+                        "starts a new round of $MaxRetries attempts with your comment in the agent's instructions.")
+                    Write-Log "⛔ Issue #$IssueNumber failed after $attempt attempts at $currentStage." -Color Red
+                    return
+                }
+                $first = ("$reason" -split '\r?\n' | Where-Object { $_.Trim() } | Select-Object -First 1)
+                Add-Comment -Number $IssueNumber -Body "🤖🔁 Attempt $attempt/$MaxRetries failed at **$currentStage** — $first`n`nRetrying: the next attempt re-implements with this failure in context."
+                Write-Log "  🔁 Attempt $attempt/$MaxRetries failed at $currentStage — retrying." -Color Yellow
+                $retrying = $true
+                Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
             }
-        }
-
-        # ── exhausted retries → failed ────────────────────────────────────────
-        if (-not $approved) {
-            Clear-IssueReviewCount -IssueNumber $IssueNumber
-            Set-AgentFailedState -IssueNumber $IssueNumber -FailedAt $currentStage -Reason "Max retries reached ($cyclesDone/$MaxRetries review cycles)"
-            Add-Comment -Number $IssueNumber -Body "🤖❌ Orchestrator Error`n`nMax retries reached ($cyclesDone/$MaxRetries review cycles). Manual intervention required."
-            Write-Log "⛔ Gave up after $cyclesDone cycles for issue #$IssueNumber." -Color Red
-            return
-        }
-
-        # ── review → merged ───────────────────────────────────────────────────
-        Clear-IssueReviewCount -IssueNumber $IssueNumber
-        $currentStage = 'ship'
-        $merged = Invoke-Ship -IssueNumber $IssueNumber -PRNumber $prNum -Approved
-
-        # Invoke-Ship returns $false when it holds a human:approval issue at agent:reviewing rather
-        # than merging. Report that honestly — claiming "complete" for work still
-        # awaiting a human merge is the same class of false signal as a drain run
-        # exiting 0 while the issue it processed ended agent:failed.
-        if ($false -eq $merged) {
-            Write-Log "⏸ Issue #$IssueNumber implemented and held at review — merge PR #$prNum to complete." -Color Yellow
-        } else {
-            Write-Log "🎉 Issue #$IssueNumber complete." -Color Green
         }
 
     } catch {
         # ── any error → failed ────────────────────────────────────────────────
-        Clear-IssueReviewCount -IssueNumber $IssueNumber
         Set-AgentFailedState -IssueNumber $IssueNumber -FailedAt $currentStage -Reason $_.Exception.Message
         $errBlock = Format-ErrorBlock -Raw "$_"
         Add-Comment -Number $IssueNumber -Body "🤖❌ Orchestrator Error`n`n$errBlock"

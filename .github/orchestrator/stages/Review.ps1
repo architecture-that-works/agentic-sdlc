@@ -69,7 +69,7 @@ ISSUE TITLE: $($issue.title)
 
 ISSUE BODY (contains Acceptance Criteria):
 $($issue.body)
-
+$(Format-OwnerComments -IssueNumber $IssueNumber)
 PR DIFF:
 $diff
 $signalSection

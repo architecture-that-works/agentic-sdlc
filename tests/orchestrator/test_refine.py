@@ -1,13 +1,16 @@
-"""Tests for the refine stage's decision loop (.github/orchestrator/stages/Refine.ps1).
+"""Tests for the issue-as-interface loop: decisions asked and answered in the issue,
+the attempt budget, and the helpers they rest on.
 
-A human answers an open question by commenting on its human:decision issue and
-closing it; closing without a comment accepts the agent's recommendation.
-Resolve-DecisionAnswers reads that back into the AGENT-STATE carrier so nobody
-edits JSON by hand. Also covers Add-IssueToBoard (lib/GitHub.ps1), which puts an
-issue that never went through `task sync` on the project board.
+- stages/Refine.ps1 — Invoke-AnswerCheck judges the owner's reply against the open
+  questions; Request-Decisions asks in the issue.
+- lib/GitHub.ps1 — Add-Comment's 🤖/· prefix guard, Set-DecisionSection,
+  Add-FailedAttempt / Set-AttemptsSection, Add-IssueToBoard.
+- Orchestrator.psm1 — the refine path's routing, and the implement path's attempt
+  loop (retry with the failure in context, agent:failed only after MaxRetries).
 
-gh and the carrier helpers are replaced with in-memory fakes defined at module
-script scope, so the tests run without GitHub.
+gh, claude and the carrier helpers are replaced by in-memory fakes at module script
+scope, so nothing touches GitHub. Conductor tests run in tmp_path because the
+conductor's finally block resets git.
 """
 
 import json
@@ -24,8 +27,8 @@ MODULE = REPO_ROOT / ".github" / "orchestrator" / "Orchestrator.psd1"
 pytestmark = pytest.mark.skipif(not shutil.which("pwsh"), reason="pwsh not available")
 
 
-def _run(body: str) -> dict:
-    """Run `body` inside the module's session state; it must print one JSON line."""
+def _run(body: str, cwd: Path | None = None) -> dict:
+    """Run `body` inside the module's session state; it must print one JSON line last."""
     script = (
         "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
         "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
@@ -39,6 +42,7 @@ def _run(body: str) -> dict:
         [PWSH, "-NoProfile", "-Command", script],
         capture_output=True,
         text=True,
+        cwd=str(cwd) if cwd else None,
         check=False,
     )
     assert result.returncode == 0, result.stderr
@@ -47,101 +51,216 @@ def _run(body: str) -> dict:
     return json.loads(lines[-1])
 
 
-# Parent #50 has three open questions: #11 answered with a comment and closed,
-# #12 still open, #13 closed without a comment. Pipeline comments on #11 must
-# never be taken as the answer.
-_DECISION_FAKES = r"""
-$script:Written  = $null
-$script:Comments = @()
+# ── Answer check ─────────────────────────────────────────────────────────────
+
+_ANSWER_FAKES = r"""
+$script:Written = $null
+$script:ModelCalls = 0
 function script:Get-IssueState {
     param([int]$IssueNumber)
     [pscustomobject]@{
-        issue_number      = 50
-        readiness         = [pscustomobject]@{ refined = [pscustomobject]@{ done = $true } }
-        open_questions    = @(
-            [pscustomobject]@{ text = 'Q-comment'; raised_by = 'grill'; decision = 'rec A'; child_issue = 11 },
-            [pscustomobject]@{ text = 'Q-open';    raised_by = 'grill'; decision = 'rec B'; child_issue = 12 },
-            [pscustomobject]@{ text = 'Q-silent';  raised_by = 'grill'; decision = 'rec C'; child_issue = 13 }
+        readiness          = [pscustomobject]@{ refined = [pscustomobject]@{ done = $true } }
+        questions_asked_at = '2026-09-23T10:00:00Z'
+        open_questions     = @(
+            [pscustomobject]@{ text = 'Allowlist or denylist?'; raised_by = 'grill'; decision = 'allowlist' },
+            [pscustomobject]@{ text = 'Where does it live?';    raised_by = 'grill'; decision = 'Config.ps1' }
         )
-        decided_questions = @([pscustomobject]@{ text = 'Q-earlier'; decision = 'done before' })
+        decided_questions  = @([pscustomobject]@{ text = 'earlier'; decision = 'kept' })
     }
 }
 function script:Set-PlanningState { param([int]$IssueNumber, $State) $script:Written = $State }
-function script:Add-Comment { param([int]$Number, [string]$Body) $script:Comments += $Body }
-function script:gh {
-    $global:LASTEXITCODE = 0
-    $path = $args[1]
-    switch -Regex ($path) {
-        '/issues/11$'          { return '{"state":"closed","closed_by":"ysuurme"}' }
-        '/issues/12$'          { return '{"state":"open","closed_by":""}' }
-        '/issues/13$'          { return '{"state":"closed","closed_by":"ysuurme"}' }
-        '/issues/11/comments$' { return '{"login":"ysuurme","body":"Use option A, but keep it behind a flag."}' }
-        '/issues/13/comments$' { return 'null' }
-    }
-}
+function script:gh { $global:LASTEXITCODE = 0; '{"title":"t","body":"b"}' }
 """
 
 
-def test_closed_decisions_move_to_decided_with_their_answer() -> None:
+def test_answer_check_records_answers_and_follow_ups() -> None:
     out = _run(
-        _DECISION_FAKES
+        _ANSWER_FAKES
         + r"""
-$n = Resolve-DecisionAnswers -IssueNumber 50
+function script:Get-OwnerComments { param($IssueNumber, $Since)
+    @([pscustomobject]@{ login = 'ysuurme'; created_at = '2026-09-23T11:00:00Z'; body = '1 allowlist. 2 not sure yet' }) }
+function script:claude { $script:ModelCalls++; $global:LASTEXITCODE = 0
+    '{"answers":[{"id":1,"status":"answered","decision":"Use an allowlist."},{"id":2,"status":"open","follow_up":"Config.ps1 or settings.json?"}],"new_questions":[{"text":"Include docs/?","recommendation":"yes"}]}' }
+$r = Invoke-AnswerCheck -IssueNumber 50
 [pscustomobject]@{
-    resolved = $n
-    open     = @($script:Written.open_questions | ForEach-Object { $_.text })
-    decided  = @($script:Written.decided_questions | ForEach-Object {
-        [pscustomobject]@{ text = $_.text; by = $_.decided_by; decision = $_.decision; child = $_.child_issue }
-    })
-    comments = $script:Comments
-} | ConvertTo-Json -Depth 5 -Compress
+    evaluated = $r.Evaluated; answered = $r.Answered; open = $r.Open; calls = $script:ModelCalls
+    decided   = @($script:Written.decided_questions | ForEach-Object { "$($_.text)|$($_.decision)|$($_.decided_by)" })
+    still     = @($script:Written.open_questions | ForEach-Object { "$($_.text)|$($_.follow_up)" })
+    asked     = [string]$script:Written.questions_asked_at
+} | ConvertTo-Json -Compress
 """
     )
-    assert out["resolved"] == 2
-    assert out["open"] == ["Q-open"]
-    decided = {d["text"]: d for d in out["decided"]}
-    # Earlier decisions are kept, not overwritten.
-    assert decided["Q-earlier"]["decision"] == "done before"
-    # A comment is the answer, attributed to its author.
-    assert (
-        decided["Q-comment"]["decision"] == "Use option A, but keep it behind a flag."
-    )
-    assert decided["Q-comment"]["by"] == "ysuurme"
-    assert decided["Q-comment"]["child"] == 11
-    # Closing without a comment accepts the recommendation, and says so.
-    assert decided["Q-silent"]["decision"].startswith("Accepted the recommendation")
-    assert "rec C" in decided["Q-silent"]["decision"]
-    assert len(out["comments"]) == 1 and "2 answer(s)" in out["comments"][0]
+    assert out["evaluated"] is True
+    assert (out["answered"], out["open"], out["calls"]) == (1, 2, 1)
+    assert out["decided"] == [
+        "earlier|kept|",
+        "Allowlist or denylist?|Use an allowlist.|ysuurme",
+    ]
+    assert out["still"] == [
+        "Where does it live?|Config.ps1 or settings.json?",
+        "Include docs/?|",
+    ]
+    assert out["asked"] and out["asked"] != "2026-09-23T10:00:00Z"
 
 
-def test_nothing_closed_writes_nothing() -> None:
+def test_answer_check_without_a_new_reply_calls_no_model() -> None:
     out = _run(
-        _DECISION_FAKES
+        _ANSWER_FAKES
         + r"""
-function script:gh { $global:LASTEXITCODE = 0; return '{"state":"open","closed_by":""}' }
-$n = Resolve-DecisionAnswers -IssueNumber 50
-[pscustomobject]@{ resolved = $n; written = ($null -ne $script:Written); comments = @($script:Comments).Count } |
+function script:Get-OwnerComments { param($IssueNumber, $Since) @() }
+function script:claude { throw 'the model must not be called without a new owner reply' }
+$r = Invoke-AnswerCheck -IssueNumber 50
+[pscustomobject]@{ evaluated = $r.Evaluated; open = $r.Open; written = ($null -ne $script:Written) } |
     ConvertTo-Json -Compress
 """
     )
-    assert out == {"resolved": 0, "written": False, "comments": 0}
+    assert out == {"evaluated": False, "open": 2, "written": False}
 
 
-def test_question_without_a_decision_issue_stays_open() -> None:
+def test_answer_check_reports_an_unusable_model_reply() -> None:
     out = _run(
-        r"""
-$script:Written = $null
-function script:Get-IssueState {
-    param([int]$IssueNumber)
-    [pscustomobject]@{ open_questions = @([pscustomobject]@{ text = 'legacy'; decision = 'x' }); decided_questions = @() }
-}
-function script:Set-PlanningState { param([int]$IssueNumber, $State) $script:Written = $State }
-function script:gh { throw 'gh must not be called for a question without child_issue' }
-$n = Resolve-DecisionAnswers -IssueNumber 50
-[pscustomobject]@{ resolved = $n; written = ($null -ne $script:Written) } | ConvertTo-Json -Compress
+        _ANSWER_FAKES
+        + r"""
+function script:Get-OwnerComments { param($IssueNumber, $Since)
+    @([pscustomobject]@{ login = 'ysuurme'; created_at = 'x'; body = 'ok' }) }
+function script:claude { $global:LASTEXITCODE = 0; 'I think so?' }
+$r = Invoke-AnswerCheck -IssueNumber 50
+[pscustomobject]@{ error = [bool]$r.Error; written = ($null -ne $script:Written) } | ConvertTo-Json -Compress
 """
     )
-    assert out == {"resolved": 0, "written": False}
+    assert out == {"error": True, "written": False}
+
+
+# ── Comments ─────────────────────────────────────────────────────────────────
+
+
+def test_add_comment_always_carries_a_pipeline_prefix() -> None:
+    """afk.yml ignores 🤖/· comments; an unprefixed pipeline comment would re-trigger it."""
+    out = _run(
+        r"""
+$script:Posted = @()
+function script:gh { $f = $args[$args.IndexOf('--body-file') + 1]; $script:Posted += (Get-Content $f -Raw).Trim(); $global:LASTEXITCODE = 0 }
+Add-Comment -Number 1 -Body 'plain text'
+Add-Comment -Number 1 -Body '🤖✅ signal'
+Add-Comment -Number 1 -Body '· noise'
+[pscustomobject]@{ posted = $script:Posted } | ConvertTo-Json -Compress
+"""
+    )
+    assert out["posted"] == ["· plain text", "🤖✅ signal", "· noise"]
+
+
+def test_owner_comments_filter_trusted_humans_only() -> None:
+    """The filter runs as gh's jq, so assert its terms; then that each line parses."""
+    source = (REPO_ROOT / ".github/orchestrator/lib/GitHub.ps1").read_text(
+        encoding="utf-8"
+    )
+    block = source[source.index("function Get-OwnerComments") :]
+    block = block[: block.index("\n}\n")]
+    for term in (
+        '"OWNER"',
+        '"MEMBER"',
+        '"COLLABORATOR"',
+        'startswith("🤖")',
+        "--paginate",
+    ):
+        assert term in block, term
+    out = _run(
+        r"""
+function script:gh { $global:LASTEXITCODE = 0
+    '{"login":"a","created_at":"t1","body":"first\nline"}'
+    '{"login":"b","created_at":"t2","body":"second"}' }
+$c = @(Get-OwnerComments -IssueNumber 7 -Since '2026-01-01T00:00:00Z')
+[pscustomobject]@{ n = $c.Count; last = $c[-1].body; first = $c[0].body } | ConvertTo-Json -Compress
+"""
+    )
+    assert out == {"n": 2, "last": "second", "first": "first\nline"}
+
+
+# ── Body sections ────────────────────────────────────────────────────────────
+
+
+def test_decision_section_lists_options_and_decided() -> None:
+    out = _run(
+        r"""
+function script:Set-IssueBodySection { param($IssueNumber, $BeginMarker, $EndMarker, $Markdown) $script:Md = $Markdown; $true }
+$state = [pscustomobject]@{
+    open_questions    = @([pscustomobject]@{ text = 'Q1?'; decision = 'rec'; alternatives = @('alt b', 'alt c'); follow_up = 'which one?' })
+    decided_questions = @([pscustomobject]@{ text = 'Q0?'; decision = 'yes'; decided_by = 'ysuurme' })
+}
+Set-DecisionSection -IssueNumber 1 -State $state
+[pscustomobject]@{ md = $script:Md } | ConvertTo-Json -Compress
+"""
+    )
+    md = out["md"]
+    assert md.startswith("## Decisions")
+    for line in (
+        "**1. Q1?**",
+        "- **A — recommended:** rec",
+        "- **B:** alt b",
+        "- **C:** alt c",
+        "- **Other:** your own answer",
+        "- _Still needed:_ which one?",
+        "- Q0? → yes _(ysuurme)_",
+    ):
+        assert line in md, line
+    assert "`ok` — accept every recommendation" in md
+
+
+def test_request_decisions_asks_in_the_issue_with_a_reply_guide() -> None:
+    out = _run(
+        r"""
+$script:State = [pscustomobject]@{
+    open_questions = @(
+        [pscustomobject]@{ text = 'First?';  decision = 'yes'; alternatives = @('no', 'later') },
+        [pscustomobject]@{ text = 'Second?'; decision = 'X';   alternatives = @('Y', 'Z') }
+    )
+}
+function script:Get-IssueState { param($IssueNumber) $script:State }
+function script:Set-PlanningState { param($IssueNumber, $State) $script:State = $State }
+function script:Set-DecisionSection { param($IssueNumber, $State) }
+function script:Set-IssueLabel { param($Number, $Add, $Remove) $script:Label = $Add }
+function script:Add-Comment { param($Number, $Body) $script:Body = $Body }
+Request-Decisions -IssueNumber 50
+[pscustomobject]@{ body = $script:Body; label = $script:Label; asked = [bool]$script:State.questions_asked_at } |
+    ConvertTo-Json -Compress
+"""
+    )
+    body = out["body"]
+    assert body.startswith("🤖⏸ Needs your decision — 2 question(s)")
+    assert "**2. Second?**" in body and "- **C:** Z" in body
+    assert "`ok` — accept every recommendation" in body and "`1B`" in body
+    assert out["label"] == "human:decision" and out["asked"] is True
+
+
+def test_failed_attempts_are_recorded_in_the_issue() -> None:
+    out = _run(
+        r"""
+$script:State = [pscustomobject]@{ open_questions = @() }
+function script:Get-IssueState { param($IssueNumber) $script:State }
+function script:Set-PlanningState { param($IssueNumber, $State) $script:State = $State }
+function script:Set-IssueBodySection { param($IssueNumber, $BeginMarker, $EndMarker, $Markdown) $script:Md = $Markdown; $true }
+Add-FailedAttempt -IssueNumber 1 -Stage 'implement' -Reason "tests failed`nline two" -Attempt 1 -Max 3
+Add-FailedAttempt -IssueNumber 1 -Stage 'ship' -Reason 'CI checks failed for PR #9: test' -Attempt 2 -Max 3
+$mid = $script:Md
+Add-FailedAttempt -IssueNumber 1 -Stage 'review' -Reason 'rejected' -Attempt 3 -Max 3
+$final = $script:Md
+Reset-AttemptCount -IssueNumber 1
+[pscustomobject]@{
+    mid = $mid; final = $final; reset = $script:Md
+    count = $script:State.attempt_count; history = @($script:State.attempts).Count
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert "retrying — 2/3 attempts used" in out["mid"]
+    assert "**Attempt 1/3** · implement" in out["mid"]
+    assert "tests failed line two" in out["mid"]
+    assert "failed 3/3 — waiting on you" in out["final"]
+    # A new round keeps the history and clears the count.
+    assert (out["count"], out["history"]) == (0, 3)
+    assert "no failure in the current round" in out["reset"]
+
+
+# ── Board ────────────────────────────────────────────────────────────────────
 
 
 def test_issue_missing_from_the_board_is_added_and_cached() -> None:
@@ -154,18 +273,14 @@ $script:_CachedItems = @([pscustomobject]@{
 function script:Get-ResolvedOwner { 'octocat' }
 $script:Calls = @()
 function script:gh { $script:Calls += ($args -join ' '); $global:LASTEXITCODE = 0; '{"id":"PVTI_new"}' }
-$added  = Add-IssueToBoard -IssueNumber 42
-$again  = Add-IssueToBoard -IssueNumber 42
+$added = Add-IssueToBoard -IssueNumber 42
+$again = Add-IssueToBoard -IssueNumber 42
 [pscustomobject]@{
-    added  = $added
-    again  = $again
-    itemId = (Get-ProjectItemId -IssueNumber 42)
-    calls  = @($script:Calls).Count
-    url    = ($script:Calls[0] -match 'issues/42')
+    added = $added; again = $again; itemId = (Get-ProjectItemId -IssueNumber 42)
+    calls = @($script:Calls).Count; url = ($script:Calls[0] -match 'issues/42')
 } | ConvertTo-Json -Compress
 """
     )
-    # Added once; the second call finds it in the cache instead of calling gh again.
     assert out == {
         "added": True,
         "again": True,
@@ -188,49 +303,140 @@ function script:gh { throw 'gh must not be called when the board could not be re
     assert out == {"added": False}
 
 
-def test_pending_decisions_skip_the_llm_stages(tmp_path: Path) -> None:
-    """An already-refined issue that still waits on a decision must not re-run
-    refine/architect/plan: each closed decision issue then costs one cheap check.
+# ── Conductor ────────────────────────────────────────────────────────────────
 
-    Runs in tmp_path — the conductor's finally block resets git, which must never
-    touch the repository under test.
-    """
-    script = (
-        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
-        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
-        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
-        "& (Get-Module Orchestrator) {\n"
-        r"""
-function script:Write-Log { param($Message, $Color) }
+_CONDUCTOR_FAKES = r"""
+$script:Log = [System.Collections.Generic.List[string]]::new()
 function script:Assert-EngineReady {}
 function script:Acquire-OrchestratorLock { param($IssueNumber) $true }
 function script:Release-OrchestratorLock {}
 function script:Add-IssueToBoard { param($IssueNumber) $true }
-function script:Resolve-DecisionAnswers { param($IssueNumber) 1 }
-function script:Get-IssueState {
-    param($IssueNumber)
+function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:" + ($Body -split "`n")[0]) }
+function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
+function script:Set-IssueLabel { param($Number, $Add, $Remove) $script:Log.Add("label:+$Add-$Remove") }
+function script:Set-AgentFailedState { param($IssueNumber, $FailedAt, $Reason) $script:Log.Add("failed:$FailedAt") }
+function script:Set-DecisionSection { param($IssueNumber, $State) }
+function script:Format-ErrorBlock { param($Raw) $Raw }
+function script:git { $global:LASTEXITCODE = 1 }
+"""
+
+
+def _conductor(body: str, tmp_path: Path) -> dict:
+    return _run(_CONDUCTOR_FAKES + body, cwd=tmp_path)
+
+
+_WAITING_STATE = r"""
+$script:Ready = $false
+function script:Get-IssueState { param($IssueNumber)
     [pscustomobject]@{
         readiness      = [pscustomobject]@{ refined = [pscustomobject]@{ done = $true } }
-        open_questions = @([pscustomobject]@{ text = 'still open'; child_issue = 12 })
-    }
-}
-function script:Invoke-Refine    { throw 'refine must not re-run while decisions are pending' }
-function script:Invoke-Architect { throw 'architect must not re-run while decisions are pending' }
-function script:Invoke-Plan      { throw 'plan must not re-run while decisions are pending' }
-function script:Set-AgentFailedState { throw 'must not fail' }
-function script:gh { $global:LASTEXITCODE = 0; '{"title":"t","labels":[],"state":"OPEN"}' }
-function script:git { $global:LASTEXITCODE = 1 }
-$r = Invoke-Orchestration -From refine -IssueNumber 50
-[pscustomobject]@{ result = $r } | ConvertTo-Json -Compress
-}
+        open_questions = $(if ($script:Ready) { @() } else { @([pscustomobject]@{ text = 'q' }) })
+    } }
+function script:Test-Readiness { param($State) $script:Ready }
+function script:gh { $global:LASTEXITCODE = 0; '{"title":"t","labels":[{"name":"human:decision"}],"state":"OPEN"}' }
 """
+
+
+def test_waiting_issue_without_a_reply_does_nothing(tmp_path: Path) -> None:
+    out = _conductor(
+        _WAITING_STATE
+        + r"""
+function script:Invoke-AnswerCheck { param($IssueNumber) [pscustomobject]@{ Evaluated = $false; Answered = 0; Open = 1; Error = $null } }
+function script:Invoke-Refine { throw 'no re-refine without a reply' }
+$r = Invoke-Orchestration -From refine -IssueNumber 50
+[pscustomobject]@{ result = $r; log = @($script:Log) } | ConvertTo-Json -Compress
+""",
+        tmp_path,
     )
-    result = subprocess.run(
-        [PWSH, "-NoProfile", "-Command", script],
-        capture_output=True,
-        text=True,
-        cwd=tmp_path,
-        check=False,
+    assert out == {"result": False, "log": []}
+
+
+def test_all_answered_re_plans_and_grants_backlog(tmp_path: Path) -> None:
+    out = _conductor(
+        _WAITING_STATE
+        + r"""
+function script:Invoke-AnswerCheck { param($IssueNumber) $script:Ready = $true
+    [pscustomobject]@{ Evaluated = $true; Answered = 1; Open = 0; Error = $null } }
+function script:Invoke-Refine    { param($Number)      $script:Log.Add('refine') }
+function script:Invoke-Architect { param($IssueNumber) $script:Log.Add('architect') }
+function script:Invoke-Plan      { param($Number)      $script:Log.Add('plan') }
+function script:Reset-AttemptCount { param($IssueNumber) }
+$r = Invoke-Orchestration -From refine -IssueNumber 50
+[pscustomobject]@{ result = $r; log = @($script:Log) } | ConvertTo-Json -Compress
+""",
+        tmp_path,
     )
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout.strip().splitlines()[-1]) == {"result": False}
+    assert out["result"] is True
+    assert out["log"][:3] == ["refine", "architect", "plan"]
+    assert "label:+-human:decision" in out["log"]
+    assert "state:agent:backlog" in out["log"]
+
+
+def test_partial_answer_asks_again(tmp_path: Path) -> None:
+    out = _conductor(
+        _WAITING_STATE
+        + r"""
+function script:Invoke-AnswerCheck { param($IssueNumber) [pscustomobject]@{ Evaluated = $true; Answered = 1; Open = 1; Error = $null } }
+function script:Request-Decisions { param($IssueNumber, $Answered) $script:Log.Add("ask:$Answered") }
+function script:Invoke-Refine { throw 'no re-refine while a question is open' }
+$r = Invoke-Orchestration -From refine -IssueNumber 50
+[pscustomobject]@{ result = $r; log = @($script:Log) } | ConvertTo-Json -Compress
+""",
+        tmp_path,
+    )
+    assert out == {"result": False, "log": ["ask:1"]}
+
+
+_IMPLEMENT_FAKES = r"""
+$script:State = [pscustomobject]@{ attempts = @(); attempt_count = 0 }
+function script:Get-IssueState { param($IssueNumber) $script:State }
+function script:Add-FailedAttempt { param($IssueNumber, $Stage, $Reason, $Attempt, $Max) $script:Log.Add("attempt:$Attempt/$Max@$Stage") }
+function script:Reset-AttemptCount { param($IssueNumber) $script:Log.Add('reset') }
+function script:gh { $global:LASTEXITCODE = 0
+    if ($args[0] -eq 'pr') { '[{"number":9}]' } else { '{"title":"t","labels":[],"state":"OPEN"}' } }
+function script:Invoke-Review { param($IssueNumber, $PRNumber) $true }
+function script:Invoke-Ship   { param($IssueNumber, $PRNumber, [switch]$Approved) $script:Log.Add('ship'); $true }
+$script:Calls = 0
+"""
+
+
+def test_attempt_loop_recovers_on_the_second_attempt(tmp_path: Path) -> None:
+    out = _conductor(
+        _IMPLEMENT_FAKES
+        + r"""
+function script:Invoke-Implement { param($IssueNumber, [switch]$Force)
+    $script:Calls++; $script:Log.Add("implement:force=$([bool]$Force)")
+    if ($script:Calls -eq 1) { throw 'Test suite failed after implementation for issue #50' }
+    'https://github.com/octocat/sandbox/pull/9' }
+Invoke-Orchestration -IssueNumber 50 -MaxRetries 3
+[pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
+""",
+        tmp_path,
+    )
+    log = out["log"]
+    assert "implement:force=False" in log and "implement:force=True" in log
+    assert "attempt:1/3@implement" in log
+    assert log[-2:] == ["ship", "reset"]
+    assert not any(e.startswith("failed:") for e in log)
+
+
+def test_attempt_loop_fails_only_after_the_budget(tmp_path: Path) -> None:
+    out = _conductor(
+        _IMPLEMENT_FAKES
+        + r"""
+function script:Invoke-Implement { param($IssueNumber, [switch]$Force) 'https://github.com/octocat/sandbox/pull/9' }
+function script:Invoke-Review { param($IssueNumber, $PRNumber) $script:Calls++; $false }
+Invoke-Orchestration -IssueNumber 50 -MaxRetries 3
+[pscustomobject]@{ log = @($script:Log); reviews = $script:Calls } | ConvertTo-Json -Compress
+""",
+        tmp_path,
+    )
+    log = out["log"]
+    assert out["reviews"] == 3
+    assert [e for e in log if e.startswith("attempt:")] == [
+        "attempt:1/3@review",
+        "attempt:2/3@review",
+        "attempt:3/3@review",
+    ]
+    assert "failed:review" in log and "ship" not in log
+    assert any(e.startswith("comment:🤖❌ Failed after 3 attempts") for e in log)

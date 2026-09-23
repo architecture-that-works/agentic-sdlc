@@ -71,10 +71,12 @@ class Question(BaseModel):
     raised_by: str | None = None
     decided_by: str | None = None
     decision: str | None = None
+    # For an open question: `decision` is the recommended answer (option A) and these
+    # are the two genuine alternatives (B, C) the owner can pick instead.
+    alternatives: list[str] = Field(default_factory=list)
     timestamp: datetime | None = None
-    # The human:decision issue that carries an open question. Closing it (with an
-    # optional answer comment) is how a human decides; refine reads it back.
-    child_issue: int | None = None
+    # What is still missing after the owner's last reply (set by the answer check).
+    follow_up: str | None = None
 
 
 class Transition(BaseModel):
@@ -98,6 +100,9 @@ class PlanningState(BaseModel):
     readiness: Readiness = Field(default_factory=Readiness)
     open_questions: list[Question] = Field(default_factory=list)
     decided_questions: list[Question] = Field(default_factory=list)
+    # When the open questions were last put to the owner; only comments after it
+    # are read as answers.
+    questions_asked_at: datetime | None = None
     transitions: list[Transition] = Field(default_factory=list)
 
     def is_ready_for_backlog(self) -> bool:
