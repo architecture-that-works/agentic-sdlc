@@ -187,7 +187,7 @@ function Find-Option([string[]]$Patterns) {
 $laneBacklog      = Find-Option @('backlog', 'todo', 'to.do', 'new')
 $laneImplementing = Find-Option @('implement', 'progress', 'doing', 'in.progress')
 $laneReview       = Find-Option @('review', 'testing', 'qa')
-$laneMerged       = Find-Option @('merged?', 'done', 'complete', 'closed')
+$laneMerged       = Find-Option @('shipped', 'merged?', 'done', 'complete', 'closed')
 
 # ── Interactive fallback for unmatched lanes ──────────────────────────────────
 
@@ -212,7 +212,7 @@ Write-Host "  Mapping lanes..." -ForegroundColor Cyan
 $laneBacklog      = Select-Option 'Backlog'      $laneBacklog
 $laneImplementing = Select-Option 'Implementing' $laneImplementing
 $laneReview       = Select-Option 'Review'       $laneReview
-$laneMerged       = Select-Option 'Merged'       $laneMerged
+$laneMerged       = Select-Option 'Shipped'      $laneMerged
 
 # ── Write .env ────────────────────────────────────────────────────────────────
 
