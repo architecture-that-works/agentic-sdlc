@@ -12,6 +12,8 @@ name: AFK
 #     (not a 🤖/· pipeline comment)                questions, or refine an un-refined issue;
 #                                                  on an agent:failed issue → retry that stage
 #   agent:reviewing label                       → ship job (resilient handoff for review→ship)
+#   hourly schedule                             → resume agent:paused issues once the Claude
+#                                                  usage limit has reset (max 5 h pause)
 #   workflow_dispatch stage=refine, issue 0     → refine every issue with no agent:* label
 #   workflow_dispatch stage=implement / ship    → manual override for one issue
 #
@@ -25,6 +27,8 @@ on:
     types: [opened, labeled]
   issue_comment:
     types: [created]
+  schedule:
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       issue_number:
@@ -224,9 +228,13 @@ jobs:
         env:
           RESOLVED_ISSUE: ${{ steps.resolve.outputs.issue_number }}
         run: |
-          $stillBacklog = gh issue view $env:RESOLVED_ISSUE --repo $env:GITHUB_REPOSITORY `
-            --json labels --jq '[.labels[].name] | contains(["agent:backlog"])' 2>$null
-          if ($stillBacklog -eq 'true') {
+          $labels = gh issue view $env:RESOLVED_ISSUE --repo $env:GITHUB_REPOSITORY `
+            --json labels --jq '[.labels[].name] | join(",")' 2>$null
+          if (",$labels," -like '*,agent:paused,*') {
+            Write-Output "Paused on the Claude usage limit — the hourly resume job restarts the queue."
+            exit 0
+          }
+          if (",$labels," -like '*,agent:backlog,*') {
             Write-Output "::error::Issue #$($env:RESOLVED_ISSUE) is still agent:backlog after the pipeline — no progress; halting drain to avoid an infinite loop."
             exit 1
           }
@@ -305,3 +313,49 @@ jobs:
           git fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
           $pr = Resolve-PR -IssueNumber $issue
           Invoke-Ship -IssueNumber $issue -PRNumber $pr
+
+  # ── Resume (hourly) — issues paused on the Claude usage limit ────────────────
+  resume:
+    name: Resume paused issues
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: resume-paused
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
+      KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
+      KANBAN_PROJECT_ID: ${{ vars.KANBAN_PROJECT_ID }}
+      KANBAN_STATUS_FIELD_ID: ${{ vars.KANBAN_STATUS_FIELD_ID }}
+      KANBAN_OPT_BACKLOG: ${{ vars.KANBAN_OPT_BACKLOG }}
+      KANBAN_OPT_IMPLEMENTING: ${{ vars.KANBAN_OPT_IMPLEMENTING }}
+      KANBAN_OPT_REVIEW: ${{ vars.KANBAN_OPT_REVIEW }}
+      KANBAN_OPT_MERGED: ${{ vars.KANBAN_OPT_MERGED }}
+    steps:
+      # Cheap check first: most hours nothing is paused, and then nothing is installed.
+      - name: Any paused issues?
+        id: paused
+        shell: bash
+        run: |
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --label agent:paused --state open --json number --jq length)
+          echo "count=${n:-0}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.paused.outputs.count != '0'
+
+      - name: Install tooling
+        if: steps.paused.outputs.count != '0'
+        shell: bash
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          sudo npm install -g @anthropic-ai/claude-code
+
+      - name: Resume issues whose usage-limit pause has passed
+        if: steps.paused.outputs.count != '0'
+        shell: pwsh
+        run: |
+          Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
+          Resume-PausedIssues

@@ -77,6 +77,7 @@ flowchart LR
 | `agent:backlog` → `agent:implementing` → `agent:reviewing` | building, reviewing and shipping it — `agent:backlog` starts it | nothing; comments you add are passed to the agent |
 | `human:approval` + a held PR | done, waiting for your merge | review and merge the PR |
 | `agent:failed` | stopped after 3 failed attempts, each listed in the issue's **Attempts** section | fix it hands-on or explain what to change, then comment — any comment (e.g. `retry`) starts a new round of 3 attempts |
+| `agent:paused` | waiting for the Claude usage allowance to reset; resumes on its own within 5 hours (checked hourly), no attempt counted | nothing |
 | `agent:shipped` | done: merged and closed | nothing |
 
 - **Your comment is the trigger.** Only comments from people with write access count, and

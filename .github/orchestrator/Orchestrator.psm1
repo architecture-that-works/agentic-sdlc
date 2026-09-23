@@ -71,8 +71,18 @@ function Invoke-Orchestration {
     $ctx = Get-OrchestratorContext               # run context: repo, default branch, retries
     if ($MaxRetries -lt 0) { $MaxRetries = $ctx.MaxRetries }
 
-    # Fail-fast engine validation
-    Assert-EngineReady
+    # Fail-fast engine validation. A spent usage allowance pauses the issue instead of
+    # failing it; the hourly resume job picks it up again.
+    try {
+        Assert-EngineReady
+    } catch {
+        if ("$($_.Exception.Message)" -like 'USAGE-LIMIT|*') {
+            $until = ([datetime](("$($_.Exception.Message)" -split '\|', 2)[1])).ToUniversalTime()
+            Suspend-ForUsageLimit -IssueNumber $IssueNumber -Stage $From -Until $until
+            return $false
+        }
+        throw
+    }
 
     # Prevent two concurrent instances from processing the same issue.
     if (-not (Acquire-OrchestratorLock -IssueNumber $IssueNumber)) {
@@ -113,6 +123,8 @@ function Invoke-Orchestration {
             if ($waiting) {
                 $check = Invoke-AnswerCheck -IssueNumber $IssueNumber
                 if ($check.Error) {
+                    $until = Test-EngineUsageLimit
+                    if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Stage 'refine' -Until $until; return $false }
                     Add-Comment -Number $IssueNumber -Body "🤖⚠️ Could not check your reply — comment again to retry.`n``````text`n$($check.Error)`n``````"
                     return $false
                 }
@@ -142,6 +154,8 @@ function Invoke-Orchestration {
                     break
                 } catch {
                     $reason = $_.Exception.Message
+                    $until  = Test-EngineUsageLimit
+                    if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Stage 'refine' -Until $until; return $false }
                     $attempt++
                     Add-FailedAttempt -IssueNumber $IssueNumber -Stage $currentStage -Reason $reason -Attempt $attempt -Max $MaxRetries
                     if ($attempt -ge $MaxRetries) {
@@ -156,6 +170,15 @@ function Invoke-Orchestration {
             Reset-AttemptCount -IssueNumber $IssueNumber
 
             $state = Get-IssueState -IssueNumber $IssueNumber
+            # Refine and plan degrade to placeholders when the model is unavailable. If
+            # that is a spent allowance, pause rather than queue an issue on a stub plan.
+            $fallback = @('refined', 'planned') | Where-Object {
+                $state -and "$($state.readiness.$_.populated_by)" -like '*fallback*'
+            }
+            if ($fallback) {
+                $until = Test-EngineUsageLimit
+                if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Stage 'refine' -Until $until; return $false }
+            }
             if (Test-Readiness -State $state) {
                 Set-DecisionSection -IssueNumber $IssueNumber -State $state
                 Set-IssueLabel -Number $IssueNumber -Remove 'human:decision'
@@ -228,6 +251,9 @@ function Invoke-Orchestration {
                 return
             } catch {
                 $reason = $_.Exception.Message
+                # A spent usage allowance is not the agent's failure: pause, count nothing.
+                $until = Test-EngineUsageLimit
+                if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Stage 'implement' -Until $until; return }
                 $attempt++
                 Add-FailedAttempt -IssueNumber $IssueNumber -Stage $currentStage -Reason $reason -Attempt $attempt -Max $MaxRetries
                 if ($attempt -ge $MaxRetries) {

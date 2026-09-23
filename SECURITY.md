@@ -64,7 +64,9 @@ Every agent action can be halted, overridden or rolled back by a human, and ever
 steps works from the GitHub mobile app or web UI. The pipeline acts on its own only within
 fixed bounds: it refines new issues, implements what carries `agent:backlog`, and retries a
 failure at most `KANBAN_MAX_RETRIES` (3) times per round before stopping on `agent:failed`. It
-reacts to comments only from people with write access.
+reacts to comments only from people with write access. When the Claude usage allowance is spent
+it stops work on `agent:paused` and an hourly job resumes it once the allowance resets (at most
+5 hours later).
 
 ### Halt
 

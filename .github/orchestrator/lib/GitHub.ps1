@@ -97,6 +97,7 @@ function Get-LaneFromLabel {
         'agent:reviewing'    { 'review'       }
         'agent:shipped'      { 'shipped'      }
         'agent:failed'       { 'backlog'      }
+        'agent:paused'       { 'backlog'      }
         default              { ''             }
     }
 }
@@ -575,6 +576,77 @@ function Set-AttemptsSection {
         -Markdown $sb.ToString().TrimEnd()
 }
 
+# ── Usage-limit pause and resume ──────────────────────────────────────────────
+# A spent usage allowance parks the issue on agent:paused with the resume time and
+# the stage to resume in the carrier; no attempt is counted. afk.yml's hourly
+# resume job calls Resume-PausedIssues.
+function Suspend-ForUsageLimit {
+    param([Parameter(Mandatory)][int]$IssueNumber, [Parameter(Mandatory)][string]$Stage,
+          [Parameter(Mandatory)][datetime]$Until)
+    $state = Get-IssueState -IssueNumber $IssueNumber
+    if ($state) {
+        $state | Add-Member -NotePropertyName paused_until -NotePropertyValue $Until.ToUniversalTime().ToString('o') -Force
+        $state | Add-Member -NotePropertyName paused_stage -NotePropertyValue $Stage -Force
+        Set-PlanningState -IssueNumber $IssueNumber -State $state
+    }
+    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:paused'
+    Add-Comment -Number $IssueNumber -Body ("🤖⏳ Paused — the Claude usage limit is reached. $Stage resumes automatically " +
+        "after $($Until.ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC (checked hourly). No attempt was counted; nothing for you to do.")
+    Write-Log "⏳ Issue #$IssueNumber paused at $Stage until $($Until.ToString('o'))." -Color Yellow
+}
+
+# Resumes every agent:paused issue whose resume time has passed — after one probe
+# confirms the engine answers again; if it still refuses, the resume times move to
+# the new reset time without a comment. Implement-stage pauses go back to
+# agent:backlog (the label restarts implement); refine-stage pauses are dispatched
+# to the refine job.
+function Resume-PausedIssues {
+    $raw = gh issue list --repo $KanbanRepo --label 'agent:paused' --state open --json number --jq '.[].number' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Failed to list agent:paused issues: $raw" }
+    $numbers = @($raw | Where-Object { "$_".Trim() } | ForEach-Object { [int]"$_" })
+    if ($numbers.Count -eq 0) { Write-Log "No paused issues." -Color DarkGray; return }
+
+    $now = (Get-Date).ToUniversalTime()
+    $due = foreach ($n in $numbers) {
+        $st = Get-IssueState -IssueNumber $n
+        $until = if ($st -and $st.PSObject.Properties['paused_until'] -and $st.paused_until) {
+            ([datetime]$st.paused_until).ToUniversalTime()
+        } else { $now }
+        if ($until -le $now) { [pscustomobject]@{ Number = $n; State = $st } }
+    }
+    $due = @($due | Where-Object { $_ })
+    if ($due.Count -eq 0) { Write-Log "$($numbers.Count) paused issue(s); none due yet." -Color DarkGray; return }
+
+    $still = Test-EngineUsageLimit
+    if ($still) {
+        foreach ($d in $due) {
+            if ($d.State) {
+                $d.State | Add-Member -NotePropertyName paused_until -NotePropertyValue $still.ToString('o') -Force
+                Set-PlanningState -IssueNumber $d.Number -State $d.State
+            }
+        }
+        Write-Log "⏳ Usage limit still in effect — $($due.Count) issue(s) now resume after $($still.ToString('o'))." -Color Yellow
+        return
+    }
+
+    foreach ($d in $due) {
+        $stage = if ($d.State -and $d.State.PSObject.Properties['paused_stage']) { "$($d.State.paused_stage)" } else { 'implement' }
+        if ($d.State) {
+            $d.State.PSObject.Properties.Remove('paused_until')
+            $d.State.PSObject.Properties.Remove('paused_stage')
+            Set-PlanningState -IssueNumber $d.Number -State $d.State
+        }
+        Add-Comment -Number $d.Number -Body "· resumed after the usage-limit pause ($stage)"
+        if ($stage -eq 'refine') {
+            Set-IssueLabel -Number $d.Number -Remove 'agent:paused'
+            gh workflow run afk.yml --repo $KanbanRepo --field stage=refine --field issue_number=$($d.Number) 2>&1 | Out-Null
+        } else {
+            Set-AgentState -IssueNumber $d.Number -Label 'agent:backlog'
+        }
+        Write-Log "▶ Issue #$($d.Number) resumed ($stage)." -Color Green
+    }
+}
+
 # ── Atomic state transition (label + lane in one call) ───────────────────────
 
 function Set-AgentFailedState {
@@ -607,6 +679,7 @@ function Set-AgentState {
         'agent:reviewing'    { $KanbanOpt_Review       }
         'agent:shipped'      { $KanbanOpt_Merged       }
         'agent:failed'       { $KanbanOpt_Backlog      }
+        'agent:paused'       { $KanbanOpt_Backlog      }
         default              { ''                      }
     }
     $laneName = switch ($Label) {
@@ -615,6 +688,7 @@ function Set-AgentState {
         'agent:reviewing'    { 'Review'       }
         'agent:shipped'      { 'Shipped'      }
         'agent:failed'       { 'Backlog'      }
+        'agent:paused'       { 'Backlog'      }
         default              { ''             }
     }
 
