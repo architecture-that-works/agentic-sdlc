@@ -44,7 +44,7 @@ refine → architect → plan → implement → review → ship
 
 **Do not skip stages.** An `implement` session without a prior `plan` has no PRD to trace tests to. A `review` without a prior `implement` has no green suite to check.
 
-Environment provisioning and context-window health are not stages — no issue sits in them. See `docs/HARNESS.md`.
+Environment provisioning and context-window health are not stages — no issue sits in them. The environment is `.devcontainer/`; context health is in `AGENTS.md` § Session Initialisation.
 
 ## Meta Skills (cross-cutting, load on demand)
 

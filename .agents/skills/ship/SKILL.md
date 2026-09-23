@@ -19,7 +19,7 @@ for a standard patch release walkthrough and a rollback scenario.
 
 **Owns:** Pre-merge security gates (sandboxing verification, supply chain review), `gh pr merge --squash` execution, auto-close enforcement (`Closes #N`), `.out-of-scope.md` updates, `CONTEXT.md` post-merge update.
 
-**Does not own:** Code review findings (→ `review`), branch and commit operations (→ `version-control`), container and environment teardown (see `docs/HARNESS.md`).
+**Does not own:** Code review findings (→ `review`), branch and commit operations (→ `version-control`), container and environment teardown (`.devcontainer/`).
 
 **Interfaces with:** `review` — a passing review is the prerequisite for ship. `version-control` — merge uses the branch and PR conventions established there. `refine` — `CONTEXT.md` updates feed back into the next session's initialisation.
 

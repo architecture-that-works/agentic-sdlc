@@ -190,5 +190,5 @@ Shallow module detected
 Circular dependency
   └─ Block merge immediately — no exceptions
   └─ Open a fix issue with no human: label if the fix is mechanical
-  └─ Open a HITL issue if the fix requires boundary decisions
+  └─ Open a human:decision issue if the fix requires boundary decisions
 ```

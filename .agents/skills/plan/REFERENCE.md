@@ -68,28 +68,24 @@ Format: "X — deferred because Y."
 3. **Independent last.** Issues with no blockers and no blocked-by relationships can execute
    in any order.
 
-### Sizing rules (Fibonacci)
+### Sizing rules
 
-| Size | Story Points | Expected Scope |
-|------|-------------|----------------|
-| XS | 1 | Single function or config change; no new tests needed |
-| S | 2 | One module; one new test file |
-| M | 3 | Two modules; two test files; no new dependencies |
-| L | 5 | New bounded context or API endpoint; integration test required |
-| XL | 8 | Spans multiple bounded contexts; architectural decision required |
+Estimate with the Fibonacci scale in the `ISSUES.md` header — the single sizing scale. A
+decomposed child issue is at most 8 points; one that cannot be split below that means the PRD
+tracer bullet is too wide — narrow it.
 
-Do not create issues larger than XL. An XL issue that cannot be split means the PRD tracer
-bullet is too wide — return to `plan` and narrow it.
+### `human:*` labels — decision rubric
 
-### HITL vs AFK — decision rubric
+AFK and HITL are execution modes, not labels (ADR-015). An issue's label says who must act:
 
-**HITL (Human-in-the-Loop):** Use when the issue requires any of:
-- A human approval or review step that cannot be automated
-- A decision with business or product implications (not purely technical)
-- External service credentials or access the agent cannot provision
-- A UI/UX decision requiring visual review
+**`human:decision`:** the issue is a question — a decision with business or product
+implications (not purely technical). It never enters the pipeline.
 
-**AFK (Away-from-Keyboard):** Use when all of the following are true:
+**`human:approval`:** the agent can implement and self-review it, but a human must merge —
+a human review step that cannot be automated, external credentials or access the agent cannot
+provision, or a UI/UX decision requiring visual review.
+
+**No label:** use when all of the following are true:
 - The issue can be fully specified in the body with no ambiguity
 - All acceptance criteria are mechanically verifiable by CI
 - The implementation touches only bounded contexts the agent is authorised to modify

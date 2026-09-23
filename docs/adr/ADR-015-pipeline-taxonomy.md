@@ -420,6 +420,11 @@ rather than the `agent:reviewing` label, which the review stage always sets firs
    *"5-Minute AFK Setup"*. The README said "5-Minute Cloud Runner Setup". The section was
    renamed rather than the claim softened.
 
+**2026-09-23** — `docs/HARNESS.md` removed. Its context-health thresholds moved to `AGENTS.md`
+§ Session Initialisation and its Dev Container invariants to the `CONTEXT.md` Architectural
+Constraints; the rest restated the `implement` skill. Skills that pointed to it for CI/CD,
+deployment, telemetry and secrets now point to where those live.
+
 Amendment rather than supersession: this ADR carries a living Implementation section by its
 own design, and the refactor it describes had not finished landing when these surfaced.
 

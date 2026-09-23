@@ -107,7 +107,7 @@ When a finding is not resolved after 3 iterations:
    )"
    ```
 
-2. Add the HITL label:
+2. Add the `human:approval` label:
 
    ```bash
    gh issue edit <issue-number> --add-label "human:approval"

@@ -17,7 +17,7 @@ Covers the design and implementation of production AI application services. The 
 
 **Owns:** REST API design and implementation, input validation and serialisation at request boundaries (Pydantic), Claude API integration as a service dependency (single-turn completions, structured outputs via tool_use, SSE streaming to client), AI port/adapter pattern (provider-agnostic abstraction), OTel instrumentation at the request boundary, AI error handling (rate limits, timeouts, exponential backoff), authentication and authorisation patterns, background task design, service-to-service communication, contract testing for API consumers.
 
-**Does not own:** Plan-Act-Observe loops and multi-turn autonomous agents (→ `agentic-engineering`), agent state persistence and multi-step orchestration (→ `agentic-engineering`), infrastructure and environment provisioning (see `docs/HARNESS.md`), data pipeline design (→ `data-engineering`), domain model design (→ `refine`).
+**Does not own:** Plan-Act-Observe loops and multi-turn autonomous agents (→ `agentic-engineering`), agent state persistence and multi-step orchestration (→ `agentic-engineering`), infrastructure and environment provisioning (`.github/workflows/`, `.devcontainer/`), data pipeline design (→ `data-engineering`), domain model design (→ `refine`).
 
 **Interfaces with:** `refine` — application layer implements ports defined during alignment; no business logic in routers. `implement` — contract tests drive the RED phase for API behaviour. `agentic-engineering` — an API endpoint may *invoke* an agent; agent internals live there.
 
@@ -33,7 +33,7 @@ Covers the design and implementation of production AI application services. The 
 **Do NOT use for:**
 - Plan-Act-Observe agent loops (→ `agentic-engineering`)
 - Multi-step orchestration with tool calls across iterations (→ `agentic-engineering`)
-- Infrastructure or deployment configuration (see `docs/HARNESS.md`)
+- Infrastructure or deployment configuration (`.github/workflows/`, `SECURITY.md` § Deployment Credentials)
 
 ## Required Inputs
 
@@ -306,7 +306,7 @@ Never catch `anthropic.AuthenticationError` in retry logic — it is not transie
 | Managed identity | Azure Managed Identity / GCP Service Account — no key in code |
 
 For self-hosted IAM selection → `docs/adr/ADR-004-iam-provider-selection.md`.
-Never put secrets in environment variables — fetch from secrets manager at runtime via managed identity (see `docs/HARNESS.md`).
+Never put secrets in environment variables — fetch from secrets manager at runtime via managed identity (`SECURITY.md`, ADR-008).
 
 ### API Versioning
 
@@ -381,7 +381,7 @@ If the service needs to call Claude multiple times with tools in a loop, that is
 FastAPI cannot generate correct OpenAPI docs and may serialise internal fields. Every endpoint must declare `response_model=`.
 
 **Secrets in environment variables.**
-Environment variables are visible in process lists and container inspection. Fetch secrets from a secrets manager at runtime via managed identity (see `docs/HARNESS.md`).
+Environment variables are visible in process lists and container inspection. Fetch secrets from a secrets manager at runtime via managed identity (`SECURITY.md`, ADR-008).
 
 **Catching `RateLimitError` without backoff.**
 Immediate retry on rate limit triggers another rate limit. Always use exponential backoff.

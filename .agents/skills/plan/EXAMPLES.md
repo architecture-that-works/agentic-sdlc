@@ -123,7 +123,7 @@ on Claude failure.
 EOF
 )"
 
-# Issue 3: Integration test (HITL — needs human review of test scenario)
+# Issue 3: Integration test (human:approval — needs human review of test scenario)
 gh issue create \
   --title "test(streaming): end-to-end integration test for GET /stream" \
   --label "human:approval" \
@@ -150,7 +150,7 @@ EOF
 Plan session produces:
 
 - 1 Lean PRD (needs a human) — awaits human sign-off before implementation begins
-- 3 decomposed issues: 2 AFK (fully automatable), 1 HITL (requires human review)
+- 3 decomposed issues: 2 unlabelled (fully automatable), 1 `human:approval` (requires human review)
 - No duplicates found; no `.out-of-scope.md` entries violated
 - Multi-turn streaming and auth appended as `## ` sections to `.out-of-scope.md` post-merge
 

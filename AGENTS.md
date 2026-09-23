@@ -1,123 +1,92 @@
-# AGENTS.md — Project Context for AI Agents
+# AGENTS.md — Standing Instructions for AI Agents
 
-## Project Identity
-
-Python + UV application.
-
-| Key | Value |
-|-----|-------|
-| Stack | Python + UV |
-| Entry point | `src/main.py` |
-| Config | `src/config.py` (pydantic-settings, loads `.env`) |
+Python + UV application: entry point `src/main.py`, config `src/config.py` (pydantic-settings,
+loads `.env`). What the project *is* — glossary, Module Map, constraints — lives in `CONTEXT.md`;
+this file says how to *work* in it.
 
 ## Session Initialisation
 
-Load in this order at the start of every session:
+Load in this order before any task:
 
-1. `CONTEXT.md` — domain glossary, bounded contexts, Module Map, Issue-Type Index, and architectural constraints
-2. `AGENTS.md` — this file; standing instructions and skill index
-3. `docs/adr/ADR_STRUCTURE.md` — master ADR index; filter by `applies_to` for the current `project_type` and load only the relevant ADR files
-4. Task-specific context — issue description, PR diff, or user prompt
+1. `CONTEXT.md` — glossary, Module Map, Issue-Type Index, Architectural Constraints.
+2. `AGENTS.md` — this file.
+3. `docs/adr/ADR_STRUCTURE.md` — then only the ADRs its Quick Filter lists for the Project Type
+   in `CONTEXT.md`.
+4. The task — issue body, PR diff, or prompt. If steps 1–4 would exceed ~100k tokens, keep it on
+   disk and read it on demand.
 
-Never begin a task without reading `CONTEXT.md` first. An agent that skips this will hallucinate boundaries that were already agreed.
+**Context health.** Past ~150k tokens, finish the current stage, write large tool output (logs,
+dumps) to disk with a short summary in its place, and compact. Past ~250k, stop: record the
+stage, files changed, suite status and next action in the issue body (never a local file —
+ADR-011), then start a fresh session from step 1 and re-run the suite before continuing.
 
-After reading `ADR_STRUCTURE.md`, load only the ADRs that match the current `project_type`. For `project_type: application` (the default): ADR-003, ADR-004, ADR-007, ADR-008, ADR-009, ADR-015. Do not load ADRs scoped to other project types — they pollute context with irrelevant constraints.
+## Context Protocol (ADR-009)
 
-If loading steps 1–3 + step 4 would push context fill past 100k tokens, offload step 4 to the filesystem and load on demand.
+Mandatory before opening any source file (`.py`, `.ps1`, `.yml`):
 
-### Context Protocol
-
-Mandatory before opening any source file. See ADR-009.
-
-1. Read `CONTEXT.md` fully. Do not open any `.py` / `.ps1` / `.yml` file yet.
-2. From the Module Map and Issue-Type Index, identify the 3–5 files relevant to this task. Write them down explicitly — name them in your first user-facing message before reading them.
-3. Read only those files. If you feel the urge to read more, ask: *does CONTEXT.md tell me this file is in scope for this issue type?* If no — stop. Work with what you have.
-4. If implementation reveals a dependency not on the Map:
-   - Read that file.
-   - Add it to the Module Map (or extend an existing row's entry points) in the same PR.
-5. Never `Grep` `**/*.py` to orient yourself. If the Map does not answer your question, the Map is incomplete — update it; do not work around it.
-
-Violation of this protocol degrades every future agent session. Keep the Map accurate.
-
-## Conditional Context
-
-Load these docs only when the task requires them — do not load preemptively.
-
-- For testing conventions, fixture patterns, and pytest usage: read `docs/TESTING.md`.
-- For the skill system reference, invocation protocol, and lifecycle: read `docs/SKILLS.md`.
-- For the development environment and context-window management: read `docs/HARNESS.md`.
-
-## Skills
-
-Invoke the relevant skill before implementing manually. Skills are located in `.agents/skills/`.
-
-**Workflow** (sequential — refine → architect → plan → implement → review → ship):
-
-| Skill | When to invoke | References |
-|-------|----------------|------------|
-| `refine` | Starting a new feature — alignment on glossary, boundaries, and ADRs before any code | [REFERENCE.md](.agents/skills/refine/REFERENCE.md) · [EXAMPLES.md](.agents/skills/refine/EXAMPLES.md) |
-| `architect` | Analysing dependencies, blast-radius, or module structure | [REFERENCE.md](.agents/skills/architect/REFERENCE.md) · [EXAMPLES.md](.agents/skills/architect/EXAMPLES.md) |
-| `plan` | Translating an Agent Brief into a Lean PRD and decomposed GitHub Issues | [REFERENCE.md](.agents/skills/plan/REFERENCE.md) · [EXAMPLES.md](.agents/skills/plan/EXAMPLES.md) |
-| `diagnosis` | Implementation or CI fails and the root cause is unclear — before attempting a fix | — |
-| `implement` | Implementing features via Red-Green-Refactor | [REFERENCE.md](.agents/skills/implement/REFERENCE.md) · [EXAMPLES.md](.agents/skills/implement/EXAMPLES.md) |
-| `review` | Code review, auto-fix loop, PR validation | [REFERENCE.md](.agents/skills/review/REFERENCE.md) · [EXAMPLES.md](.agents/skills/review/EXAMPLES.md) |
-| `ship` | Pre-merge security checks, squash merge, knowledge base update | [REFERENCE.md](.agents/skills/ship/REFERENCE.md) · [EXAMPLES.md](.agents/skills/ship/EXAMPLES.md) |
-
-**Meta** (project-type agnostic, cross-cutting — load on demand):
-
-| Skill | When to invoke | References |
-|-------|----------------|------------|
-| `version-control` | Branching (`feature/{number}-{slug}`), commits, PRs — any phase that touches git | — |
-| `write-skills` | Creating or updating skills in `.agents/skills/` | [REFERENCE.md](.agents/skills/write-skills/REFERENCE.md) · [EXAMPLES.md](.agents/skills/write-skills/EXAMPLES.md) |
-
-**Domain** (extend `implement` REFACTOR with implementation patterns — named `*-engineering`):
-
-| Skill | When to invoke |
-|-------|----------------|
-| `application-engineering` | AI-backed REST APIs, Claude single-call integration, OTel instrumentation, SSE streaming, auth patterns |
-| `data-engineering` | Medallion pipeline, SQLAlchemy, Polars, DuckLake |
-| `agentic-engineering` | Plan-Act-Observe loops, multi-turn tool use, agent state, multi-agent coordination |
-
-Load exactly one domain skill per session. `application-engineering` is the default for `project_type: application`. If an endpoint invokes an agent loop, load both: `application-engineering` for the endpoint, `agentic-engineering` for the loop internals.
-
-Domain-specific information for this project is captured in ADRs matching the project type — see `docs/adr/ADR-007-project-type-selection.md` and any domain ADRs with `Status: Accepted`.
-
-## Repository Layout
-
-| Path | Purpose |
-|------|---------|
-| `src/main.py` | Entry point |
-| `src/config.py` | Centralised config (pydantic-settings, loads `.env`) |
-| `src/utils/` | Generic transferable modules (`m_*.py`) |
-| `src/<domain>/` | Domain-specific logic — add folders here as the project grows |
-| `src/tools/` | Developer utilities — executed directly, never imported by application code |
-| `tests/` | Pytest suite, mirrors `src/` and `tools/` hierarchy |
-| `.agents/skills/` | Skill system — invoke skills before implementing manually |
-| `docs/adr/` | Architecture Decision Records (MADR format) |
-| `docs/TESTING.md` | Pytest conventions, fixture patterns, file-mirroring rule, coverage floor |
-| `docs/SKILLS.md` | Skill invocation protocol, workflow lifecycle, domain vs. meta skill selection |
-| `CONTEXT.md` | Leading repo-structure doc — domain glossary, bounded contexts, Module Map (agent navigation index), architectural constraints |
-| `.github/workflows/` | `checks.yml` (lint, typecheck, test, audit, guards); `afk.yml` (the whole pipeline unattended — `stage` input selects refine / implement / ship); `build.yml`, `deploy.yml`, `branch-protection.yml` |
-| `.github/orchestrator/` | The orchestrator **module** (`Orchestrator.psd1`/`.psm1`, `Import-Module`). `Orchestrator.psm1` loads `lib/`, `stages/`, `engines/` and is the single conductor: `Invoke-Orchestration -From refine\|implement`. One file per stage in `stages/`; LLM adapters in `engines/`; shared helpers in `lib/`. Everything here is dot-sourced library — no top-level `param()` (ADR-013) |
-| `.github/tasks/` | Runnables, one per `Taskfile.yml` target, named identically: `align`, `start`, `runner`, `retry`, `setup`, `sync`, `protect`. Each owns its `param()` and `Import-Module`s the orchestrator |
-| `.github/checks/` | Validators run by `checks.yml`, named `check-<thing>.ps1`: Module Map integrity, script paths, doc paths, module API boundary, plus `verify-settings.ps1` |
-| _(issue body)_ | The carrier. Per-issue pipeline artifacts live IN the issue body (ADR-011/ADR-014): `AGENT-STATE` JSON with `open_questions[]` / `decided_questions[]` / `failed_at`, plus `Agent Brief`, `Architecture Impact` and `Implementation Plan` |
+1. From the Module Map and Issue-Type Index in `CONTEXT.md`, pick the 3–5 files the task needs
+   and name them in your first message.
+2. Read only those files.
+3. If the work needs a file the Map does not list, read it and add it to the Map in the same PR.
+4. Never grep the codebase to orient yourself. If the Map cannot answer the question, the Map is
+   incomplete — fix it rather than work around it.
 
 ## Rules
 
-1. **UV only.** `uv add`, `uv sync`, `uv run` — never `pip install`.
-2. **No hardcoded secrets.** All config via `.env` + `src/config.py`.
-3. **Test parity.** Every `src/**/*.py` and `tools/*.py` has a matching test file.
-4. **Lint must pass.** `ruff check` + `ruff format --check` before commit.
-5. **Standard library first.** Prefer stdlib over third-party packages.
-6. **`src/utils/` stays generic.** No project-specific logic in `m_*.py` files.
-7. **Never modify `AGENTS.md` or `CONTEXT.md` during implementation.** Changes to standing instructions or bounded contexts go through a `refine` session. The Module Map and Issue-Type Index inside `CONTEXT.md` are the exception — they may be updated mid-implementation when a new file or domain is discovered (per ADR-009).
-8. **Sizing and priority rules** — Fibonacci estimate anchor, scale, and priority definitions — are defined in the `ISSUES.md` header.
-9. **Map first, code second** (ADR-009). Follow the Context Protocol above before reading any source file. Name the target files explicitly before opening them.
-10. **New `src/<domain>/` requires a Module Map row.** A PR that adds a new top-level `src/<domain>/` directory without adding a matching row to `CONTEXT.md` will be rejected by the `ship` skill.
+1. **Architectural Constraints are invariants.** Everything under that heading in `CONTEXT.md`
+   (UV only, no hardcoded secrets, test parity, lint gate, …) applies to every change.
+2. **Never modify `AGENTS.md` or `CONTEXT.md` during implementation** — those changes go through
+   a `refine` session. The Module Map and Issue-Type Index are the exception (Context Protocol
+   step 3).
+3. **A new top-level `src/<domain>/` needs a Module Map row in the same PR** — `ship` rejects it
+   otherwise.
+4. **Size and prioritise issues** with the scales in the `ISSUES.md` header.
 
 ## Safety & Boundaries
 
-- Never modify files outside the project root.
-- Never install global packages or modify global configs.
+- Never modify files outside the project root, install global packages, or change global config.
+- Never set `agent:*` labels or remove `human:*` labels — the orchestrator and humans own them.
+  Only a human merges a `human:approval` issue (see `SECURITY.md` § Human Oversight).
 - When in doubt, fail safely and surface the ambiguity.
+
+## Skills
+
+Invoke the matching skill before implementing manually. Each lives at
+`.agents/skills/<name>/SKILL.md`; read `REFERENCE.md` and `EXAMPLES.md` beside it when present.
+
+### Stages — in order
+
+| Skill | When to invoke |
+|-------|----------------|
+| `refine` | Starting a new feature — align on glossary, boundaries and ADRs before any code |
+| `architect` | Analysing dependencies, blast radius, or module structure |
+| `plan` | Turning an Agent Brief into a Lean PRD and decomposed GitHub Issues |
+| `implement` | Implementing via Red-Green-Refactor |
+| `review` | Code review, auto-fix loop, PR validation |
+| `ship` | Pre-merge security checks, squash merge, knowledge-base update |
+
+### Cross-cutting — load on demand
+
+| Skill | When to invoke |
+|-------|----------------|
+| `diagnosis` | Implementation or CI fails and the root cause is unclear — before attempting a fix |
+| `version-control` | Branching (`feature/{number}-{slug}`), commits, PRs |
+| `write-skills` | Creating or updating skills in `.agents/skills/` |
+
+### Domain — extend `implement` REFACTOR; load exactly one
+
+| Skill | When to invoke |
+|-------|----------------|
+| `application-engineering` | AI-backed REST APIs, single-call Claude integration, OTel, SSE, auth. Default for `project_type: application` |
+| `data-engineering` | Medallion pipeline, SQLAlchemy, Polars, DuckLake |
+| `agentic-engineering` | Plan-Act-Observe loops, multi-turn tool use, agent state, multi-agent coordination |
+
+If an endpoint invokes an agent loop, load both `application-engineering` (the endpoint) and
+`agentic-engineering` (the loop).
+
+## Conditional Context
+
+Load only when the task needs it:
+
+- Testing conventions, fixtures, coverage floor — `docs/TESTING.md`
+- Skill invocation protocol and lifecycle — `docs/SKILLS.md`

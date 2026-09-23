@@ -17,7 +17,7 @@
 param([int]$Issue = 0)
 
 $ErrorActionPreference = 'Stop'
-Import-Module "$PSScriptRoot\..\..\orchestrator\Orchestrator.psd1" -Force
+Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
 
 if ($Issue -eq 0) { throw "ISSUE is required. Usage: task retry ISSUE=N" }
 
@@ -43,10 +43,13 @@ $stage = switch ($failedAt) {
     default     { 'implement' }
 }
 
-if ($stage -eq 'implement' -and $failedAt -eq 'backlog') {
+if ($stage -eq 'implement') {
+    # Re-queue rather than dispatch: afk.yml's implement job only processes an issue
+    # that carries agent:backlog (otherwise it picks the oldest one that does), so
+    # dispatching after merely removing agent:failed processed the wrong issue.
     Set-AgentState -IssueNumber $Issue -Label 'agent:backlog'
-    Add-Comment -Number $Issue -Body "· reset to backlog for retry"
-    Write-Log "✅ Issue #$Issue queued in agent:backlog — GHA or 'task hitl' will pick it up." -Color Green
+    Add-Comment -Number $Issue -Body "· reset to backlog for retry (failed at $failedAt)"
+    Write-Log "✅ Issue #$Issue queued in agent:backlog — 'task afk' or 'task hitl' will pick it up." -Color Green
 } else {
     Set-IssueLabel -Number $Issue -Remove 'agent:failed'
     

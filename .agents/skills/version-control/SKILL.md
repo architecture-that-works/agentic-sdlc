@@ -20,7 +20,7 @@ squash-merge, a conventional-commit series, and a worktree-isolated fix branch).
 
 **Owns:** Branch naming convention, commit message format, PR creation with issue auto-close (`Closes #N`), GitHub CLI (`gh`) command patterns, agent-driven automation of the branch → commit → PR flow, worktree creation for isolated fix branches.
 
-**Does not own:** CI/CD pipeline configuration (see `docs/HARNESS.md`), code review standards (→ `review`), PR merge and security governance (→ `ship`).
+**Does not own:** CI/CD pipeline configuration (`.github/workflows/`), code review standards (→ `review`), PR merge and security governance (→ `ship`).
 
 **Interfaces with:** All workflow skills — every phase that touches git or the GitHub API uses the conventions defined here.
 
@@ -31,7 +31,7 @@ squash-merge, a conventional-commit series, and a worktree-isolated fix branch).
 - Opening a PR for review
 - Automating the full flow from an agent-driven task completion
 
-**Do NOT use for:** Configuring CI/CD (see `docs/HARNESS.md`), reviewing PR content (→ `review`), merging (→ `ship`).
+**Do NOT use for:** Configuring CI/CD (`.github/workflows/`), reviewing PR content (→ `review`), merging (→ `ship`).
 
 ## Required Inputs
 

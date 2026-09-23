@@ -117,13 +117,13 @@ function Invoke-Orchestration {
             $state = Get-IssueState -IssueNumber $IssueNumber
             if (Test-Readiness -State $state) {
                 Set-AgentState -IssueNumber $IssueNumber -Label 'agent:backlog'
-                Add-Comment -Number $IssueNumber -Body "🤖✅ Aligned — refined, architected, planned, zero open questions. Queued in Backlog (agent:backlog); run ``task runner`` or ``task start`` to process."
+                Add-Comment -Number $IssueNumber -Body "🤖✅ Aligned — refined, architected, planned, zero open questions. Queued in Backlog (agent:backlog); run ``task afk`` (or Actions → AFK → Run workflow, stage=implement) to process."
                 Write-Log "✅ Issue #$IssueNumber aligned — agent:backlog granted." -Color Green
                 return $true
             }
 
             $open = if ($state -and $state.open_questions) { @($state.open_questions).Count } else { 0 }
-            Add-Comment -Number $IssueNumber -Body "🤖⏸ Alignment incomplete — $open open question(s) need a human decision before this issue can enter the backlog. Resolve the linked human:decision issue(s), record the answer in ``decided_questions[]``, then re-run ``task align ISSUE=$IssueNumber``."
+            Add-Comment -Number $IssueNumber -Body "🤖⏸ Alignment incomplete — $open open question(s) need a human decision before this issue can enter the backlog. Resolve the linked human:decision issue(s), record the answer in ``decided_questions[]``, then re-run ``task refine ISSUE=$IssueNumber`` (or Actions → AFK → Run workflow, stage=refine)."
             Write-Log "⏸ Issue #$IssueNumber NOT aligned — readiness gate unmet (open questions=$open). agent:backlog withheld." -Color Yellow
             return $false
         }
