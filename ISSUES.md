@@ -25,10 +25,10 @@ END_ISSUE
 Header fields — all optional, must appear before the body, in any order:
 
 - `LABELS:` — comma-separated subset of the allowed label set. Agents must not create new labels. Allowed values:
-  - *(no label)* — the **default**: refine runs on creation; once you trigger it, implement → review → ship run unattended
+  - *(no label)* — the **default**: refined on creation, then implemented → reviewed → shipped unattended once nothing is open
   - `human:approval` — implemented and self-reviewed unattended, then held for a human to merge the PR
-  - `human:decision` — a question for a human; never enters the pipeline at all
-  - `agent:backlog` `agent:implementing` `agent:reviewing` `agent:shipped` `agent:failed` — orchestrator state machine; set by the orchestrator, never by humans or agents writing issues
+  - `human:decision` — normally set by refine, not by hand: the issue waits on questions listed in it
+  - `agent:backlog` `agent:implementing` `agent:reviewing` `agent:shipped` `agent:failed` `agent:paused` — orchestrator state machine; set by the orchestrator, never by humans or agents writing issues
 - `ESTIMATE:` — Fibonacci story point integer (see scale below). Synced to the **Estimate** field on the GitHub Project board. **Do not use the project board's Size field** (XS/S/M/L/XL) — it is not populated by any script and conflicts with Estimate as the single sizing signal.
 - `PRIORITY:` — one of `P0 | P1 | P2 | P3 | P4` (see definitions below). Synced to the **Priority** field on the GitHub Project board.
 

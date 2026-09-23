@@ -33,7 +33,10 @@
         'Move-ToLane'
         'Add-Comment'
         'Resolve-PR'
-        'Clear-IssueReviewCount'
+        'Reset-AttemptCount'
+
+        # Hourly resume of issues paused on the engine's usage limit (afk.yml)
+        'Resume-PausedIssues'
 
         # Carrier read + label primitive — task retry resumes from failed_at
         'Get-IssueState'

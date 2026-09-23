@@ -2,8 +2,8 @@
 <#
     Util.ps1 — cross-cutting local utilities for the Kanban module.
 
-    Logging, runtime detection, the orchestrator lock, the file-based review-cycle
-    counter, and the ISSUES.md template reader. These touch only the local
+    Logging, runtime detection, the orchestrator lock, and the ISSUES.md template
+    reader. These touch only the local
     filesystem / process environment (no gh, no Claude). Loaded after Config.ps1
     (it reads $KanbanLogFile / $_Root from there).
 #>
@@ -61,28 +61,6 @@ function Release-OrchestratorLock {
     Remove-Item $OrchestratorLockFile -Force -ErrorAction SilentlyContinue
 }
 
-# ── Persistent review-cycle counter (file-based — no labels) ─────────────────
-
-function Get-IssueReviewCount {
-    param([int]$IssueNumber)
-    $path = "$_Root\logs\cycle-$IssueNumber.txt"
-    if (Test-Path $path) {
-        try { return [int](Get-Content $path -Raw -ErrorAction Stop).Trim() } catch {}
-    }
-    return 0
-}
-
-function Set-IssueReviewCount {
-    param([int]$IssueNumber, [int]$Count)
-    $null = New-Item -ItemType Directory -Force -Path "$_Root\logs" -ErrorAction SilentlyContinue
-    "$Count" | Set-Content "$_Root\logs\cycle-$IssueNumber.txt" -Encoding utf8 -NoNewline
-}
-
-function Clear-IssueReviewCount {
-    param([int]$IssueNumber)
-    Remove-Item "$_Root\logs\cycle-$IssueNumber.txt" -Force -ErrorAction SilentlyContinue
-}
-
 # ── Issue template reader (from ISSUES.md header) ─────────────────────────────
 
 function Get-IssueTemplate {
@@ -127,15 +105,77 @@ function Format-ErrorBlock {
 
 # ── Engine Readiness Validation ───────────────────────────────────────────────
 
+# ── Usage limit: a pause, not a failure ──────────────────────────────────────
+# When the engine refuses because the subscription's usage allowance is spent, the
+# work is paused (agent:paused) and resumed by afk.yml's hourly resume job — never
+# counted as a failed attempt. Only a fresh probe decides that the limit is the
+# cause: error text from a stage is not trusted, since test output or code under
+# test can mention rate limits too.
+
+$KanbanUsageLimitPattern = '(?i)usage limit|limit reached|rate_limit_error|hit your limit'
+$KanbanMaxPauseHours     = 5
+
+# The UTC time to resume after a usage-limit message, or $null when $Text is not
+# one. Reads the reset time the engine reports (an epoch after '|', or "resets
+# 3pm" / "resets at 15:30", taken as UTC — the runner's clock), falls back to one
+# hour, and never waits more than $KanbanMaxPauseHours.
+function Get-UsageLimitResume {
+    param([string]$Text, [datetime]$Now = (Get-Date).ToUniversalTime())
+    if ("$Text" -notmatch $KanbanUsageLimitPattern) { return $null }
+    $until = $null
+    if ($Text -match '\|(\d{10})\b') {
+        $until = [DateTimeOffset]::FromUnixTimeSeconds([long]$Matches[1]).UtcDateTime
+    } elseif ($Text -match '(?i)resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?') {
+        $h  = [int]$Matches[1]
+        $m  = if ($Matches[2]) { [int]$Matches[2] } else { 0 }
+        $ap = $Matches[3]
+        if ($ap -ieq 'pm' -and $h -lt 12) { $h += 12 }
+        if ($ap -ieq 'am' -and $h -eq 12) { $h = 0 }
+        if ($h -le 23 -and $m -le 59) {
+            $until = [datetime]::SpecifyKind($Now.Date, 'Utc').AddHours($h).AddMinutes($m)
+            if ($until -le $Now) { $until = $until.AddDays(1) }
+        }
+    }
+    if (-not $until) { $until = $Now.AddHours(1) }
+    $cap = $Now.AddHours($KanbanMaxPauseHours)
+    if ($until -gt $cap) { $until = $cap }
+    return $until
+}
+
+# One tiny engine call. $null when the engine answers or fails for another reason
+# — including a CLI that cannot run at all, which is not a usage limit; the probe
+# must never be what breaks the caller. The UTC resume time when it reports a limit.
+function Test-EngineUsageLimit {
+    $ctx = Get-OrchestratorContext
+    try {
+        $out = if ($ctx.Engine -eq 'gemini') {
+            "ping" | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String
+        } else {
+            "ping" | claude --model $KanbanModel_Aux 2>&1 | Out-String
+        }
+    } catch {
+        return $null
+    }
+    return Get-UsageLimitResume -Text $out
+}
+
+# Throws 'USAGE-LIMIT|<iso resume time>' when the allowance is spent, so the
+# conductor can pause instead of failing; any other engine failure throws as before.
 function Assert-EngineReady {
     $ctx = Get-OrchestratorContext
     if ($ctx.Engine -eq 'gemini') {
         Write-Log "  Verifying Gemini (agy) authentication..." -Color DarkGray
         $out = "ping" | agy --model gemini-3.5-flash 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) { throw "Gemini (agy) authentication or execution failed:`n$out" }
+        $failed = $LASTEXITCODE -ne 0
+        $resume = Get-UsageLimitResume -Text $out
+        if ($resume) { throw "USAGE-LIMIT|$($resume.ToString('o'))" }
+        if ($failed) { throw "Gemini (agy) authentication or execution failed:`n$out" }
     } else {
         Write-Log "  Verifying Claude authentication..." -Color DarkGray
         $out = "ping" | claude --model claude-haiku-4-5-20251001 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) { throw "Claude Code authentication or execution failed:`n$out" }
+        $failed = $LASTEXITCODE -ne 0
+        $resume = Get-UsageLimitResume -Text $out
+        if ($resume) { throw "USAGE-LIMIT|$($resume.ToString('o'))" }
+        if ($failed) { throw "Claude Code authentication or execution failed:`n$out" }
     }
 }

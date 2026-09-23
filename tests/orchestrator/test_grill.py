@@ -1,6 +1,6 @@
 """Tests for the self-grill subagent harness (issue #85).
 
-Three surfaces are exercised:
+Two surfaces are exercised:
 
 1. ``.github/orchestrator/lib/Grill.ps1`` — the dot-sourceable function
    library (Invoke-Grill); must expose the function with no side effects and no
@@ -10,9 +10,6 @@ Three surfaces are exercised:
    AGENT-BRIEF section is bounded by HTML-comment markers that must remain
    identifiable from outside PowerShell (Python parsers, future Cloud Run
    service, etc.).
-3. ``.github/orchestrator/lib/GitHub.ps1`` § ``New-DecisionChildIssue`` title format
-   — the human:decision child issue title must carry the parent number and a truncated
-   question stub so a human scanning the issue list can see the linkage.
 
 Each test inlines just enough of the production logic to keep the test fully
 hermetic (no live ``gh`` / ``claude`` calls).
@@ -149,34 +146,6 @@ def test_agent_brief_markers_present_in_github_ps1() -> None:
     )
     assert "<!-- AGENT-BRIEF:BEGIN -->" in github
     assert "<!-- AGENT-BRIEF:END -->" in github
-
-
-# ── human:decision child-issue title format ─────────────────────────────────────────────
-
-
-def test_decision_child_title_carries_parent_number_and_stub() -> None:
-    """The human:decision child issue title is the only handle a human scanning the
-    issue list sees — it must include the parent number and a short stub of
-    the question so the linkage is visible without clicking through."""
-    # Inline the title-building logic from New-DecisionChildIssue so the test is
-    # hermetic and does not depend on a live `gh` environment.
-    snippet = """
-$Question = [pscustomobject]@{
-    text = 'Should the new endpoint enforce auth at the edge or inside the handler?'
-}
-$ParentNumber = 85
-$shortText = ($Question.text -replace '\\s+', ' ').Trim()
-if ($shortText.Length -gt 70) { $shortText = $shortText.Substring(0, 67) + '...' }
-$title = "human:decision needed (#${ParentNumber}): $shortText"
-Write-Output $title
-"""
-    result = _ps(snippet)
-    assert result.returncode == 0, result.stderr
-    title = result.stdout.strip()
-    assert title.startswith("human:decision needed (#85):"), (
-        f"Title must lead with human:decision framing and parent number, got: {title!r}"
-    )
-    assert "endpoint" in title
 
 
 def test_decision_child_title_truncates_long_questions() -> None:

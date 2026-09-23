@@ -6,7 +6,7 @@
 .DESCRIPTION
     Reads the failed_at state from the issue's AGENT-STATE block and dispatches
     the appropriate AFK workflow stage to resume it. Clears the agent:failed label
-    and any review counters.
+    and starts a new round of attempts (the attempt history in the issue is kept).
 
 .PARAMETER Issue
     Issue number to reset. Required.
@@ -31,7 +31,8 @@ if (-not $failedAt) {
     $failedAt = 'backlog'
 }
 
-Clear-IssueReviewCount -IssueNumber $Issue
+# A retry starts a new round of attempts; the history in the issue is kept.
+Reset-AttemptCount -IssueNumber $Issue
 
 $stage = switch ($failedAt) {
     'refine'    { 'refine' }

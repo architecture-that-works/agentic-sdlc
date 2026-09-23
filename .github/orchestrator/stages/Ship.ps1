@@ -162,6 +162,27 @@ $contextContent
     Add-Comment -Number $IssueNumber -Body $commentBody
 }
 
+# The last lines of each failed CI job's log, as a Markdown block ('' when none can
+# be read). Job links from `gh pr checks` carry the run id; `gh run view --log-failed`
+# returns only the failed steps.
+function Get-FailedCheckLog {
+    param([int]$PRNumber, [int]$Tail = 60)
+    $checks = gh pr checks $PRNumber --json name,bucket,link 2>$null | Out-String
+    if ($LASTEXITCODE -ne 0 -or -not $checks.Trim().StartsWith('[')) { return '' }
+    $runIds = @($checks | ConvertFrom-Json |
+        Where-Object { $_.bucket -eq 'fail' -and $_.link -match '/actions/runs/(\d+)' } |
+        ForEach-Object { [regex]::Match($_.link, '/actions/runs/(\d+)').Groups[1].Value } |
+        Select-Object -Unique)
+    $blocks = foreach ($id in $runIds) {
+        $log = gh run view $id --repo $KanbanRepo --log-failed 2>$null
+        if ($LASTEXITCODE -eq 0 -and $log) {
+            $lines = @($log) | Select-Object -Last $Tail
+            "`n`n**Run $id** — last $($lines.Count) log lines:`n``````text`n$($lines -join "`n")`n``````"
+        }
+    }
+    return ($blocks -join '')
+}
+
 function Invoke-RebaseOnMaster {
     param([int]$IssueNumber, [string]$Branch)
 
@@ -364,8 +385,10 @@ function Invoke-Ship {
 
     if ($ciFailed) {
         $label = if ($failedNames) { $failedNames } else { 'unknown' }
-        Add-Comment -Number $IssueNumber -Body "🤖❌ CI Failed`n`nFailed checks: $label"
-        throw "CI checks failed for PR #$PRNumber."
+        # The log tail is what lets the next attempt fix the failure rather than guess.
+        $logs = Get-FailedCheckLog -PRNumber $PRNumber
+        Add-Comment -Number $IssueNumber -Body "🤖❌ CI Failed`n`nFailed checks: $label$logs"
+        throw "CI checks failed for PR #${PRNumber}: $label"
     }
 
     if ($ciGreen) {

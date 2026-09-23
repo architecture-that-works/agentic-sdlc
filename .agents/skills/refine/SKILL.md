@@ -140,8 +140,11 @@ the single cross-runtime carrier (ADR-014 retired `.planning/`).
 - Open/decided questions → the `open_questions[]` / `decided_questions[]` arrays
   inside the AGENT-STATE JSON block. Open questions block backlog entry per the
   readiness gate (`Test-Readiness`).
-- One `human:decision` child issue per unresolvable open question, linked back
-  to the parent with "decision needed" framing.
+- Every open question is multiple choice: `decision` holds the recommendation
+  (option A) and `alternatives` two genuine alternatives (B, C). The orchestrator
+  asks them in the issue itself — a `## Decisions` body section plus a comment,
+  label `human:decision` — and the owner answers in a plain comment (`ok`, `1B`,
+  `2: own words`). The answer check records each decision or asks a follow-up.
 
 **Readiness lanes.** `refine`, `architect`, and `plan` are NOT kanban lanes —
 they are pre-backlog readiness flags in the same JSON state block. The 4-lane

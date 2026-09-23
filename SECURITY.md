@@ -60,43 +60,44 @@ call) succeeds before revoking the old value.
 
 ## Human Oversight
 
-Every agent action can be halted, overridden or rolled back by a human. All mechanisms below
-are manual; the pipeline never escalates, retries or rolls back on its own beyond its bounded
-review loop (`KANBAN_MAX_RETRIES` implement → review cycles, then `agent:failed`). Each
-browser step also works from the GitHub mobile web UI.
+Every agent action can be halted, overridden or rolled back by a human, and every one of these
+steps works from the GitHub mobile app or web UI. The pipeline acts on its own only within
+fixed bounds: it refines new issues, implements what carries `agent:backlog`, and retries a
+failure at most `KANBAN_MAX_RETRIES` (3) times per round before stopping on `agent:failed`. It
+reacts to comments only from people with write access. When the Claude usage allowance is spent
+it stops work on `agent:paused` and an hourly job resumes it once the allowance resets (at most
+5 hours later).
 
 ### Halt
 
 | To stop… | Do this |
 |---|---|
-| Everything, immediately | Actions → AFK → **⋯ → Disable workflow** (`gh workflow disable afk.yml`). No stage runs, including refine on new issues, until re-enabled. |
+| Everything, immediately | Actions → AFK → **⋯ → Disable workflow** (`gh workflow disable afk.yml`). Nothing runs — not refine, not implement, not comment handling — until re-enabled. |
 | The current run | Actions → the running AFK run → **Cancel workflow** (`gh run cancel <run-id>`). The feature branch and any open PR are kept. |
-| The queue after the current issue | Remove `agent:backlog` from the issues you want held. The drain only re-dispatches while `agent:backlog` issues remain. |
+| An issue from being processed | Close it; reopen it to release it. The pipeline only processes open issues. |
 | An issue from auto-merging | Add `human:approval`, at any point before ship. The pipeline implements and self-reviews, then holds at `agent:reviewing` and comments on the issue; only a human merges the PR. |
 
-A cancelled run can leave the issue on `agent:implementing` or `agent:reviewing`. Resume it
-with `task retry ISSUE=<n>`: it re-dispatches refine or ship when that stage failed, and
-otherwise re-queues the issue to `agent:backlog` for the next `task afk`.
+A cancelled run can leave the issue on `agent:implementing` or `agent:reviewing`; run
+`task retry ISSUE=<n>` to resume it from the stage it was in.
 
 ### Override
 
-- **Correct a refine decision.** The issue body is the pipeline's only state (ADR-011) and the
-  implement stage reads it verbatim. Edit the **Agent Brief** section, or move an entry from
-  `open_questions[]` to `decided_questions[]` in the `AGENT-STATE` block with your
-  `decision`, then re-run refine (`task refine ISSUE=<n>`, or Run workflow with
-  `stage=refine`). Architecture Impact and Implementation Plan are regenerated on every refine
-  run, so edit them once the issue has `agent:backlog`; from then on edits take effect at the
-  next implement without a re-run.
+- **Answer or change a decision.** Comment on the issue. While it is `human:decision`, your
+  reply is checked against each open question (`ok` accepts every recommendation; `1B` or
+  `2: your own words` answers one). To change something already decided, or any part of the
+  brief, edit the issue body and add a comment saying what changed.
+- **Guide a retry.** On an `agent:failed` issue, fix what you can hands-on, then comment with
+  what the agent should do differently — or just `retry`. The comment starts a new round of
+  attempts from the failed stage, and the agent reads it.
 - **Run a specific stage.** Actions → AFK → **Run workflow** with `stage` and `issue_number`:
-  - `refine` — re-align one issue.
+  - `refine` — refine one issue; `0` refines every issue with no `agent:*` label.
   - `implement` — process that issue if it carries `agent:backlog`, otherwise the oldest
-    `agent:backlog` issue; `0` drains the queue.
+    `agent:backlog` issue.
   - `ship` — merge the issue's PR. Requires an approval signal (`agent:reviewing` or an
     approved PR review) and still honours the `human:approval` hold.
   Locally, `task hitl ISSUE=<n>` runs implement → review → ship in your terminal.
-- **Reject the agent's work.** Close the PR without merging. To have the agent try again, put
-  your feedback in the issue body (e.g. the Agent Brief) and run `task retry ISSUE=<n>`. The
-  agent reads the issue body and its 🤖 signal comments — not PR review comments.
+- **Reject the agent's work.** Close the PR without merging and comment on the issue with what
+  should change. The agent reads the issue body and your comments — not PR review comments.
 
 ### Roll back
 
@@ -107,8 +108,8 @@ updates CONTEXT.md directly on the default branch.
    through a PR). Revert the follow-up CONTEXT.md commit too, if there is one — `git log -3
    -- CONTEXT.md` on the default branch shows it.
 2. Reopen the issue (`gh issue reopen <n>`) and remove `agent:shipped`.
-3. To redo it, run `task retry ISSUE=<n>` then `task afk` — the refine/architect/plan state in
-   the issue body is kept, so it re-enters `agent:backlog` directly. Otherwise close it as not
+3. To redo it, run `task retry ISSUE=<n>` — the refine/architect/plan state in the issue body
+   is kept, so it re-enters `agent:backlog` and implementation starts. Otherwise close it as not
    planned.
 
 ---

@@ -53,8 +53,12 @@ ISSUE TITLE: $($issue.title)
 
 ISSUE BODY:
 $($issue.body)
-$signalSection
+$(Format-OwnerComments -IssueNumber $Number)$signalSection
 INSTRUCTIONS:
+0. If the issue body has an "Attempts" section, earlier attempts failed. Read each failure there
+   and in the signal history (test output, review rejections, CI logs), find the root cause with the
+   ``diagnosis`` skill (``.agents/skills/diagnosis/SKILL.md``), and fix it — do not repeat an approach
+   that already failed. The branch may already hold earlier work; build on it.
 1. Read AGENTS.md and CONTEXT.md first to understand the project boundaries and constraints.
 2. Read the relevant parts of the codebase before writing any code.
 3. Implement every requirement listed in the issue body completely.

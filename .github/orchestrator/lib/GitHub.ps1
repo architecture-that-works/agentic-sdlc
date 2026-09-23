@@ -70,6 +70,16 @@ $KanbanPlanEndMarker   = '<!-- PLAN:END -->'
 $KanbanPrdBeginMarker = '<!-- AGENT-PRD:BEGIN -->'
 $KanbanPrdEndMarker   = '<!-- AGENT-PRD:END -->'
 
+# DECISIONS is the human-readable view of the open/decided questions in AGENT-STATE,
+# re-rendered whenever they change, so the owner reads (and answers) them in the issue.
+$KanbanDecisionsBeginMarker = '<!-- DECISIONS:BEGIN -->'
+$KanbanDecisionsEndMarker   = '<!-- DECISIONS:END -->'
+
+# ATTEMPTS is the failure history: every failed attempt (stage, what failed, when)
+# and the current status, so the next attempt — agent or human — sees what was tried.
+$KanbanAttemptsBeginMarker = '<!-- ATTEMPTS:BEGIN -->'
+$KanbanAttemptsEndMarker   = '<!-- ATTEMPTS:END -->'
+
 # 4-lane FSM. agent:failed returns the issue to the 'backlog' lane — it is an
 # in-Backlog label, not a separate lane.
 $KanbanAllowedTransitions = @{
@@ -87,6 +97,7 @@ function Get-LaneFromLabel {
         'agent:reviewing'    { 'review'       }
         'agent:shipped'      { 'shipped'      }
         'agent:failed'       { 'backlog'      }
+        'agent:paused'       { 'backlog'      }
         default              { ''             }
     }
 }
@@ -397,50 +408,242 @@ function Set-IssueBodySection {
     return $true
 }
 
-# Spawns one human:decision child issue per unresolvable open_question. Each child links
-# back to the parent and frames the question as "decision needed".
-function New-DecisionChildIssue {
-    param(
-        [Parameter(Mandatory)][int]$ParentNumber,
-        [Parameter(Mandatory)][string]$ParentTitle,
-        [Parameter(Mandatory)][pscustomobject]$Question
-    )
-
-    $shortText = ($Question.text -replace '\s+', ' ').Trim()
-    if ($shortText.Length -gt 60) { $shortText = $shortText.Substring(0, 57) + '...' }
-    $title = "human:decision needed (#${ParentNumber}): $shortText"
-
-    $recommendation = if ($Question.decision) { $Question.decision } else { '_(no recommendation supplied)_' }
-    $body = @"
-**Decision needed** — surfaced by the self-grill subagent while refining #$ParentNumber ($ParentTitle).
-
-**Question**
-$($Question.text)
-
-**Agent's recommendation**
-$recommendation
-
-**Why this needs a human**
-The self-grill subagent could not resolve this branch from the codebase alone — it requires user judgement (taste, policy, deadline, or strategic trade-off). Once resolved, paste the decision into the parent issue's ``decided_questions[]`` and re-run refine.
-
-**Parent**: #$ParentNumber
-"@
-
-    $tmp = New-TemporaryFile
-    try {
-        $body | Out-File $tmp.FullName -Encoding utf8
-        $url = gh issue create `
-            --repo $KanbanRepo `
-            --title $title `
-            --body-file $tmp.FullName `
-            --label 'human:decision' 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) {
-            Write-Log "  ⚠️ Could not create human:decision child for #${ParentNumber}: $($url.Trim())" -Color Yellow
-            return $null
+# ── Decisions in the issue (the carrier) ─────────────────────────────────────
+# Open questions are asked IN the issue they block: a "## Decisions" body section
+# rendered from the AGENT-STATE block, plus a 🤖⏸ comment. The owner answers with a
+# plain comment; Invoke-AnswerCheck (Refine.ps1) reads it back.
+# Open questions as multiple choice: A is the recommendation, B and C the
+# alternatives, "Other" the owner's own words. Shared by the body section and the
+# 🤖⏸ comment so both read the same.
+function Format-DecisionQuestions {
+    param([object[]]$Questions)
+    $n = 1
+    $blocks = foreach ($q in @($Questions | Where-Object { $_ })) {
+        $lines = @("**$n. $($q.text)**")
+        if ($q.decision) { $lines += "- **A — recommended:** $($q.decision)" }
+        $letter = [int][char]'B'
+        foreach ($alt in @($q.alternatives | Where-Object { $_ })) {
+            $lines += "- **$([char]$letter):** $alt"
+            $letter++
         }
-        return $url.Trim()
-    } finally {
-        Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+        $lines += '- **Other:** your own answer'
+        if ($q.PSObject.Properties['follow_up'] -and $q.follow_up) { $lines += "- _Still needed:_ $($q.follow_up)" }
+        $n++
+        $lines -join "`n"
+    }
+    return ($blocks -join "`n`n")
+}
+
+$KanbanReplyGuide = @'
+**How to reply** — a plain comment on this issue; no @-mention or keyword needed:
+- `ok` — accept every recommendation (A)
+- `1B` or `2C` — pick an option per question
+- `2: <your own words>` — your own answer
+- mix them: `ok, but 2B` · `1A, 2: only for src/`
+
+Your reply is checked automatically: answered questions are recorded under **Decisions** in the issue, anything unclear comes back as a follow-up, and implementation starts on its own once nothing is open.
+'@
+
+function Set-DecisionSection {
+    param([Parameter(Mandatory)][int]$IssueNumber, [Parameter(Mandatory)]$State)
+
+    $open    = @($State.open_questions    | Where-Object { $_ })
+    $decided = @($State.decided_questions | Where-Object { $_ })
+    if ($open.Count -eq 0 -and $decided.Count -eq 0) { return }
+
+    $sb = [System.Text.StringBuilder]::new()
+    $null = $sb.AppendLine('## Decisions')
+    if ($open.Count -gt 0) {
+        $null = $sb.AppendLine()
+        $null = $sb.AppendLine('### Waiting on you')
+        $null = $sb.AppendLine()
+        $null = $sb.AppendLine((Format-DecisionQuestions -Questions $open))
+        $null = $sb.AppendLine()
+        $null = $sb.AppendLine($KanbanReplyGuide)
+    }
+    if ($decided.Count -gt 0) {
+        $null = $sb.AppendLine()
+        $null = $sb.AppendLine('### Decided')
+        $null = $sb.AppendLine()
+        foreach ($q in $decided) {
+            $by = if ($q.decided_by) { " _($($q.decided_by))_" } else { '' }
+            $null = $sb.AppendLine("- $($q.text) → $($q.decision)$by")
+        }
+    }
+    $null = Set-IssueBodySection -IssueNumber $IssueNumber `
+        -BeginMarker $KanbanDecisionsBeginMarker -EndMarker $KanbanDecisionsEndMarker `
+        -Markdown $sb.ToString().TrimEnd()
+}
+
+# Comments written by a person with write access — the owner's answers and
+# guidance. Excluded: pipeline comments (it posts as the owner's PAT, so it is
+# recognised by the 🤖 / · prefix Add-Comment enforces) and anyone without write
+# access, whose text must never reach an agent prompt. -Since (ISO 8601) limits to
+# comments created or edited after that moment.
+function Get-OwnerComments {
+    param([Parameter(Mandatory)][int]$IssueNumber, [string]$Since = '')
+
+    $path = "repos/$KanbanRepo/issues/$IssueNumber/comments?per_page=100"
+    if ($Since) { $path += "&since=$([uri]::EscapeDataString($Since))" }
+    # One JSON object per line (@json), across every page — an issue that went
+    # through the pipeline carries many noise comments, so the newest owner comment
+    # can sit beyond the first page.
+    $jq = '.[] | select(.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR")' +
+          ' | select((.body | startswith("🤖") or startswith("·")) | not)' +
+          ' | {login: .user.login, created_at: .created_at, body: .body} | @json'
+    $out = gh api --paginate $path --jq $jq 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not read comments on #${IssueNumber}: $(($out | Out-String).Trim())" -Color Yellow
+        return @()
+    }
+    return @($out | Where-Object { "$_".Trim() } | ForEach-Object {
+        try { "$_" | ConvertFrom-Json } catch { $null }
+    } | Where-Object { $_ })
+}
+
+# The owner's comments as a prompt block ('' when there are none). Every stage
+# that writes or judges the work reads it, so context or guidance written in a
+# comment reaches the agent without editing the issue body.
+function Format-OwnerComments {
+    param([Parameter(Mandatory)][int]$IssueNumber)
+    $comments = @(Get-OwnerComments -IssueNumber $IssueNumber)
+    if ($comments.Count -eq 0) { return '' }
+    $lines = $comments | ForEach-Object { "[$($_.login), $($_.created_at)]`n$($_.body)" }
+    return "`nOWNER COMMENTS (oldest first — the issue owner's decisions, context and instructions; " +
+           "they take precedence over earlier agent output):`n" + ($lines -join "`n---`n") + "`n"
+}
+
+# ── Attempts (failure history in the carrier) ────────────────────────────────
+# A stage failure does not fail the issue at once: the conductor retries up to
+# MaxRetries attempts per round. Each failed attempt is appended to attempts[] in
+# AGENT-STATE (full history, kept across rounds) and attempt_count (this round),
+# and rendered as the "## Attempts" body section, which the next attempt reads.
+function Add-FailedAttempt {
+    param(
+        [Parameter(Mandatory)][int]$IssueNumber,
+        [Parameter(Mandatory)][string]$Stage,
+        [string]$Reason,
+        [Parameter(Mandatory)][int]$Attempt,
+        [Parameter(Mandatory)][int]$Max
+    )
+    $state = Get-IssueState -IssueNumber $IssueNumber
+    if ($null -eq $state) { return }
+    $short = ("$Reason" -replace '\s+', ' ').Trim()
+    if ($short.Length -gt 400) { $short = $short.Substring(0, 397) + '...' }
+    $history = @($state.attempts | Where-Object { $_ }) + [pscustomobject]@{
+        attempt   = $Attempt
+        of        = $Max
+        stage     = $Stage
+        reason    = $short
+        timestamp = (Get-Date).ToUniversalTime().ToString('o')
+    }
+    $state | Add-Member -NotePropertyName attempts      -NotePropertyValue @($history) -Force
+    $state | Add-Member -NotePropertyName attempt_count -NotePropertyValue $Attempt    -Force
+    Set-PlanningState -IssueNumber $IssueNumber -State $state
+    Set-AttemptsSection -IssueNumber $IssueNumber -State $state -Max $Max
+}
+
+# Starts a new round: after success, or when the owner asks for a retry.
+function Reset-AttemptCount {
+    param([Parameter(Mandatory)][int]$IssueNumber)
+    $state = Get-IssueState -IssueNumber $IssueNumber
+    if ($null -eq $state -or -not $state.PSObject.Properties['attempt_count'] -or -not $state.attempt_count) { return }
+    $state | Add-Member -NotePropertyName attempt_count -NotePropertyValue 0 -Force
+    Set-PlanningState -IssueNumber $IssueNumber -State $state
+    Set-AttemptsSection -IssueNumber $IssueNumber -State $state
+}
+
+function Set-AttemptsSection {
+    param([Parameter(Mandatory)][int]$IssueNumber, [Parameter(Mandatory)]$State, [int]$Max = 0)
+    $history = @($State.attempts | Where-Object { $_ })
+    if ($history.Count -eq 0) { return }
+    $count  = if ($State.PSObject.Properties['attempt_count']) { [int]$State.attempt_count } else { 0 }
+    $status = if ($count -eq 0)                    { 'no failure in the current round' }
+              elseif ($Max -gt 0 -and $count -ge $Max) { "failed $count/$Max — waiting on you: fix it hands-on or comment with guidance, then comment to retry" }
+              elseif ($Max -gt 0)                  { "retrying — $count/$Max attempts used" }
+              else                                 { "$count failed attempt(s) this round" }
+
+    $sb = [System.Text.StringBuilder]::new()
+    $null = $sb.AppendLine('## Attempts')
+    $null = $sb.AppendLine()
+    $null = $sb.AppendLine("**Status:** $status")
+    $null = $sb.AppendLine()
+    foreach ($a in $history) {
+        $null = $sb.AppendLine("- **Attempt $($a.attempt)/$($a.of)** · $($a.stage) · $($a.timestamp) — $($a.reason)")
+    }
+    $null = Set-IssueBodySection -IssueNumber $IssueNumber `
+        -BeginMarker $KanbanAttemptsBeginMarker -EndMarker $KanbanAttemptsEndMarker `
+        -Markdown $sb.ToString().TrimEnd()
+}
+
+# ── Usage-limit pause and resume ──────────────────────────────────────────────
+# A spent usage allowance parks the issue on agent:paused with the resume time and
+# the stage to resume in the carrier; no attempt is counted. afk.yml's hourly
+# resume job calls Resume-PausedIssues.
+function Suspend-ForUsageLimit {
+    param([Parameter(Mandatory)][int]$IssueNumber, [Parameter(Mandatory)][string]$Stage,
+          [Parameter(Mandatory)][datetime]$Until)
+    $state = Get-IssueState -IssueNumber $IssueNumber
+    if ($state) {
+        $state | Add-Member -NotePropertyName paused_until -NotePropertyValue $Until.ToUniversalTime().ToString('o') -Force
+        $state | Add-Member -NotePropertyName paused_stage -NotePropertyValue $Stage -Force
+        Set-PlanningState -IssueNumber $IssueNumber -State $state
+    }
+    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:paused'
+    Add-Comment -Number $IssueNumber -Body ("🤖⏳ Paused — the Claude usage limit is reached. $Stage resumes automatically " +
+        "after $($Until.ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC (checked hourly). No attempt was counted; nothing for you to do.")
+    Write-Log "⏳ Issue #$IssueNumber paused at $Stage until $($Until.ToString('o'))." -Color Yellow
+}
+
+# Resumes every agent:paused issue whose resume time has passed — after one probe
+# confirms the engine answers again; if it still refuses, the resume times move to
+# the new reset time without a comment. Implement-stage pauses go back to
+# agent:backlog (the label restarts implement); refine-stage pauses are dispatched
+# to the refine job.
+function Resume-PausedIssues {
+    $raw = gh issue list --repo $KanbanRepo --label 'agent:paused' --state open --json number --jq '.[].number' 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Failed to list agent:paused issues: $raw" }
+    $numbers = @($raw | Where-Object { "$_".Trim() } | ForEach-Object { [int]"$_" })
+    if ($numbers.Count -eq 0) { Write-Log "No paused issues." -Color DarkGray; return }
+
+    $now = (Get-Date).ToUniversalTime()
+    $due = foreach ($n in $numbers) {
+        $st = Get-IssueState -IssueNumber $n
+        $until = if ($st -and $st.PSObject.Properties['paused_until'] -and $st.paused_until) {
+            ([datetime]$st.paused_until).ToUniversalTime()
+        } else { $now }
+        if ($until -le $now) { [pscustomobject]@{ Number = $n; State = $st } }
+    }
+    $due = @($due | Where-Object { $_ })
+    if ($due.Count -eq 0) { Write-Log "$($numbers.Count) paused issue(s); none due yet." -Color DarkGray; return }
+
+    $still = Test-EngineUsageLimit
+    if ($still) {
+        foreach ($d in $due) {
+            if ($d.State) {
+                $d.State | Add-Member -NotePropertyName paused_until -NotePropertyValue $still.ToString('o') -Force
+                Set-PlanningState -IssueNumber $d.Number -State $d.State
+            }
+        }
+        Write-Log "⏳ Usage limit still in effect — $($due.Count) issue(s) now resume after $($still.ToString('o'))." -Color Yellow
+        return
+    }
+
+    foreach ($d in $due) {
+        $stage = if ($d.State -and $d.State.PSObject.Properties['paused_stage']) { "$($d.State.paused_stage)" } else { 'implement' }
+        if ($d.State) {
+            $d.State.PSObject.Properties.Remove('paused_until')
+            $d.State.PSObject.Properties.Remove('paused_stage')
+            Set-PlanningState -IssueNumber $d.Number -State $d.State
+        }
+        Add-Comment -Number $d.Number -Body "· resumed after the usage-limit pause ($stage)"
+        if ($stage -eq 'refine') {
+            Set-IssueLabel -Number $d.Number -Remove 'agent:paused'
+            gh workflow run afk.yml --repo $KanbanRepo --field stage=refine --field issue_number=$($d.Number) 2>&1 | Out-Null
+        } else {
+            Set-AgentState -IssueNumber $d.Number -Label 'agent:backlog'
+        }
+        Write-Log "▶ Issue #$($d.Number) resumed ($stage)." -Color Green
     }
 }
 
@@ -476,6 +679,7 @@ function Set-AgentState {
         'agent:reviewing'    { $KanbanOpt_Review       }
         'agent:shipped'      { $KanbanOpt_Merged       }
         'agent:failed'       { $KanbanOpt_Backlog      }
+        'agent:paused'       { $KanbanOpt_Backlog      }
         default              { ''                      }
     }
     $laneName = switch ($Label) {
@@ -484,6 +688,7 @@ function Set-AgentState {
         'agent:reviewing'    { 'Review'       }
         'agent:shipped'      { 'Shipped'      }
         'agent:failed'       { 'Backlog'      }
+        'agent:paused'       { 'Backlog'      }
         default              { ''             }
     }
 
@@ -539,6 +744,12 @@ function Get-IssueLabel {
 
 function Add-Comment {
     param([int]$Number, [string]$Body)
+    # Every pipeline comment starts with 🤖 (signal) or · (noise). The pipeline posts
+    # with the owner's PAT, so this prefix is the only thing that tells its comments
+    # apart from the owner's — afk.yml ignores prefixed comments, and a missing prefix
+    # would make the pipeline react to its own output.
+    $lead = $Body.TrimStart()
+    if (-not ($lead.StartsWith('🤖') -or $lead.StartsWith('·'))) { $Body = "· $Body" }
     $tmp = New-TemporaryFile
     try {
         $Body | Out-File $tmp.FullName -Encoding utf8
@@ -773,6 +984,9 @@ function Move-ToLane {
         return
     }
     $itemId    = Get-ProjectItemId -IssueNumber $IssueNumber
+    if (-not $itemId -and (Add-IssueToBoard -IssueNumber $IssueNumber)) {
+        $itemId = Get-ProjectItemId -IssueNumber $IssueNumber
+    }
     $projectId = Get-ProjectId
     if (-not $itemId -or -not $projectId) {
         Write-Log "  Could not resolve project item for issue #$IssueNumber — skipping lane move." -Color Yellow
@@ -804,6 +1018,39 @@ function Move-ToLane {
             if ($cached) { $cached.status = $LaneName }
         }
     }
+}
+
+# An issue opened in the GitHub UI or through the API never went through
+# `task sync`, so it is not on the board: every lane move would skip it and refine
+# could not set its estimate. Add it once, and record it in the item cache so the
+# same pass sees it (with empty estimate/priority, which refine then fills in).
+function Add-IssueToBoard {
+    param([int]$IssueNumber)
+    if (Get-ProjectItemId -IssueNumber $IssueNumber) { return $true }
+    # Board unreadable (not configured, or item-list failed) — nothing to add to.
+    if ($KanbanProjectNumber -le 0 -or $null -eq $script:_CachedItems) { return $false }
+    $owner = Get-ResolvedOwner
+    if (-not $owner) { return $false }
+
+    $url = "https://github.com/$KanbanRepo/issues/$IssueNumber"
+    $out = Invoke-GhProjectRetry -Description 'gh project item-add' -Block {
+        gh project item-add $KanbanProjectNumber --owner $owner --url $url --format json 2>&1 | Out-String
+    }
+    $itemId = $null
+    if ($LASTEXITCODE -eq 0) { try { $itemId = ($out.Trim() | ConvertFrom-Json).id } catch {} }
+    if (-not $itemId) {
+        Write-Log "  ⚠️ Could not add issue #$IssueNumber to the project board: $($out.Trim())" -Color Yellow
+        return $false
+    }
+    $script:_CachedItems = @($script:_CachedItems) + [pscustomobject]@{
+        id       = $itemId
+        content  = [pscustomobject]@{ number = $IssueNumber; repository = $KanbanRepo }
+        status   = $null
+        estimate = $null
+        priority = $null
+    }
+    Write-Log "  Issue #$IssueNumber added to the project board." -Color DarkGray
+    return $true
 }
 
 # ── Project field helpers ─────────────────────────────────────────────────────

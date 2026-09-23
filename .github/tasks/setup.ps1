@@ -295,14 +295,15 @@ if ($LASTEXITCODE -ne 0 -or -not $_LabelRepo) {
         @{ Name = 'enhancement';        Color = 'a2eeef'; Description = 'New feature or request' }
         @{ Name = 'bug';                Color = 'd73a4a'; Description = 'Something is not working' }
         # agent:* — the agent holds the ball. Exactly one at a time (ADR-015).
-        @{ Name = 'agent:backlog';      Color = '0075ca'; Description = 'Refined, architected, planned — ready to implement' }
+        @{ Name = 'agent:backlog';      Color = '0075ca'; Description = 'Refined, architected, planned — implementation starts automatically' }
         @{ Name = 'agent:implementing'; Color = 'e4e669'; Description = 'Implement stage in progress' }
         @{ Name = 'agent:reviewing';    Color = '969696'; Description = 'Review stage in progress' }
         @{ Name = 'agent:shipped';      Color = '0e8a16'; Description = 'Shipped — PR merged and issue closed' }
         @{ Name = 'agent:failed';       Color = 'd73a4a'; Description = 'A stage errored unrecoverably — see failed_at in the issue body' }
+        @{ Name = 'agent:paused';       Color = 'fbca04'; Description = 'Paused on the Claude usage limit — resumes automatically (max 5 h)' }
         # human:* — a human holds the ball; nothing advances until they act (ADR-015).
         @{ Name = 'human:approval';     Color = 'd4c5f9'; Description = 'Implemented and self-reviewed — a human must merge the PR' }
-        @{ Name = 'human:decision';     Color = 'd4c5f9'; Description = 'A question for a human — not a work item; never enters the pipeline' }
+        @{ Name = 'human:decision';     Color = 'd4c5f9'; Description = 'Waiting on your answers — reply to the questions in a comment' }
     )
     foreach ($lbl in $BaseLabels) {
         $out = gh label create $lbl.Name `
