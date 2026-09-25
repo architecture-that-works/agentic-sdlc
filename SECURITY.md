@@ -58,6 +58,23 @@ call) succeeds before revoking the old value.
 
 ---
 
+## Agent permission model
+
+The agent's write authority is bounded by an explicit allowlist, not by advisory guidance.
+
+- **Where the allowlist lives:** `WritablePaths` in `$OrchestratorConfig` in
+  `.github/orchestrator/lib/Config.ps1`.
+- **How it is enforced:** `Invoke-CommitAndPR` in `.github/orchestrator/stages/Implement.ps1`
+  enumerates all changed paths before any `git add`. Any path that matches none of the
+  `WritablePaths` patterns aborts staging immediately and throws with every offending path
+  named — no files are staged. A missing or empty `WritablePaths` is itself a hard failure.
+  The existing name denylist (`.env`, `*.key`, …) runs after staging as a second defence layer.
+- **Test coverage:** `tests/orchestrator/test_implement_allowlist.py` verifies that an
+  in-bounds path (`src/foo.py`) is allowed and an out-of-bounds path
+  (`.github/workflows/x.yml`) raises an error that names the offending path.
+
+---
+
 ## Human Oversight
 
 Every agent action can be halted, overridden or rolled back by a human, and every one of these

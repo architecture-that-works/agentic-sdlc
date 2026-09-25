@@ -70,6 +70,17 @@ $OrchestratorConfig = @{
         'docs/adr/*', '.agents/skills/*'
     )
 
+    # Writable paths: the authoritative allowlist of path patterns an agent commit may
+    # touch. Invoke-CommitAndPR enforces this before any git-add; a changed path that
+    # matches none of these patterns aborts staging with the offending paths named.
+    # A missing or empty WritablePaths is itself a hard failure — never a silent pass.
+    # Matched with -like against changed relative paths (same operator as GovernancePaths).
+    WritablePaths = @(
+        'src/*', 'tests/*', 'docs/*', '.agents/skills/*',
+        'CONTEXT.md', '.out-of-scope.md', 'SECURITY.md',
+        'pyproject.toml', 'uv.lock'
+    )
+
     # Orchestrator behaviour
     MaxRetries = 3    # failed attempts per round (implement, review, CI, refine) before agent:failed
 }
