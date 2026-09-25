@@ -224,8 +224,11 @@ function Invoke-AnswerCheck {
     if ($open.Count -eq 0) {
         return [pscustomobject]@{ Evaluated = $false; Answered = 0; Open = 0; Error = $null }
     }
-    $since = if ($state.PSObject.Properties['questions_asked_at'] -and $state.questions_asked_at) { "$($state.questions_asked_at)" } else { '' }
-    $comments = @(Get-OwnerComments -IssueNumber $IssueNumber -Since $since)
+    $since = if ($state.PSObject.Properties['questions_asked_at']) { $state.questions_asked_at } else { $null }
+    # A failed read is an error, never "no reply" — otherwise the owner's answer is
+    # dropped silently and the issue waits forever.
+    try   { $comments = @(Get-OwnerComments -IssueNumber $IssueNumber -Since $since -Strict) }
+    catch { return [pscustomobject]@{ Evaluated = $false; Answered = 0; Open = $open.Count; Error = $_.Exception.Message } }
     if ($comments.Count -eq 0) {
         return [pscustomobject]@{ Evaluated = $false; Answered = 0; Open = $open.Count; Error = $null }
     }
