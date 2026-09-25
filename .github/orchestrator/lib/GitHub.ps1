@@ -442,13 +442,21 @@ function Set-DecisionSection {
 # Comments written by a person with write access — the owner's answers and
 # guidance. Excluded: pipeline comments (it posts as the owner's PAT, so it is
 # recognised by the 🤖 / · prefix Add-Comment enforces) and anyone without write
-# access, whose text must never reach an agent prompt. -Since (ISO 8601) limits to
-# comments created or edited after that moment.
+# access, whose text must never reach an agent prompt. -Since limits to comments
+# created or edited after that moment; it takes a string or a [datetime], because
+# ConvertFrom-Json turns the carrier's ISO timestamps into [datetime], which
+# interpolates as "09/23/2026 23:05:54" — a format the API rejects (HTTP 422).
+# -Strict throws on a failed read instead of returning nothing, for callers that
+# must not mistake "could not read" for "no comments".
 function Get-OwnerComments {
-    param([Parameter(Mandatory)][int]$IssueNumber, [string]$Since = '')
+    param([Parameter(Mandatory)][int]$IssueNumber, [object]$Since = $null, [switch]$Strict)
 
     $path = "repos/$KanbanRepo/issues/$IssueNumber/comments?per_page=100"
-    if ($Since) { $path += "&since=$([uri]::EscapeDataString($Since))" }
+    if ($Since) {
+        $at = if ($Since -is [datetime]) { $Since.ToUniversalTime() }
+              else { [datetimeoffset]::Parse("$Since", [cultureinfo]::InvariantCulture).UtcDateTime }
+        $path += "&since=$($at.ToString('yyyy-MM-ddTHH:mm:ssZ', [cultureinfo]::InvariantCulture))"
+    }
     # One JSON object per line (@json), across every page — an issue that went
     # through the pipeline carries many noise comments, so the newest owner comment
     # can sit beyond the first page.
@@ -457,7 +465,9 @@ function Get-OwnerComments {
           ' | {login: .user.login, created_at: .created_at, body: .body} | @json'
     $out = gh api --paginate $path --jq $jq 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Log "  ⚠️ Could not read comments on #${IssueNumber}: $(($out | Out-String).Trim())" -Color Yellow
+        $msg = "Could not read comments on #${IssueNumber}: $(($out | Out-String).Trim())"
+        if ($Strict) { throw $msg }
+        Write-Log "  ⚠️ $msg" -Color Yellow
         return @()
     }
     return @($out | Where-Object { "$_".Trim() } | ForEach-Object {

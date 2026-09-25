@@ -131,7 +131,42 @@ $r = Invoke-AnswerCheck -IssueNumber 50
     assert out == {"error": True, "written": False}
 
 
+def test_answer_check_reports_a_failed_comment_read() -> None:
+    """A failed read must surface as an error, never pass as 'no reply' (#158)."""
+    out = _run(
+        _ANSWER_FAKES
+        + r"""
+function script:gh { $global:LASTEXITCODE = 1; 'HTTP 422' }
+function script:claude { throw 'the model must not be called when comments could not be read' }
+$r = Invoke-AnswerCheck -IssueNumber 50
+[pscustomobject]@{ error = "$($r.Error)"; written = ($null -ne $script:Written) } | ConvertTo-Json -Compress
+"""
+    )
+    assert "HTTP 422" in out["error"]
+    assert out["written"] is False
+
+
 # ── Comments ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "since",
+    [
+        # The carrier round-trip: ConvertFrom-Json yields a [datetime] (#158).
+        '(\'{"at":"2026-09-23T23:05:54.0910580Z"}\' | ConvertFrom-Json).at',
+        "'2026-09-23T23:05:54.0910580Z'",
+        "'2026-09-24T01:05:54+02:00'",
+    ],
+)
+def test_owner_comments_send_since_in_the_api_format(since: str) -> None:
+    out = _run(
+        rf"""
+function script:gh {{ $script:Path = $args[2]; $global:LASTEXITCODE = 0 }}
+$null = Get-OwnerComments -IssueNumber 7 -Since ({since})
+[pscustomobject]@{{ path = $script:Path }} | ConvertTo-Json -Compress
+"""
+    )
+    assert out["path"].endswith("&since=2026-09-23T23:05:54Z"), out["path"]
 
 
 def test_add_comment_always_carries_a_pipeline_prefix() -> None:
