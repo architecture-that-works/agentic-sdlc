@@ -9,7 +9,7 @@ applies_to: "all project types"
 > **Applies to:** All project types — instrument every service and agent loop with OTel from day one.
 
 ## Status
-Accepted
+Accepted — amended 2026-09-25
 
 ## Context and Problem Statement
 
@@ -51,3 +51,21 @@ Chosen: **OpenTelemetry + OpenLineage**, because instrumentation code is written
 | **Good** | Deep integration with cloud-native dashboards out of the box |
 | **Bad** | Vendor lock-in — migrating clouds requires re-instrumenting every service |
 | **Bad** | Each SDK has a different API — inconsistent patterns when services target different clouds |
+
+## Amendment — 2026-09-25: Telemetry Egress Model
+
+### Decision
+
+**Default egress:** local JSONL file exporter writing to the directory set by `Settings.log_dir` (`logs/`).
+
+**External opt-in:** when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, spans and lineage events are routed to that OTLP backend instead; the local file exporter is disabled.
+
+**Credentials:** `OTEL_EXPORTER_OTLP_HEADERS` carries per-request auth headers (e.g. `Authorization: Bearer <token>`) for the external backend; consumed only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; supplied via environment variable or secrets management — never hardcoded (ADR-008).
+
+### Follow-up Implementation Scope (not this issue)
+
+- Configure the OTel SDK provider, processor, and exporter — file exporter when `OTEL_EXPORTER_OTLP_ENDPOINT` is absent; OTLP exporter when it is set
+- Extend `Settings` (`src/config.py`) with `OTEL_EXPORTER_OTLP_ENDPOINT` (optional `str`) and `OTEL_EXPORTER_OTLP_HEADERS` (optional `str`) bindings
+- Add one span per logical pipeline stage: `refine`, `architect`, `plan`, `implement`, `review`, `ship`
+- Emit OpenLineage events alongside OTel spans for pipeline runs
+- Confirm `trace_id` and `span_id` present on all structured log records (existing confirmation criterion)
