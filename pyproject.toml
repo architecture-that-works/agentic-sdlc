@@ -22,7 +22,7 @@ dev = [
     "pip-audit>=2.10.1",
     "copier>=9.18.2",
     "pre-commit>=4.6.2",
-    "hypothesis>=6.163.0",
+    "hypothesis>=6.168.1",
 ]
 
 [build-system]
