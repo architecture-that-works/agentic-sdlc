@@ -110,8 +110,7 @@ function Format-ErrorBlock {
 # cause: error text from a stage is not trusted, since test output or code under
 # test can mention rate limits too.
 
-# Spend and session limits are how Claude words a spent subscription allowance (#229).
-$KanbanUsageLimitPattern = '(?i)usage limit|limit reached|rate_limit_error|hit your limit|spend limit|session limit'
+$KanbanUsageLimitPattern = '(?i)usage limit|limit reached|rate_limit_error|hit your limit'
 $KanbanMaxPauseHours     = 5
 
 # The UTC time to resume after a usage-limit message, or $null when $Text is not
