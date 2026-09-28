@@ -6,7 +6,6 @@ default; run them with `uv run pytest -m eval`.
 """
 
 import os
-from pathlib import Path
 
 import pytest
 
@@ -17,13 +16,15 @@ from claude_judge import ClaudeJudge  # imported after the opt-out, on purpose
 from eval_results import (
     EvalResult,
     assert_passed,
-    export_spans,
     exporter_from_env,
     measure,
-    write_jsonl,
+    publish,
 )
 
-RESULTS_DIR = Path("logs") / "evals"
+from src.config import settings
+
+# ADR-003 egress: JSONL under Settings.log_dir, or OTLP instead when an endpoint is set.
+RESULTS_DIR = settings.log_dir / "evals"
 RESULTS = pytest.StashKey[list[EvalResult]]()
 
 
@@ -53,8 +54,6 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
     results = _session_results(session.config)
     if not results:
         return
-    path = write_jsonl(results, RESULTS_DIR)
-    exporter = exporter_from_env()
-    if exporter is not None:
-        export_spans(results, exporter)
-    print(f"\n{len(results)} eval result(s) written to {path}")
+    path = publish(results, RESULTS_DIR, exporter_from_env())
+    where = path or "the OTLP endpoint"
+    print(f"\n{len(results)} eval result(s) sent to {where}")

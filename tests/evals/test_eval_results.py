@@ -14,6 +14,7 @@ from eval_results import (
     export_spans,
     exporter_from_env,
     measure,
+    publish,
     to_record,
     write_jsonl,
 )
@@ -95,6 +96,22 @@ def test_export_spans_emits_one_span_per_case_with_an_event_per_metric() -> None
     events = spans[0].events
     assert [e.name for e in events] == ["gen_ai.evaluation.result"] * 2
     assert (events[1].attributes or {})["gen_ai.evaluation.score.label"] == "fail"
+
+
+def test_publish_writes_jsonl_when_no_exporter_is_configured(tmp_path) -> None:
+    """ADR-003 egress: the local JSONL file is the default."""
+    path = publish([_result()], tmp_path, exporter=None)
+    assert path is not None and path.exists()
+
+
+def test_publish_exports_instead_of_writing_when_an_exporter_is_configured(
+    tmp_path,
+) -> None:
+    """ADR-003 egress: with an OTLP endpoint, records go there *instead* of the file."""
+    exporter = InMemorySpanExporter()
+    assert publish([_result()], tmp_path, exporter=exporter) is None
+    assert len(exporter.get_finished_spans()) == 1
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_exporter_from_env_is_none_without_an_endpoint(monkeypatch) -> None:

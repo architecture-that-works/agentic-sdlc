@@ -198,9 +198,10 @@ disabled: evals are plain pytest, with no Confident AI login.
    `.github/workflows/checks.yml`.
 
 **Results** — every metric score becomes one OpenTelemetry GenAI `gen_ai.evaluation.result`
-record. Records land in `logs/evals/*.jsonl`; with `OTEL_EXPORTER_OTLP_ENDPOINT` set they
-are also exported over OTLP (one span per eval case, one event per metric), which MLflow
-≥ 3.6 or any OTel backend ingests (ADR-003). CI also uploads a JUnit report
+record, following the ADR-003 egress model: by default they land in
+`<Settings.log_dir>/evals/*.jsonl`; with `OTEL_EXPORTER_OTLP_ENDPOINT` set they are exported
+over OTLP instead (one span per eval case, one event per metric), which MLflow ≥ 3.6 or any
+OTel backend ingests. CI also uploads a JUnit report
 (`eval-results` artifact).
 
 **In CI** — the `eval` job runs only on PRs that change a model-facing path; skipped, it
