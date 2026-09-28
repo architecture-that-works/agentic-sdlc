@@ -117,8 +117,13 @@ TASK:
 2. For every architectural decision the issue raises, decide whether the
    codebase already resolves it. If yes, record it in decided_questions[].
    If no, record it in open_questions[] with your recommended position.
-3. Write the Agent Brief in contract terms only — no file paths.
-4. Print the JSON object and nothing else.
+3. Write the Agent Brief in contract terms only — no file paths. Name the
+   component the issue is about by its role and public interface (a function
+   signature, CLI command, schema or event), never by its source path — even
+   when the issue itself names the file.
+4. Before printing, scan every agent_brief field for source-code paths
+   (src/, tests/, .github/, *.py, *.ps1) and rewrite each one in contract terms.
+5. Print the JSON object and nothing else.
 "@
 }
 
@@ -195,7 +200,10 @@ function Invoke-Grill {
         [string]$Body     = '',
         [switch]$DryRun,
         [string]$Model    = '',
-        [int]   $MaxTurns = 40   # reading CONTEXT, AGENTS, the skill, ADRs and sources takes turns
+        [int]   $MaxTurns = 40,  # reading CONTEXT, AGENTS, the skill, ADRs and sources takes turns
+        # Also return the tools the subagent called, in order: { result; tools_called }.
+        # The refine eval's Tool Correctness metric reads it (#155); refine does not.
+        [switch]$Trace
     )
 
     if ($Issue -gt 0) {
@@ -226,20 +234,28 @@ function Invoke-Grill {
     $resolvedModel = Resolve-GrillModel -Requested $Model
 
     # The subagent is read-only — restrict tools so it cannot accidentally write
-    # to the working tree. The orchestrator alone owns mutations. The JSON envelope
+    # to the working tree. The orchestrator alone owns mutations. The result event
     # says how the run ended: a run that stops on its turn budget has no answer, and
-    # plain text output would hide that behind an empty or partial reply.
+    # plain text output would hide that behind an empty or partial reply. stream-json
+    # (which needs --verbose) emits one event per line; the assistant events carry
+    # the tool calls, the final result event carries the answer.
     $raw = $fullPrompt | claude `
         --model $resolvedModel `
         --allowedTools 'Read,Glob,Grep' `
         --max-turns   $MaxTurns `
-        --output-format json 2>&1 | Out-String
+        --output-format stream-json --verbose 2>&1 | Out-String
     $exit = $LASTEXITCODE
 
     $envelope = $null
+    $tools    = [System.Collections.Generic.List[string]]::new()
     foreach ($line in ($raw -split '\r?\n')) {
-        if ($line -match '^\s*\{.*"type"\s*:\s*"result"') {
-            try { $envelope = $line | ConvertFrom-Json -ErrorAction Stop } catch {}
+        if ($line -notmatch '^\s*\{') { continue }
+        try { $event = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+        if ($event.type -eq 'result') { $envelope = $event }
+        elseif ($event.type -eq 'assistant') {
+            foreach ($block in @($event.message.content)) {
+                if ($block.type -eq 'tool_use') { $tools.Add([string]$block.name) }
+            }
         }
     }
     if (-not $envelope) {
@@ -250,5 +266,7 @@ function Invoke-Grill {
     }
 
     $validated = Test-GrillResultSchema -Json (ConvertFrom-ClaudeJsonResponse -Raw "$($envelope.result)")
-    return ($validated | ConvertFrom-Json)
+    $result    = $validated | ConvertFrom-Json
+    if ($Trace) { return [pscustomobject]@{ result = $result; tools_called = @($tools) } }
+    return $result
 }

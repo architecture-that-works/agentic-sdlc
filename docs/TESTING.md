@@ -157,6 +157,56 @@ faster this way.
 list decays back to `'*'`; `check-module-api.ps1` fails the build if an export goes
 uncalled or a private function is called from outside.
 
+## Evals
+
+An **eval** is a pytest test marked `eval` that scores one model-facing component (a
+prompt, a skill, an LLM call) against a golden dataset with [DeepEval](https://deepeval.com)
+metrics, judged by Claude. It answers a question unit tests cannot: *is the output still
+good?* The review stage judges a *change* against its issue; an eval judges a *component*
+against fixed inputs — neither repeats the other.
+
+```bash
+uv run pytest -m eval                            # every eval (calls Claude)
+uv run pytest -m eval tests/evals/test_commit_eval.py
+uv run pytest                                    # default run: evals deselected, no model calls
+```
+
+The judge is `ClaudeJudge` (`tests/evals/claude_judge.py`): Claude CLI first — it works with
+the same `CLAUDE_CODE_OAUTH_TOKEN` the pipeline uses — then the Anthropic SDK when
+`ANTHROPIC_API_KEY` is set. DeepEval's telemetry is forced off and its own pytest plugin is
+disabled: evals are plain pytest, with no Confident AI login.
+
+**Writing an eval**
+
+1. **Pick the component** and the behaviour to protect. One eval file per component:
+   `tests/evals/test_<component>_eval.py` with `pytestmark = pytest.mark.eval`.
+2. **Write goldens** — 3–5 representative inputs in `tests/evals/goldens/<component>.jsonl`,
+   one DeepEval golden per line (`input`, and optionally `expected_output`, `context`,
+   `expected_tools`, `additional_metadata`). Load them with `eval_goldens.load_goldens`.
+3. **Choose metrics** — `GEval` with `evaluation_steps` that restate the component's own
+   rules (say what is *intended* too, or the judge marks the design down);
+   `AnswerRelevancyMetric` / `FaithfulnessMetric` for grounded answers;
+   `ToolCorrectnessMetric` for agents (deterministic from the tool trace). Pass
+   `model=judge` to every LLM-judged metric.
+4. **Score with the `evaluate` fixture** — `evaluate(LLMTestCase(...), [metrics])` measures,
+   records and asserts; a failure lists each metric's score, threshold and reason.
+5. **Set thresholds from real runs** — start at DeepEval's 0.5, run a few times, then raise
+   to just below the observed scores (0.7 for the shipped examples).
+6. **Prove the gate has teeth** — add a canary that degrades the prompt and asserts the
+   metric fails (`test_a_degraded_prompt_fails_the_eval`).
+7. **Gate it in CI** — add the component's path to `MODEL_FACING` in the `eval-scope` job of
+   `.github/workflows/checks.yml`.
+
+**Results** — every metric score becomes one OpenTelemetry GenAI `gen_ai.evaluation.result`
+record. Records land in `logs/evals/*.jsonl`; with `OTEL_EXPORTER_OTLP_ENDPOINT` set they
+are also exported over OTLP (one span per eval case, one event per metric), which MLflow
+≥ 3.6 or any OTel backend ingests (ADR-003). CI also uploads a JUnit report
+(`eval-results` artifact).
+
+**In CI** — the `eval` job runs only on PRs that change a model-facing path; skipped, it
+reports success, so it can be a required check (`task protect`). The pipeline's ship stage
+never merges a PR with a red check.
+
 ## The local gate
 
 Six commands, all clean, before any push:

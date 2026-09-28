@@ -5,7 +5,8 @@
 
 .DESCRIPTION
     Configures branch protection on 'main' with:
-      - Required status checks: lint, typecheck, test, audit, secret-scan, module-map-check
+      - Required status checks: lint, typecheck, test, audit, secret-scan, guards, eval
+        (eval is skipped — reported as success — on PRs that touch no model-facing path)
       - Require branches to be up-to-date before merging (strict)
       - Require a pull request before merging (no approval count required)
       - github-actions app bypass for direct push (orchestrator CONTEXT.md update)
@@ -37,7 +38,9 @@ if ($LASTEXITCODE -ne 0 -or -not $Repo) {
 }
 
 $Branch         = "main"
-$RequiredChecks = @("lint", "typecheck", "test", "audit", "secret-scan", "module-map-check")
+# Job names in checks.yml. The Module Map check runs inside `guards`; there is no
+# separate module-map-check job, so requiring one would block every merge.
+$RequiredChecks = @("lint", "typecheck", "test", "audit", "secret-scan", "guards", "eval")
 
 Write-Host ""
 Write-Host "🔒 Applying branch protection to '$Branch' in '$Repo'..." -ForegroundColor Cyan

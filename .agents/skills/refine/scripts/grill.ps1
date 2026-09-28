@@ -51,6 +51,10 @@
     Maximum agentic turns for the subagent. Defaults to 25 — generous enough
     for codebase exploration but bounded to prevent runaway loops.
 
+.PARAMETER Trace
+    Emit { result, tools_called } instead of the bare GrillResult: the tools the
+    subagent called, in order. The refine eval (tests/evals) scores Rule 1 with it.
+
 .NOTES
     Tracked in: https://github.com/ysuurme/my_template_repo/issues/85
     Schema:    src/utils/m_planning.py::GrillResult
@@ -65,7 +69,8 @@ param(
     [string]$Title    = '(probe)',
     [switch]$DryRun,
     [string]$Model    = '',
-    [int]   $MaxTurns = 25
+    [int]   $MaxTurns = 25,
+    [switch]$Trace
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,6 +87,7 @@ $invokeParams = @{
     DryRun   = [bool]$DryRun
     Model    = $Model
     MaxTurns = $MaxTurns
+    Trace    = [bool]$Trace
 }
 $result = Invoke-Grill @invokeParams
 if ($DryRun) {

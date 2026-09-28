@@ -284,6 +284,47 @@ def test_grill_that_runs_out_of_turns_fails_with_the_reason() -> None:
     assert "error_max_turns" in out.stdout and "40 turn(s)" in out.stdout
 
 
+def _tool_use(*names: str) -> str:
+    content = [
+        {"type": "tool_use", "id": f"t{i}", "name": n, "input": {}}
+        for i, n in enumerate(names)
+    ]
+    content.insert(0, {"type": "text", "text": "Reading the codebase first."})
+    return json.dumps({"type": "assistant", "message": {"content": content}})
+
+
+def test_grill_trace_lists_the_tools_it_called_in_order() -> None:
+    """The eval's Tool Correctness metric needs the grill's tool calls (#155); the
+    stream-json events carry them, the result envelope still carries the answer."""
+    lines = [
+        json.dumps({"type": "system", "subtype": "init"}),
+        _tool_use("Read", "Glob"),
+        _tool_use("Grep"),
+        _envelope("success", json.dumps(_PAYLOAD)),
+    ]
+    fake = "; ".join(f"'{ln.replace(chr(39), chr(39) * 2)}'" for ln in lines)
+    out = _ps(
+        f". '{GRILL_LIB.as_posix()}'\n"
+        "function claude { $input | Out-Null; $script:Args = $args; $global:LASTEXITCODE = 0; "
+        f"{fake} }}\n"
+        "$r = Invoke-Grill -Title 'T' -Body 'B' -Trace\n"
+        "[pscustomobject]@{ tools = $r.tools_called; brief = $r.result.agent_brief.feature_name;"
+        " args = ($script:Args -join ' ') } | ConvertTo-Json -Compress"
+    )
+    data = json.loads(out.stdout.strip().splitlines()[-1])
+    assert data["tools"] == ["Read", "Glob", "Grep"], out.stderr
+    assert data["brief"] == "x"
+    assert "stream-json" in data["args"] and "--verbose" in data["args"]
+
+
+def test_grill_without_trace_returns_the_grill_result_unchanged() -> None:
+    """Refine consumes the plain GrillResult — the trace must stay opt-in."""
+    out = _grill_with_output(
+        [_tool_use("Read"), _envelope("success", json.dumps(_PAYLOAD))]
+    )
+    assert out.stdout.strip() == "OK:x", out.stdout + out.stderr
+
+
 def test_grill_without_a_result_or_valid_answer_fails() -> None:
     no_result = _grill_with_output(["Error: something broke"])
     assert (
