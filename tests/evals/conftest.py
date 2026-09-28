@@ -24,8 +24,11 @@ from eval_results import (
 )
 
 RESULTS_DIR = Path("logs") / "evals"
+RESULTS = pytest.StashKey[list[EvalResult]]()
 
-_results: list[EvalResult] = []
+
+def _session_results(config: pytest.Config) -> list[EvalResult]:
+    return config.stash.setdefault(RESULTS, [])
 
 
 @pytest.fixture(scope="session")
@@ -39,7 +42,7 @@ def evaluate(request):
 
     def _evaluate(test_case, metrics) -> list[EvalResult]:
         results = measure(test_case, metrics, case=request.node.name)
-        _results.extend(results)
+        _session_results(request.config).extend(results)
         assert_passed(results)
         return results
 
@@ -47,10 +50,11 @@ def evaluate(request):
 
 
 def pytest_sessionfinish(session: pytest.Session) -> None:
-    if not _results:
+    results = _session_results(session.config)
+    if not results:
         return
-    path = write_jsonl(_results, RESULTS_DIR)
+    path = write_jsonl(results, RESULTS_DIR)
     exporter = exporter_from_env()
     if exporter is not None:
-        export_spans(_results, exporter)
-    print(f"\n{len(_results)} eval result(s) written to {path}")
+        export_spans(results, exporter)
+    print(f"\n{len(results)} eval result(s) written to {path}")

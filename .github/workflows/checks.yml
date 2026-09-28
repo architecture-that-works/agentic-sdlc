@@ -88,6 +88,8 @@ jobs:
   eval-scope:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
     outputs:
       run: ${{ steps.diff.outputs.run }}
     steps:
@@ -111,6 +113,8 @@ jobs:
     if: needs.eval-scope.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
     env:
       # The judge and the agents under test use the Claude CLI with the same
       # subscription token as the pipeline (afk.yml). Results are also exported
