@@ -36,8 +36,10 @@ def conventional_commit(judge) -> GEval:
                 "and has no trailing period."
             ),
             (
-                "The output is only the commit message: no explanation, preamble or "
-                "markdown fences."
+                "The output holds nothing but the commit message — no explanation "
+                "addressed to the reader, no preamble, no markdown fences. A body after "
+                "a blank line is part of the message. Ignore leading or trailing "
+                "whitespace."
             ),
         ],
         evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT],

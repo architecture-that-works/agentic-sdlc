@@ -70,9 +70,11 @@ def refine_rules(judge) -> GEval:
                 "intended multiple-choice format (A recommended, B, C)."
             ),
             (
-                "The agent_brief names no source-code paths or line numbers (such as "
-                "`src/...`, `*.py`, `*.ps1`). Naming project documents such as "
-                "CONTEXT.md or an ADR number is allowed."
+                "The agent_brief never points the implementer at a specific source "
+                "file or line (such as `src/tools/commit.py`, `Util.ps1:113`). Citing "
+                "ADRs, project documents such as CONTEXT.md, or quoting a documented "
+                "constraint or bounded context — even one named after a directory, "
+                "like `src/utils/` — is allowed."
             ),
             (
                 "Every decided question states the evidence it rests on: the code, "
