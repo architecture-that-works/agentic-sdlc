@@ -27,7 +27,9 @@ $ErrorActionPreference = 'Stop'
 # ── AST-based codebase analysis ───────────────────────────────────────────────
 
 # Runs a Python inline script to collect fan-in / fan-out metrics for every
-# .py file in src/. Returns the parsed data object for the blast-radius report.
+# .py file in src/. Returns the parsed data object for the blast-radius report, or
+# throws with the reason. stderr is kept apart from the JSON: on a cold runner uv
+# prints download progress there, and merged into stdout it broke the parse (#222).
 function Invoke-CodebaseAnalysis {
     param([string]$SrcPath)
 
@@ -68,20 +70,20 @@ print(json.dumps({
 }))
 '@
 
-    $pyTmp = New-TemporaryFile
+    $pyTmp  = New-TemporaryFile
+    $errTmp = New-TemporaryFile
     try {
         $pyScript | Out-File $pyTmp.FullName -Encoding utf8
-        $jsonOut = uv run python $pyTmp.FullName 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0 -or -not $jsonOut.Trim()) {
-            Write-Log "  ⚠️ Codebase analysis produced no output — blast-radius will list no at-risk modules." -Color Yellow
-            return $null
+        $jsonOut = uv run python $pyTmp.FullName 2> $errTmp.FullName | Out-String
+        $exit    = $LASTEXITCODE
+        $stderr  = "$(Get-Content $errTmp.FullName -Raw -ErrorAction SilentlyContinue)".Trim()
+        if ($exit -ne 0 -or -not $jsonOut.Trim()) {
+            throw "static analysis exited $exit with no result: $stderr"
         }
-        return $jsonOut.Trim() | ConvertFrom-Json -ErrorAction Stop
-    } catch {
-        Write-Log "  ⚠️ Codebase analysis failed to parse — blast-radius will list no at-risk modules. $_" -Color Yellow
-        return $null
+        try   { return $jsonOut.Trim() | ConvertFrom-Json -ErrorAction Stop }
+        catch { throw "static analysis output is not JSON: $($jsonOut.Trim())" }
     } finally {
-        Remove-Item $pyTmp.FullName -ErrorAction SilentlyContinue
+        Remove-Item $pyTmp.FullName, $errTmp.FullName -ErrorAction SilentlyContinue
     }
 }
 
@@ -108,7 +110,11 @@ function Invoke-Architect {
         # Non-trivial codebase — run static analysis.
         Write-Log "  Non-trivial codebase ($pyCount .py files) — running static analysis..." -Color DarkGray
 
-        $mapData = Invoke-CodebaseAnalysis -SrcPath 'src'
+        # A failed analysis is reported as unknown, never as "At-risk: none": an empty
+        # blast radius must not read as a clean one.
+        $mapData = $null; $analysisError = $null
+        try   { $mapData = Invoke-CodebaseAnalysis -SrcPath 'src' }
+        catch { $analysisError = $_.Exception.Message }
 
         $atRisk = [System.Collections.Generic.List[string]]::new()
         $safe   = [System.Collections.Generic.List[string]]::new()
@@ -139,6 +145,18 @@ function Invoke-Architect {
             ''
             "**Recommendation:** $rec"
         ) -join "`n"
+
+        if ($analysisError) {
+            Write-Log "  ⚠️ Codebase analysis failed — blast radius unknown. $analysisError" -Color Yellow
+            $impact = @(
+                '**At-risk:** unknown — the static analysis failed, so no module was checked'
+                '**Safe:** unknown'
+                ''
+                '**Recommendation:** review the change''s fan-in by hand before implementing'
+            ) -join "`n"
+            Add-Comment -Number $IssueNumber -Body ("🤖⚠️ Architecture Impact unknown — the static analysis failed, " +
+                "so the blast radius could not be computed.`n``````text`n$analysisError`n``````")
+        }
     }
 
     # ── Write the impact INTO the issue body (no .planning/) ───────────────────
