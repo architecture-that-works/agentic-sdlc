@@ -88,8 +88,11 @@ function f($t) { $r = Get-UsageLimitResume -Text $t -Now $now; if ($r) { $r.ToSt
     issue225 = f "Plan: the engine returned no implementation plan (exit code 1): You've hit your org's monthly spend limit · ask your admin to raise it at claude.ai/admin-settings/usage · your session limit resets 5:20pm (UTC)"
     session  = f "Your session limit resets 5:20pm"
     spend    = f "You've hit your monthly spend limit"
+    daily    = f "You've hit your daily limit"
+    team     = f "You've hit your team's limit · resets 6pm"
     auth     = f "Error: Invalid API key · Please run /login"
     engine   = f "Plan: the engine returned no implementation plan (exit code 1): timeout"
+    apart    = f "Could not hit your endpoint. Retrying later. Note: the request size limit is 10MB"
 } | ConvertTo-Json -Compress
 """
     )
@@ -97,8 +100,12 @@ function f($t) { $r = Get-UsageLimitResume -Text $t -Now $now; if ($r) { $r.ToSt
         "issue225": "2026-09-25T17:20",
         "session": "2026-09-25T17:20",
         "spend": "2026-09-25T14:50",  # no reset time named: one hour
+        "daily": "2026-09-25T14:50",
+        "team": "2026-09-25T18:00",
         "auth": None,
         "engine": None,
+        # "hit your" and "limit" in different sentences are not one phrase.
+        "apart": None,
     }
 
 
