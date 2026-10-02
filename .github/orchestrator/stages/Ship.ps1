@@ -368,10 +368,13 @@ function Invoke-Ship {
     # directly. -Force overrides, for a deliberate merge from a local session.
     if (-not $Force) {
         $governance = @(Get-GovernanceFiles -PRNumber $PRNumber)
-        $manual     = @(Get-IssueLabel -IssueNumber $IssueNumber) -contains 'human:approval'
+        # The owner's hold: the label, or — once a later state replaced it — the
+        # carrier's approval_required (Set-AgentState, #225).
+        $state      = Get-IssueState -IssueNumber $IssueNumber
+        $manual     = (@(Get-IssueLabel -IssueNumber $IssueNumber) -contains 'human:approval') -or
+                      ($state -and $state.PSObject.Properties['approval_required'] -and $state.approval_required)
         if ($governance.Count -gt 0 -or $manual) {
-            Set-IssueLabel -Number $IssueNumber -Add 'human:approval'
-            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:reviewing'
+            Set-AgentState -IssueNumber $IssueNumber -Label 'human:approval'
             $why = if ($governance.Count -gt 0) {
                 "it changes governance files, which a human merges:`n" + (($governance | ForEach-Object { "- ``$_``" }) -join "`n")
             } else { 'this issue is labelled ``human:approval``.' }
@@ -434,7 +437,7 @@ function Complete-HeldPR {
         return
     }
 
-    Set-IssueLabel -Number $issue -Remove 'human:approval'
+    # agent:shipped / agent:failed replace human:approval (Set-AgentState, #225).
     if ($Merged) {
         Complete-Ship -IssueNumber $issue -PRNumber $PRNumber -How 'merged by you'
         return

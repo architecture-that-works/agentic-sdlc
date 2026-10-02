@@ -644,6 +644,11 @@ function Set-AgentFailedState {
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:failed'
 }
 
+# The one setter for every pipeline label: the agent:* states and the two human:*
+# holds. An issue carries exactly one of them (#225) — setting one replaces whichever
+# the issue has, other labels are untouched, and the board lane follows. An owner's
+# human:approval is a merge-hold request: when a later state replaces the label, the
+# request moves into the carrier (approval_required) so ship still holds the PR.
 function Set-AgentState {
     param([int]$IssueNumber, [string]$Label)
 
@@ -654,6 +659,8 @@ function Set-AgentState {
         'agent:shipped'      { $KanbanOpt_Merged       }
         'agent:failed'       { $KanbanOpt_Backlog      }
         'agent:paused'       { $KanbanOpt_Backlog      }
+        'human:approval'     { $KanbanOpt_Review       }
+        'human:decision'     { $KanbanOpt_Backlog      }
         default              { ''                      }
     }
     $laneName = switch ($Label) {
@@ -663,6 +670,8 @@ function Set-AgentState {
         'agent:shipped'      { 'Shipped'      }
         'agent:failed'       { 'Backlog'      }
         'agent:paused'       { 'Backlog'      }
+        'human:approval'     { 'Review'       }
+        'human:decision'     { 'Backlog'      }
         default              { ''             }
     }
 
@@ -675,17 +684,21 @@ function Set-AgentState {
         }
     }
 
-    # Read the current agent:* label via REST (issues/{n}/labels), not the GraphQL
-    # `gh issue view`. Hot path — runs on every Set-AgentState call.
-    $current = gh api "repos/$KanbanRepo/issues/$IssueNumber/labels" `
-        --jq 'map(.name) | map(select(startswith("agent:"))) | first // empty' 2>&1 |
-        Out-String | ForEach-Object { $_.Trim() }
+    # Read the labels via REST (Get-IssueLabel), not the GraphQL `gh issue view`.
+    # Hot path — runs on every transition.
+    $current = @(Get-IssueLabel -IssueNumber $IssueNumber |
+        Where-Object { $_ -like 'agent:*' -or $_ -in @('human:approval', 'human:decision') })
+    $replace = @($current | Where-Object { $_ -ne $Label })
 
-    if ($current -and $current -ne 'null' -and $current -ne $Label) {
-        Set-IssueLabel -Number $IssueNumber -Remove $current -Add $Label
-    } elseif (-not $current -or $current -eq 'null') {
-        Set-IssueLabel -Number $IssueNumber -Add $Label
+    if ($replace -contains 'human:approval' -and $Label -ne 'agent:shipped') {
+        $state = Get-IssueState -IssueNumber $IssueNumber
+        if ($state) {
+            $state | Add-Member -NotePropertyName approval_required -NotePropertyValue $true -Force
+            Set-PlanningState -IssueNumber $IssueNumber -State $state
+        }
     }
+    foreach ($old in $replace) { Set-IssueLabel -Number $IssueNumber -Remove $old }
+    if ($current -notcontains $Label) { Set-IssueLabel -Number $IssueNumber -Add $Label }
 
     if ($laneId -and $laneName) {
         Move-ToLane -IssueNumber $IssueNumber -OptionId $laneId -LaneName $laneName

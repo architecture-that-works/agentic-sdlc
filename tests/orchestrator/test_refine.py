@@ -253,7 +253,8 @@ $script:State = [pscustomobject]@{
 function script:Get-IssueState { param($IssueNumber) $script:State }
 function script:Set-PlanningState { param($IssueNumber, $State) $script:State = $State }
 function script:Set-DecisionSection { param($IssueNumber, $State) }
-function script:Set-IssueLabel { param($Number, $Add, $Remove) $script:Label = $Add }
+function script:Set-AgentState { param($IssueNumber, $Label) $script:Label = $Label }
+function script:Set-IssueLabel { throw 'labels go through Set-AgentState (#225)' }
 function script:Add-Comment { param($Number, $Body) $script:Body = $Body }
 Request-Decisions -IssueNumber 50
 [pscustomobject]@{ body = $script:Body; label = $script:Label; asked = [bool]$script:State.questions_asked_at } |
@@ -433,8 +434,25 @@ $r = Invoke-Orchestration -From refine -IssueNumber 50
     )
     assert out["result"] is True
     assert out["log"][:3] == ["refine", "architect", "plan"]
-    assert "label:+-human:decision" in out["log"]
+    # agent:backlog replaces human:decision in one transition (#225).
+    assert not any(e.startswith("label:") for e in out["log"])
     assert "state:agent:backlog" in out["log"]
+
+
+def test_held_issue_never_re_enters_refine(tmp_path: Path) -> None:
+    """A comment on a PR held for the owner's merge must not re-plan the issue (#225)."""
+    out = _conductor(
+        r"""
+function script:Get-IssueState { param($IssueNumber)
+    [pscustomobject]@{ readiness = [pscustomobject]@{ planned = [pscustomobject]@{ done = $true } }; open_questions = @() } }
+function script:gh { $global:LASTEXITCODE = 0; '{"title":"t","labels":[{"name":"human:approval"}],"state":"OPEN"}' }
+function script:Invoke-Refine { throw 'a held issue must not be refined again' }
+$r = Invoke-Orchestration -From refine -IssueNumber 50
+[pscustomobject]@{ result = $r; log = @($script:Log) } | ConvertTo-Json -Compress
+""",
+        tmp_path,
+    )
+    assert out == {"result": False, "log": []}
 
 
 def test_partial_answer_asks_again(tmp_path: Path) -> None:

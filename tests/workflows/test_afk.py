@@ -98,3 +98,10 @@ def test_owner_closing_a_held_pr_finishes_the_issue():
     assert "startsWith(github.event.pull_request.head.ref, 'feature/')" in job
     assert "human:approval" in job
     assert "Complete-HeldPR" in job
+
+
+def test_a_comment_on_a_held_issue_does_not_trigger_refine():
+    """#225: a held issue carries only human:approval (no agent:* label), so the
+    'no agent: label' comment trigger alone would send it back to refine."""
+    refine = _job("refine")
+    assert "!contains(github.event.issue.labels.*.name, 'human:approval')" in refine

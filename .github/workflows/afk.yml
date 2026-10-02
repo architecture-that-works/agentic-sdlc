@@ -86,7 +86,8 @@ jobs:
     name: Refine issue
     # Comments: only people with write access, never the pipeline's own (it posts with
     # the owner's PAT, recognisable only by its 🤖/· prefix), never on PRs, and only
-    # while the issue waits on a human: no agent:* label, or agent:failed.
+    # while the issue waits on a human: no agent:* label, or agent:failed. Never on a
+    # human:approval hold — that PR waits for a merge, not an answer (#225).
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.stage == 'refine') ||
       (github.event_name == 'issues' && github.event.action == 'opened' &&
@@ -95,6 +96,7 @@ jobs:
        github.event.issue.state == 'open' &&
        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
        !startsWith(github.event.comment.body, '🤖') && !startsWith(github.event.comment.body, '·') &&
+       !contains(github.event.issue.labels.*.name, 'human:approval') &&
        (!contains(join(github.event.issue.labels.*.name, ','), 'agent:') ||
         contains(github.event.issue.labels.*.name, 'agent:failed')))
     runs-on: ${{ vars.KANBAN_RUNNER_PROFILE == 'self-hosted' && fromJSON('["self-hosted","gha-project"]') || 'ubuntu-latest' }}

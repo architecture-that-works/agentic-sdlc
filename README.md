@@ -77,7 +77,7 @@ flowchart LR
 | no label | refining it (starts when the issue is opened) | nothing |
 | `human:decision` | waiting on questions listed in the issue, each with a recommended answer (A), two alternatives (B, C) and "other" | reply in a comment: `ok` accepts every recommendation; `1B`, `2C` or `2: your own words` answer one question |
 | `agent:backlog` → `agent:implementing` → `agent:reviewing` | building, reviewing and shipping it — `agent:backlog` starts it | nothing; comments you add are passed to the agent |
-| `human:approval` + a held PR | done and green, but the change touches governance files (agent instructions, CI, ADRs, security, skills) — set by ship | review and merge the PR — the issue then ships on its own; or close the PR and comment what should change |
+| `human:approval` (a held PR) | done and green, but the change touches governance files (agent instructions, CI, ADRs, security, skills) — set by ship, replacing `agent:reviewing`; comments here do not restart the pipeline | review and merge the PR — the issue then ships on its own; or close the PR and comment what should change |
 | `agent:failed` | stopped after 3 failed attempts, each listed in the issue's **Attempts** section | fix it hands-on or explain what to change, then comment — any comment (e.g. `retry`) starts a new round of 3 attempts |
 | `agent:paused` | waiting for the Claude usage allowance to reset; resumes on its own within 5 hours (checked hourly), no attempt counted | nothing |
 | `agent:shipped` | done: merged and closed | nothing |

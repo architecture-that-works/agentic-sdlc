@@ -65,6 +65,8 @@ $script:Log = [System.Collections.Generic.List[string]]::new()
 $script:Labels = @()
 function script:Get-IssueLabel { param($IssueNumber) $script:Labels }
 function script:Test-HoldAnnounced { param($IssueNumber) $false }
+$script:State = $null
+function script:Get-IssueState { param($IssueNumber) $script:State }
 function script:Invoke-RebaseOnMaster { param($IssueNumber, $Branch) }
 function script:Invoke-ContextUpdate { param($IssueNumber) }
 function script:Set-IssueLabel { param($Number, $Add, $Remove) $script:Log.Add("label:+$Add") }
@@ -93,8 +95,10 @@ $r = Invoke-Ship -IssueNumber 1 -PRNumber 9
     )
     assert out["r"] is False
     assert "merged" not in out["log"]
-    assert "label:+human:approval" in out["log"]
-    assert "state:agent:reviewing" in out["log"]
+    # One pipeline label (#225): the hold replaces agent:reviewing.
+    assert "state:human:approval" in out["log"]
+    assert "state:agent:reviewing" not in out["log"]
+    assert not any(e.startswith("label:") for e in out["log"])
     assert "comment:🤖⏸ Held for human approval" in out["log"]
 
 
@@ -110,7 +114,7 @@ $r = Invoke-Ship -IssueNumber 1 -PRNumber 9
     )
     assert out["r"] is True
     assert "merged" in out["log"]
-    assert "label:+human:approval" not in out["log"]
+    assert "state:human:approval" not in out["log"]
 
 
 def test_owner_label_still_forces_a_hold(tmp_path: Path) -> None:
@@ -125,6 +129,22 @@ $r = Invoke-Ship -IssueNumber 1 -PRNumber 9
         tmp_path,
     )
     assert out["r"] is False and "merged" not in out["log"]
+
+
+def test_owner_hold_kept_in_the_carrier_still_forces_a_hold(tmp_path: Path) -> None:
+    """The owner's label was replaced by a later state (#225); the carrier keeps it."""
+    out = _run(
+        _SHIP
+        + r"""
+$script:Diff = @('src/x.py')
+$script:State = [pscustomobject]@{ approval_required = $true }
+$r = Invoke-Ship -IssueNumber 1 -PRNumber 9
+[pscustomobject]@{ r = $r; log = @($script:Log) } | ConvertTo-Json -Compress
+""",
+        tmp_path,
+    )
+    assert out["r"] is False and "merged" not in out["log"]
+    assert "state:human:approval" in out["log"]
 
 
 def test_announced_hold_is_not_repeated(tmp_path: Path) -> None:
@@ -145,7 +165,7 @@ $r = Invoke-Ship -IssueNumber 1 -PRNumber 9
 # The owner merges or closes a held PR (afk.yml, pull_request closed).
 _HELD = r"""
 $script:Log = [System.Collections.Generic.List[string]]::new()
-$script:Labels = @('agent:reviewing', 'human:approval')
+$script:Labels = @('human:approval')
 function script:Get-IssueLabel { param($IssueNumber) $script:Log.Add("read:$IssueNumber"); $script:Labels }
 function script:Set-IssueLabel { param($Number, $Add, $Remove) $script:Log.Add("label:-$Remove") }
 function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
@@ -172,7 +192,6 @@ def test_owner_merge_of_a_held_pr_ships_the_issue(tmp_path: Path) -> None:
     )
     assert log == [
         "read:212",
-        "label:-human:approval",
         "state:agent:shipped",
         "comment:🤖✅ Merged",
         "context:212",
