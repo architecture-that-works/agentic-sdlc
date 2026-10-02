@@ -8,9 +8,9 @@ Covers the business rules that must not regress:
    INTO the issue body via a marker-bounded section (ADR-014, no .planning/).
 3. $safeStr         — the safe-module list truncates to the first 5 with a count.
 
-Each test uses an inline PowerShell snippet that replicates the exact logic from
-Architect.ps1 so we avoid importing the full Kanban module (which requires a
-live environment) while still exercising the real business rules.
+The gate, impact and $safeStr tests replicate the logic inline. The analysis tests
+(#222) run the real stage in module scope, per docs/TESTING.md § Testing the
+orchestrator module — prefer that pattern for new tests.
 """
 
 import json
@@ -295,6 +295,8 @@ def test_analysis_ignores_progress_on_stderr(tmp_path: Path) -> None:
 
 
 def test_failed_analysis_is_flagged_not_reported_as_safe(tmp_path: Path) -> None:
+    # The stage only analyses a non-trivial src/ (more than 5 .py files).
+    assert len(list((MODULE.parents[2] / "src").rglob("*.py"))) > 5
     fake = _fake_uv(tmp_path, stdout="", stderr="error: no interpreter found\n", code=2)
     out = _module(
         fake
