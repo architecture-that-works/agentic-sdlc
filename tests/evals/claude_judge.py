@@ -15,7 +15,8 @@ from deepeval.models import DeepEvalBaseLLM
 from pydantic import BaseModel
 
 DEFAULT_MODEL = "claude-sonnet-5"
-_CLI_TIMEOUT_SECONDS = 300
+# The longest one judgement may take; DeepEval's own timeouts are set from it.
+JUDGE_TIMEOUT_SECONDS = 300
 
 
 class ClaudeJudge(DeepEvalBaseLLM):
@@ -62,7 +63,7 @@ class ClaudeJudge(DeepEvalBaseLLM):
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
-                timeout=_CLI_TIMEOUT_SECONDS,
+                timeout=JUDGE_TIMEOUT_SECONDS,
                 check=False,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):

@@ -12,7 +12,20 @@ import pytest
 # Forced, not defaulted: the harness never reports usage to DeepEval's servers.
 os.environ["DEEPEVAL_TELEMETRY_OPT_OUT"] = "1"
 
-from claude_judge import ClaudeJudge  # imported after the opt-out, on purpose
+from claude_judge import (  # imported after the opt-out, on purpose
+    JUDGE_TIMEOUT_SECONDS,
+    ClaudeJudge,
+)
+
+# DeepEval's default per-attempt timeout (~88 s) suits an HTTP API; the CLI judge
+# cold-starts and may take up to JUDGE_TIMEOUT_SECONDS. Defaulted, so the environment
+# can still override; DeepEval re-reads its settings when the environment changes.
+os.environ.setdefault(
+    "DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE", str(JUDGE_TIMEOUT_SECONDS)
+)
+os.environ.setdefault(
+    "DEEPEVAL_PER_TASK_TIMEOUT_SECONDS_OVERRIDE", str(2 * JUDGE_TIMEOUT_SECONDS + 60)
+)
 from eval_results import (
     EvalResult,
     assert_passed,

@@ -106,3 +106,12 @@ def test_cli_timeout_counts_as_unavailable() -> None:
 
 def test_model_name_names_claude() -> None:
     assert "claude" in ClaudeJudge(model="claude-sonnet-5").get_model_name()
+
+
+def test_deepeval_waits_as_long_as_the_judge_may_take() -> None:
+    """DeepEval's default per-attempt timeout (~88 s) suits an HTTP API, not a CLI
+    judge that cold-starts; in CI it cancelled a grill eval mid-judgement (#155)."""
+    from claude_judge import JUDGE_TIMEOUT_SECONDS
+    from deepeval.config.settings import get_settings
+
+    assert get_settings().DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS >= JUDGE_TIMEOUT_SECONDS
