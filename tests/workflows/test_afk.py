@@ -88,15 +88,19 @@ def test_ship_runs_only_on_the_owners_dispatch():
     assert "agent:reviewing" not in ship
 
 
-def test_owner_closing_a_held_pr_finishes_the_issue():
-    """A held PR is merged (or closed) by the owner, outside the pipeline: its
-    closed event ships the issue, or re-opens it for the owner's comment."""
+def test_any_feature_pr_close_reconciles_the_issue():
+    """Any feature-branch PR's closed event reconciles its issue — merged outside
+    the pipeline, merged by Invoke-Ship, or a held PR the owner merged — so a direct
+    `gh pr merge` still lands the issue on agent:shipped (#252). The job skips only
+    an issue already in a terminal state, not merely an unheld one."""
     text = WORKFLOW.read_text(encoding="utf-8")
     assert re.search(r"pull_request:\s*\n\s*types: \[closed\]", text)
-    job = _job("held-pr-closed")
+    job = _job("pr-closed")
     assert "github.event.pull_request.head.repo.full_name == github.repository" in job
     assert "startsWith(github.event.pull_request.head.ref, 'feature/')" in job
-    assert "human:approval" in job
+    assert "agent:shipped" in job
+    assert "agent:failed" in job
+    assert "human:approval" not in job
     assert "Complete-HeldPR" in job
 
 

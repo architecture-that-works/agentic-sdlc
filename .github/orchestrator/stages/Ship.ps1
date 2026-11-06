@@ -9,8 +9,10 @@
     dispatch (afk.yml stage=ship), so it does not re-derive approval. It rebases the
     branch, waits for CI, and then either holds a PR that touches a governance file
     (human:approval) or squash-merges it, deletes the branch and updates CONTEXT.md
-    (Complete-Ship). Complete-HeldPR finishes a held issue once the owner merges or
-    closes its PR (afk.yml, pull_request closed).
+    (Complete-Ship). Complete-HeldPR reconciles the issue on every feature-branch PR
+    close (afk.yml, pull_request closed) — merged ships it, closed-unmerged fails it —
+    skipping only an issue already in a terminal state, so a direct `gh pr merge` that
+    bypasses Invoke-Ship still lands the issue on agent:shipped / Shipped.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -385,9 +387,6 @@ function Invoke-Ship {
         }
     }
 
-    # A -Force merge can carry the label; drop it first so the PR's closed event does
-    # not complete the issue a second time (Complete-HeldPR).
-    if ($Force) { Set-IssueLabel -Number $IssueNumber -Remove 'human:approval' }
     gh pr merge $PRNumber --squash --delete-branch 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "gh pr merge failed for PR #$PRNumber" }
 
@@ -422,27 +421,35 @@ function Complete-Ship {
     Write-Log "✅ Merged PR #$PRNumber — issue #$IssueNumber complete." -Color Green
 }
 
-# The owner merged or closed a PR that ship held for approval (afk.yml, on the PR's
-# closed event). Merged: the issue ships as if the pipeline had merged it. Closed
-# unmerged: the issue lands on agent:failed at review, so the owner's comment saying
-# what should change starts the next attempt (retry.ps1). A PR that was never held
-# is left alone — the pipeline completes its own merges in Invoke-Ship.
+# Reconciles the issue after ANY PR on a feature/{n}-* branch closes (afk.yml, on the
+# PR's closed event) — a held PR the owner merged, a PR merged directly outside the
+# pipeline (gh pr merge, bypassing Invoke-Ship), or one closed unmerged. This is the
+# single deterministic backstop: whatever merged the PR, the issue must still reach
+# agent:shipped / Shipped. Merged: ships it. Closed unmerged: agent:failed at review,
+# so the owner's comment saying what should change starts the next attempt (retry.ps1).
+#
+# The only skip is an issue already in a terminal state (agent:shipped / agent:failed).
+# That is not a "was this held" check — it is an idempotency guard against the race
+# with Invoke-Ship's own in-process Complete-Ship call, which runs synchronously right
+# after its own `gh pr merge` and in practice always wins: this handler's job has to
+# cold-start (checkout, install uv, install the Claude CLI) before it ever reads a
+# label. Whichever path gets there first wins; the other is a no-op.
 function Complete-HeldPR {
     param([int]$PRNumber, [string]$Branch, [bool]$Merged)
 
     if ($Branch -notmatch '^feature/(\d+)-') { return }
     $issue = [int]$Matches[1]
-    if (@(Get-IssueLabel -IssueNumber $issue) -notcontains 'human:approval') {
-        Write-Log "PR #$PRNumber closed; issue #$issue was not held — nothing to do." -Color DarkGray
+    $labels = @(Get-IssueLabel -IssueNumber $issue)
+    if ($labels -contains 'agent:shipped' -or $labels -contains 'agent:failed') {
+        Write-Log "PR #$PRNumber closed; issue #$issue already in a terminal state — nothing to do." -Color DarkGray
         return
     }
 
-    # agent:shipped / agent:failed replace human:approval (Set-AgentState, #225).
     if ($Merged) {
-        Complete-Ship -IssueNumber $issue -PRNumber $PRNumber -How 'merged by you'
+        Complete-Ship -IssueNumber $issue -PRNumber $PRNumber -How 'merged'
         return
     }
-    Set-AgentFailedState -IssueNumber $issue -FailedAt 'review' -Reason "The owner closed PR #$PRNumber without merging it."
+    Set-AgentFailedState -IssueNumber $issue -FailedAt 'review' -Reason "PR #$PRNumber was closed without merging."
     Add-Comment -Number $issue -Body ("🤖⏸ PR #$PRNumber closed without merging`n`n" +
         'Comment on this issue with what should change; the next attempt starts from your comment.')
     Write-Log "⏸ Issue #$issue — PR #$PRNumber closed unmerged; waiting on the owner's comment." -Color Yellow

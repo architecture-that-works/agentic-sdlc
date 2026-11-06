@@ -3,9 +3,11 @@
 human:approval is a state the pipeline sets, like human:decision: ship decides it
 from the PR's actual diff once CI is green. A PR touching a governance file is held
 for the owner to merge; any other PR merges. The owner can still force a hold by
-adding the label. When the owner merges or closes a held PR, Complete-HeldPR ships
-the issue or re-opens it for a comment. gh and git are in-memory fakes at module
-script scope.
+adding the label. Complete-HeldPR reconciles the issue on every feature-branch PR
+close — a held PR the owner merged, or any other PR merged/closed outside the
+pipeline entirely (e.g. a direct `gh pr merge`) — skipping only an issue already in
+a terminal state (agent:shipped / agent:failed). gh and git are in-memory fakes at
+module script scope.
 """
 
 import json
@@ -162,7 +164,7 @@ $r = Invoke-Ship -IssueNumber 1 -PRNumber 9
     assert out == {"r": False, "log": []}
 
 
-# The owner merges or closes a held PR (afk.yml, pull_request closed).
+# Any feature-branch PR closes (afk.yml, pull_request closed).
 _HELD = r"""
 $script:Log = [System.Collections.Generic.List[string]]::new()
 $script:Labels = @('human:approval')
@@ -207,13 +209,41 @@ def test_owner_close_of_a_held_pr_waits_for_their_comment(tmp_path: Path) -> Non
     assert "state:agent:shipped" not in log
 
 
-def test_pr_that_was_never_held_is_left_alone(tmp_path: Path) -> None:
-    unheld = _held(
+def test_pr_merged_directly_without_going_through_ship_still_ships_the_issue(
+    tmp_path: Path,
+) -> None:
+    """Regression: a PR merged by `gh pr merge` outside Invoke-Ship (no hold, issue
+    still at agent:reviewing) must still reach agent:shipped — not be silently left
+    at whatever label the review stage set (#252)."""
+    log = _held(
+        "$script:Labels = @('agent:reviewing')\n"
+        "Complete-HeldPR -PRNumber 9 -Branch 'feature/212-x' -Merged $true",
+        tmp_path,
+    )
+    assert log == [
+        "read:212",
+        "state:agent:shipped",
+        "comment:🤖✅ Merged",
+        "context:212",
+    ]
+
+
+def test_already_terminal_issue_is_left_alone(tmp_path: Path) -> None:
+    """Idempotency guard: Invoke-Ship's own in-process Complete-Ship almost always
+    wins the race against this webhook handler — once the issue is terminal, the
+    webhook handler is a no-op rather than double-shipping it."""
+    shipped = _held(
         "$script:Labels = @('agent:shipped')\n"
         "Complete-HeldPR -PRNumber 9 -Branch 'feature/212-x' -Merged $true",
         tmp_path,
     )
-    assert unheld == ["read:212"]
+    assert shipped == ["read:212"]
+    failed = _held(
+        "$script:Labels = @('agent:failed')\n"
+        "Complete-HeldPR -PRNumber 9 -Branch 'feature/212-x' -Merged $false",
+        tmp_path,
+    )
+    assert failed == ["read:212"]
     foreign = _held(
         "Complete-HeldPR -PRNumber 9 -Branch 'dependabot/x' -Merged $true", tmp_path
     )
