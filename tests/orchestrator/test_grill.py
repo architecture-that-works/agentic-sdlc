@@ -334,3 +334,39 @@ def test_grill_without_a_result_or_valid_answer_fails() -> None:
     assert (
         "not a valid GrillResult" in prose.stdout and "could not decide" in prose.stdout
     )
+
+
+def test_grill_fetches_the_issue_even_with_gh_stderr_noise() -> None:
+    """#270: the issue-fetch call merged gh's stderr into the same string as its
+    JSON stdout via 2>&1, so any incidental notice/warning on stderr broke the
+    strict ConvertFrom-Json with a cryptic error instead of fetching cleanly."""
+    out = _ps(
+        f". '{GRILL_LIB.as_posix()}'\n"
+        "function gh {\n"
+        "  Write-Error -Message 'a notice gh prints to stderr' -ErrorAction Continue\n"
+        "  $global:LASTEXITCODE = 0\n"
+        '  \'{"title":"T","body":"B"}\'\n'
+        "}\n"
+        f"function claude {{ $input | Out-Null; $global:LASTEXITCODE = 0; "
+        f"'{_envelope('success', json.dumps(_PAYLOAD))}' }}\n"
+        "try { $r = Invoke-Grill -Issue 42; 'OK:' + $r.agent_brief.feature_name }\n"
+        "catch { 'ERR:' + $_.Exception.Message }"
+    )
+    assert out.stdout.strip() == "OK:x", out.stdout + out.stderr
+
+
+def test_grill_issue_fetch_failure_names_the_issue_and_stderr() -> None:
+    """A genuine gh failure (non-zero exit) must raise a clear, actionable error —
+    not an opaque JSON-conversion exception."""
+    out = _ps(
+        f". '{GRILL_LIB.as_posix()}'\n"
+        "function gh {\n"
+        "  Write-Error -Message 'HTTP 404: Not Found' -ErrorAction Continue\n"
+        "  $global:LASTEXITCODE = 1\n"
+        "}\n"
+        "try { Invoke-Grill -Issue 42 }\n"
+        "catch { 'ERR:' + $_.Exception.Message }"
+    )
+    assert "ERR:" in out.stdout
+    assert "#42" in out.stdout
+    assert "404" in out.stdout
