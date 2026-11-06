@@ -330,3 +330,22 @@ def test_context_update_resets_lastexitcode_after_a_handled_git_apply_failure() 
         claude_output="not a real diff, not NO_CHANGES either",
     )
     assert exit_code == 0
+
+
+# ── Test-IssueShipped: the one rule, called by afk.yml's cheap pre-check AND by
+# Complete-HeldPR itself (#275) — not two hand-synced copies of the same logic. ──
+
+
+def test_issue_shipped_is_true_only_for_agent_shipped() -> None:
+    def shipped(labels: list[str]) -> bool:
+        array = ", ".join(f"'{label}'" for label in labels)
+        out = _run(
+            f"function script:Get-IssueLabel {{ param($IssueNumber) @({array}) }}\n"
+            "[pscustomobject]@{ r = (Test-IssueShipped -IssueNumber 212) } | ConvertTo-Json -Compress"
+        )
+        return out["r"]
+
+    assert shipped(["agent:shipped"]) is True
+    assert shipped(["agent:failed"]) is False
+    assert shipped(["agent:reviewing"]) is False
+    assert shipped([]) is False

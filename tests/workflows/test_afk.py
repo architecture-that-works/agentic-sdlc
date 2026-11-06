@@ -92,14 +92,15 @@ def test_any_feature_pr_close_reconciles_the_issue():
     """Any feature-branch PR's closed event reconciles its issue — merged outside
     the pipeline, merged by Invoke-Ship, or a held PR the owner merged — so a direct
     `gh pr merge` still lands the issue on agent:shipped (#252). The job skips only
-    an issue already in a terminal state, not merely an unheld one."""
+    an issue Test-IssueShipped already reports as shipped, not merely an unheld or
+    a previously-failed one (#266/#275)."""
     text = WORKFLOW.read_text(encoding="utf-8")
     assert re.search(r"pull_request:\s*\n\s*types: \[closed\]", text)
     job = _job("pr-closed")
     assert "github.event.pull_request.head.repo.full_name == github.repository" in job
     assert "startsWith(github.event.pull_request.head.ref, 'feature/')" in job
-    assert "agent:shipped" in job
-    assert "agent:failed" in job
+    assert "Test-IssueShipped" in job
+    assert "agent:failed" not in job
     assert "human:approval" not in job
     assert "Complete-HeldPR" in job
 

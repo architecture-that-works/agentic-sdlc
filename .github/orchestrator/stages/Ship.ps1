@@ -454,8 +454,7 @@ function Complete-HeldPR {
 
     if ($Branch -notmatch '^feature/(\d+)-') { return }
     $issue = [int]$Matches[1]
-    $labels = @(Get-IssueLabel -IssueNumber $issue)
-    if ($labels -contains 'agent:shipped') {
+    if (Test-IssueShipped -IssueNumber $issue) {
         Write-Log "PR #$PRNumber closed; issue #$issue already shipped — nothing to do." -Color DarkGray
         return
     }
