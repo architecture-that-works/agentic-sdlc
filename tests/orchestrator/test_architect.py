@@ -8,22 +8,22 @@ Covers the business rules that must not regress:
    INTO the issue body via a marker-bounded section (ADR-014, no .planning/).
 3. $safeStr         — the safe-module list truncates to the first 5 with a count.
 
-Each test uses an inline PowerShell snippet that replicates the exact logic from
-Architect.ps1 so we avoid importing the full Kanban module (which requires a
-live environment) while still exercising the real business rules.
+The gate, impact and $safeStr tests replicate the logic inline. The analysis tests
+(#222) run the real stage in module scope, per docs/TESTING.md § Testing the
+orchestrator module — prefer that pattern for new tests.
 """
 
+import json
 import shutil
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
 import pytest
 
 PWSH = shutil.which("pwsh") or "pwsh"
-SCRIPT = (
-    Path(__file__).parent.parent.parent / ".github" / "orchestrator" / "Architect.ps1"
-)
+MODULE = Path(__file__).parents[2] / ".github" / "orchestrator" / "Orchestrator.psd1"
 
 pytestmark = pytest.mark.skipif(
     not shutil.which("pwsh"),
@@ -236,3 +236,80 @@ def test_safe_str_empty_is_none() -> None:
     result = _ps(_SAFE_STR_SNIPPET + "$safe = @()\nGet-SafeStr -safe $safe")
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "none"
+
+
+# ── The real stage, in module scope (docs/TESTING.md) ────────────────────────
+# #222: on a cold runner uv prints download progress to stderr; merged into stdout it
+# broke the JSON, and the issue then claimed "At-risk: none". `uv` is faked with a
+# real child process so its stderr is genuine native stderr on every OS.
+
+_ANALYSIS = {
+    "modules": ["a", "b"],
+    "fan_out": {},
+    "fan_in": {"a": ["w", "x", "y", "z"]},
+}
+
+
+def _fake_uv(tmp_path: Path, *, stdout: str, stderr: str, code: int) -> str:
+    script = tmp_path / "fake_uv.py"
+    script.write_text(
+        "import sys\n"
+        f"sys.stderr.write({stderr!r})\n"
+        "sys.stderr.flush()\n"
+        f"sys.stdout.write({stdout!r})\n"
+        f"sys.exit({code})\n",
+        encoding="utf-8",
+    )
+    return f"function script:uv {{ & '{sys.executable}' '{script}' }}"
+
+
+def _module(body: str) -> dict:
+    script = (
+        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        "& (Get-Module Orchestrator) {\n"
+        "function script:Write-Log { param($Message, $Color) }\n"
+        f"{body}\n"
+        "}\n"
+    )
+    out = _ps(script)
+    assert out.returncode == 0, out.stderr
+    lines = [ln for ln in out.stdout.splitlines() if ln.startswith("{")]
+    assert lines, out.stdout + out.stderr
+    return json.loads(lines[-1])
+
+
+def test_analysis_ignores_progress_on_stderr(tmp_path: Path) -> None:
+    fake = _fake_uv(
+        tmp_path,
+        stdout=json.dumps(_ANALYSIS),
+        stderr="Downloading cpython-3.13.12-linux-x86_64-gnu (21.2MiB)\nInstalled 42 packages\n",
+        code=0,
+    )
+    out = _module(
+        fake + "\n$r = Invoke-CodebaseAnalysis -SrcPath 'src'\n"
+        "[pscustomobject]@{ modules = @($r.modules) } | ConvertTo-Json -Compress"
+    )
+    assert out == {"modules": ["a", "b"]}
+
+
+def test_failed_analysis_is_flagged_not_reported_as_safe(tmp_path: Path) -> None:
+    # The stage only analyses a non-trivial src/ (more than 5 .py files).
+    assert len(list((MODULE.parents[2] / "src").rglob("*.py"))) > 5
+    fake = _fake_uv(tmp_path, stdout="", stderr="error: no interpreter found\n", code=2)
+    out = _module(
+        fake
+        + r"""
+$script:Md = ''; $script:Comments = @()
+function script:Set-IssueBodySection { param($IssueNumber, $BeginMarker, $EndMarker, $Markdown) $script:Md = $Markdown; $true }
+function script:Set-PlanningReadiness { param($IssueNumber, $Stage, $StageLabel, $PopulatedBy) }
+function script:Add-Comment { param($Number, $Body) $script:Comments += $Body }
+Invoke-Architect -IssueNumber 7
+[pscustomobject]@{ md = $script:Md; comments = @($script:Comments) } | ConvertTo-Json -Compress
+"""
+    )
+    assert "**At-risk:** none" not in out["md"]
+    assert "unknown" in out["md"]
+    warnings = [c for c in out["comments"] if c.startswith("🤖⚠️")]
+    assert warnings and "no interpreter found" in warnings[0]
