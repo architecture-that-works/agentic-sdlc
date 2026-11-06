@@ -50,18 +50,21 @@ squash-merge, a conventional-commit series, and a worktree-isolated fix branch).
 ### Branch Naming
 
 ```
-feature/{issue-number}-{dense-slug}     # New feature linked to a GitHub Issue
-fix/{issue-number}-{dense-slug}         # Bug fix linked to a GitHub Issue
-docs/{issue-number}-{dense-slug}        # Documentation only
-refactor/{issue-number}-{dense-slug}    # Refactoring with no behaviour change
+feature/{issue-number}-{dense-slug}     # Every issue-linked branch — feature, fix, docs, refactor alike
 ```
+
+One prefix, always. The branch no longer encodes the kind of change — the commit type
+(`feat`, `fix`, `docs`, `refactor`, …) already does that. `Complete-HeldPR`, the `afk.yml`
+`pull_request: closed` trigger, and `Get-CurrentIssueNumber` all match on `feature/` alone;
+a branch with any other prefix is invisible to them — see #252, where a `fix/`-prefixed PR
+merged clean but its issue was never reconciled to `agent:shipped`.
 
 Use kebab-case. Slug: 2–4 words maximum, describing the change densely. Issue number is required — it is the traceability anchor that links the branch to the kanban pipeline and enables auto-branch detection in `implement.ps1`.
 
 ```bash
 git checkout -b feature/42-user-auth-endpoint
-git checkout -b fix/17-gitignore-secret-patterns
-git checkout -b docs/16-sdlc-prd
+git checkout -b feature/17-gitignore-secret-patterns   # a fix — the branch prefix doesn't change
+git checkout -b feature/16-sdlc-prd                     # docs-only — same
 ```
 
 The Director Workflow (`implement.ps1`) auto-generates branch names as `feature/{number}-{word1}-{word2}-{word3}` from the issue title. Manual branches must follow the same pattern so `Get-CurrentIssueNumber` can parse the issue number from the branch name.
@@ -106,10 +109,12 @@ Closes #42" \
 
 ### Worktree for Isolated Fix Branches
 
-When the review auto-fix loop needs an isolated environment:
+When the review auto-fix loop needs an isolated environment, the worktree branch is still
+`feature/{issue-number}-{slug}` — same issue number, a different slug from whatever branch
+it isolates from:
 
 ```bash
-git worktree add ../fix-branch-<description> -b fix/<description>
+git worktree add ../fix-branch-<description> -b feature/<issue-number>-<slug>
 # Work in ../fix-branch-<description>
 # On completion:
 git worktree remove ../fix-branch-<description>
@@ -119,8 +124,7 @@ git worktree remove ../fix-branch-<description>
 
 | Convention | Pattern | Example |
 |---|---|---|
-| Feature branch | `feature/<desc>` | `feature/user-auth` |
-| Fix branch | `fix/<desc>` | `fix/order-rounding` |
+| Branch (every kind) | `feature/<issue-number>-<desc>` | `feature/42-user-auth`, `feature/17-order-rounding` |
 | Commit type | `feat\|fix\|refactor\|test\|docs\|chore` | `feat(orders): ...` |
 | Auto-close | `Closes #N` in commit or PR body | `Closes #42` |
 | Merge strategy | Squash only (owned by `ship`) | `gh pr merge --squash` |
@@ -140,3 +144,9 @@ Branch names are navigational, not descriptive. Keep under 5 words. The PR title
 
 **Forgetting to remove worktrees.**
 Abandoned worktrees accumulate as stale directories. Always `git worktree remove` after the fix branch is merged or abandoned.
+
+**Using `fix/`, `docs/`, or `refactor/` as a branch prefix.**
+Only `feature/` is matched by `Complete-HeldPR`, `Get-CurrentIssueNumber`, and the `afk.yml`
+`pull_request: closed` trigger. A branch with any other prefix merges fine but is invisible
+to the pipeline — its issue never reconciles to `agent:shipped` (#252). The commit type
+already signals "this is a fix/docs/refactor change"; the branch prefix doesn't need to.

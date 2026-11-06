@@ -11,43 +11,45 @@ patterns (feature branch, commit series, worktree-isolated fix).
 ### Canonical pattern
 
 ```
-^(feature|fix|docs|refactor)/\d+-[a-z0-9-]{1,40}$
+^feature/\d+-[a-z0-9-]{1,40}$
 ```
+
+One prefix for every issue-linked branch — a new feature, a bug fix, a docs-only change,
+a refactor, a worktree-isolated sub-fix. The branch prefix no longer encodes the kind of
+change; the commit type (`feat`, `fix`, `docs`, `refactor`, …) already does that, and the
+orchestrator (`Complete-HeldPR`, `Get-CurrentIssueNumber`, the `afk.yml` `pull_request:
+closed` trigger) matches on `feature/` alone. A second prefix is a branch the pipeline
+cannot see — see [#252](https://github.com/ysuurme/my_template_repo/issues/252), where a
+`fix/`-prefixed PR merged clean but never reconciled its issue's label.
 
 | Segment | Rule | Example |
 |---------|------|---------|
-| Prefix | One of `feature`, `fix`, `docs`, `refactor` — matches the conventional-commit type | `feature` |
+| Prefix | Always `feature` | `feature` |
 | `/` | Literal separator | `/` |
 | Issue number | One or more decimal digits — the GitHub Issue number, no leading zeros | `42` |
 | `-` | Literal separator after the issue number | `-` |
 | Slug | 1–40 lowercase alphanumeric characters and hyphens; 2–4 words; no trailing hyphen | `user-auth-endpoint` |
-
-**Prefix selection rules:**
-
-| Prefix | Use when | Maps to commit type |
-|--------|----------|---------------------|
-| `feature` | New behaviour is being added | `feat` |
-| `fix` | Existing behaviour is being corrected | `fix` |
-| `docs` | Only documentation or comments change | `docs` |
-| `refactor` | Internal restructuring, no behaviour change | `refactor` |
 
 **Slug rules:**
 - Lowercase only — no uppercase, no underscores.
 - Hyphens between words, not spaces.
 - Maximum 4 words. Shorter is better — slugs are navigation, not description.
 - Derived from the issue title: drop articles and prepositions, take the 2–4 most significant nouns/verbs.
+- The slug does not need to match the commit type — `feature/17-order-rounding` fixing a
+  bug is correct; the commit message's `fix(orders): ...` carries the "this is a fix"
+  signal, not the branch name.
 
 ### `Get-CurrentIssueNumber` parse contract
 
 The orchestrator's `implement.ps1` uses `Get-CurrentIssueNumber` to extract the issue number
-from the branch name. This function expects the issue number to appear immediately after the
-first `/` in the branch name and before the first `-`. Any branch that does not satisfy the
-regex above will cause `Get-CurrentIssueNumber` to return `$null`, breaking the kanban pipeline.
+from the branch name. This function expects the branch to start with `feature/` followed
+immediately by the issue number and a `-`. Any branch that does not satisfy the regex above
+will cause `Get-CurrentIssueNumber` to return `$null`, breaking the kanban pipeline.
 
 ```powershell
 # How the parse works (simplified):
 $branch = git rev-parse --abbrev-ref HEAD
-if ($branch -match '^[a-z]+/(\d+)-') { $issueNumber = $Matches[1] }
+if ($branch -match '^feature/(\d+)-') { $issueNumber = $Matches[1] }
 ```
 
 Always verify the branch name satisfies the regex before pushing.
@@ -160,15 +162,17 @@ Do NOT use `git worktree` for routine feature work — one branch, one checkout 
 ### Full lifecycle
 
 ```bash
-# 1. Add — creates the worktree at a sibling path
-git worktree add ../fix-<description> -b fix/<issue-number>-<slug>
+# 1. Add — creates the worktree at a sibling path. The branch is still feature/<n>-<slug>
+#    (same issue number as the branch it isolates from, different slug) — the orchestrator
+#    only ever matches feature/, so a worktree branch is no exception.
+git worktree add ../fix-<description> -b feature/<issue-number>-<slug>
 
 # 2. Work — navigate to the worktree and make changes
 cd ../fix-<description>
 # ... implement, test, commit ...
 
 # 3. Push — push the worktree branch like any branch
-git push -u origin fix/<issue-number>-<slug>
+git push -u origin feature/<issue-number>-<slug>
 
 # 4. Remove — clean up after merge or abandonment
 cd <project-root>
