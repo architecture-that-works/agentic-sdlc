@@ -1,6 +1,7 @@
 # Testing Guide
 
-Conventions for writing and running the pytest suite in this repository.
+Conventions for writing and running the pytest suite in this folder. Referenced from
+`AGENTS.md` § Conditional Context as "testing conventions, fixtures, coverage floor."
 
 ## Running the Suite
 
@@ -198,7 +199,7 @@ disabled: evals are plain pytest, with no Confident AI login.
    `.github/workflows/checks.yml`.
 
 **Results** — every metric score becomes one OpenTelemetry GenAI `gen_ai.evaluation.result`
-record, following the ADR-003 egress model: by default they land in
+record, following a local-first, OTLP-opt-in egress pattern: by default they land in
 `<Settings.log_dir>/evals/*.jsonl`; with `OTEL_EXPORTER_OTLP_ENDPOINT` set they are exported
 over OTLP instead (one span per eval case, one event per metric), which MLflow ≥ 3.6 or any
 OTel backend ingests. CI also uploads a JUnit report

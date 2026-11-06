@@ -10,8 +10,11 @@ Load in this order before any task:
 
 1. `CONTEXT.md` — glossary, Module Map, Issue-Type Index, Architectural Constraints.
 2. `AGENTS.md` — this file.
-3. `docs/adr/ADR_STRUCTURE.md` — then only the ADRs its Quick Filter lists for the Project Type
-   in `CONTEXT.md`.
+3. ADR index — pick the one that matches the task:
+   - Touching `.github/orchestrator/`, `.agents/skills/`, or `copier.yml` (the template's own
+     mechanism) → `template/adr/README.md`, then only the ADRs it lists as relevant.
+   - Anything else (this project's own application code) → `docs/adr/ADR_STRUCTURE.md`, then
+     only the ADRs its Quick Filter lists for the Project Type in `CONTEXT.md`, if any exist yet.
 4. The task — issue body, PR diff, or prompt. If steps 1–4 would exceed ~100k tokens, keep it on
    disk and read it on demand.
 
@@ -88,5 +91,5 @@ If an endpoint invokes an agent loop, load both `application-engineering` (the e
 
 Load only when the task needs it:
 
-- Testing conventions, fixtures, coverage floor — `docs/TESTING.md`
-- Skill invocation protocol and lifecycle — `docs/SKILLS.md`
+- Testing conventions, fixtures, coverage floor — `tests/README.md`
+- Skill invocation protocol and lifecycle — `.agents/skills/README.md`

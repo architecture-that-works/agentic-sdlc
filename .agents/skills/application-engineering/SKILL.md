@@ -305,7 +305,7 @@ Never catch `anthropic.AuthenticationError` in retry logic — it is not transie
 | Service-to-service | API key header (`X-API-Key`) validated via dependency |
 | Managed identity | Azure Managed Identity / GCP Service Account — no key in code |
 
-For self-hosted IAM selection → `docs/adr/ADR-004-iam-provider-selection.md`.
+For self-hosted IAM selection, consult your architecture-decision store, or write one from `docs/adr/ADR-000-template-architecture-decision.md` if none exists yet.
 Never put secrets in environment variables — fetch from secrets manager at runtime via managed identity (`SECURITY.md`, ADR-008).
 
 ### API Versioning
