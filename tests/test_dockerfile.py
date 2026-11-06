@@ -65,13 +65,13 @@ def test_dockerignore_excludes_venv_and_env() -> None:
     assert ".env" in content, ".dockerignore must exclude .env"
 
 
-def test_dockerfile_python313_builder() -> None:
-    assert "python3.13-bookworm" in DOCKERFILE.read_text(), (
-        "Dockerfile builder stage must use python3.13-bookworm"
+def test_dockerfile_python314_builder() -> None:
+    assert "python3.14-bookworm" in DOCKERFILE.read_text(), (
+        "Dockerfile builder stage must use python3.14-bookworm"
     )
 
 
-def test_dockerfile_python313_runtime() -> None:
-    assert "python:3.13" in DOCKERFILE.read_text(), (
-        "Dockerfile runtime stage must use python:3.13"
+def test_dockerfile_python314_runtime() -> None:
+    assert "python:3.14" in DOCKERFILE.read_text(), (
+        "Dockerfile runtime stage must use python:3.14"
     )

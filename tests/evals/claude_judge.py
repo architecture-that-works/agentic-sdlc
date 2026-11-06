@@ -27,7 +27,7 @@ class ClaudeJudge(DeepEvalBaseLLM):
         self.model_id = model  # set first: the base __init__ calls load_model()
         super().__init__(model)
 
-    def load_model(self, *args: Any, **kwargs: Any) -> "ClaudeJudge":
+    def load_model(self, *args: Any, **kwargs: Any) -> ClaudeJudge:
         return self
 
     def get_model_name(self, *args: Any, **kwargs: Any) -> str:
@@ -66,7 +66,7 @@ class ClaudeJudge(DeepEvalBaseLLM):
                 timeout=JUDGE_TIMEOUT_SECONDS,
                 check=False,
             )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except FileNotFoundError, subprocess.TimeoutExpired:
             return None
         answer = result.stdout.strip()
         return answer if result.returncode == 0 and answer else None

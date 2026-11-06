@@ -1,6 +1,6 @@
 # python-uv-template
 
-Copier-based Python 3.13 + UV project scaffold with typed config, structured logging, test
+Copier-based Python 3.14 + UV project scaffold with typed config, structured logging, test
 parity, GitHub Actions CI, and an agentic pipeline that takes a GitHub issue from idea to merged
 PR — refine → architect → plan → implement → review → ship.
 
