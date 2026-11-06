@@ -157,7 +157,7 @@ def extract_symbols(filepath: Path, root: Path) -> list[Symbol]:
     try:
         source = filepath.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(source, filename=str(filepath))
-    except (SyntaxError, OSError):
+    except SyntaxError, OSError:
         return []
 
     symbols: list[Symbol] = []
@@ -233,7 +233,7 @@ def extract_imports(
     try:
         source = filepath.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(source, filename=str(filepath))
-    except (SyntaxError, OSError):
+    except SyntaxError, OSError:
         return frozenset()
 
     found: set[str] = set()

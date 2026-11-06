@@ -10,6 +10,10 @@ TEMPLATE_ROOT = Path(__file__).parent.parent
 
 
 def test_generated_project_passes_tests(tmp_path: Path) -> None:
+    # vcs_ref="HEAD" ensures staged-but-uncommitted template changes are included —
+    # without it, Copier defaults to the latest git tag (v0.1.1, long stale), so this
+    # smoke test was silently exercising a months-old snapshot instead of the current
+    # template (surfaced by the devcontainer image assertion below going stale).
     project_type = "application"
     copier.run_copy(
         src_path=str(TEMPLATE_ROOT),
@@ -22,6 +26,7 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
         defaults=True,
         unsafe=True,
         overwrite=True,
+        vcs_ref="HEAD",
     )
 
     pyproject = (tmp_path / "pyproject.toml").read_text()
@@ -38,7 +43,7 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
         ".devcontainer/devcontainer.json must not contain Jinja2 syntax"
     )
     assert (
-        "mcr.microsoft.com/devcontainers/python:1-3.13-bookworm" in devcontainer_content
+        "mcr.microsoft.com/devcontainers/python:3.14-bookworm" in devcontainer_content
     )
     assert "ghcr.io/devcontainers/features/github-cli:1" in devcontainer_content
     assert "ghcr.io/devcontainers/features/powershell:1" in devcontainer_content
@@ -154,6 +159,7 @@ def test_skills_travel_via_copier(tmp_path: Path) -> None:
         defaults=True,
         unsafe=True,
         overwrite=True,
+        vcs_ref="HEAD",
     )
 
     agents_md = (tmp_path / "AGENTS.md").read_text()
