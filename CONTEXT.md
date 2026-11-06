@@ -58,12 +58,12 @@ Navigation index for agents — how to use it is the Context Protocol in `AGENTS
 | tools | `src/tools/` | `src/tools/` | per-tool `main()` (executed directly) |
 | tests | `tests/` | mirrors `src/` and `tools/` | `pytest` discovery |
 | orchestrator (library) | `.github/orchestrator/` | `.github/orchestrator/` | `Orchestrator.psd1` (explicit `FunctionsToExport`) / `Orchestrator.psm1` (loader + `Invoke-Orchestration`, the single conductor); `stages/` one file per stage — `Refine`, `Architect`, `Plan`, `Implement`, `Review`, `Ship`; `engines/` — `Claude.ps1`, `Gemini.ps1`; `lib/` — `Config.ps1`, `GitHub.ps1`, `Util.ps1`, `Grill.ps1` |
-| orchestrator (commands) | `.github/tasks/` | `.github/tasks/` | One runnable per `Taskfile.yml` target: `refine.ps1` (Backlog gate), `hitl.ps1` (local), `afk.ps1` (cloud drain), `retry.ps1` (resumes from `failed_at`), `setup.ps1`, `sync.ps1`, `protect.ps1`. Each owns its `param()` and `Import-Module`s the orchestrator |
+| orchestrator (commands) | `.github/tasks/` | `.github/tasks/` | One runnable per `Taskfile.yml` target: `refine.ps1` (Backlog gate), `hitl.ps1` (local), `afk.ps1` (cloud drain), `retry.ps1` (resumes from `failed_at`), `setup.ps1`, `sync.ps1`, `protect.ps1`. Each owns its `param()` and `Import-Module`s the orchestrator. `stale-prs.ps1` (weekly `agent:reviewing` PR-age sweep, `stale-prs.yml`) is the exception — standalone, `gh` + PowerShell only, no orchestrator import |
 | checks | `.github/checks/` | `.github/checks/` | `check-module-map.ps1`, `check-script-paths.ps1`, `check-doc-paths.ps1`, `check-module-api.ps1`, `verify-settings.ps1` — all run by `checks.yml` |
 | skills | `.agents/skills/` | `.agents/skills/` | one directory per skill, each with `SKILL.md` |
 | ADRs (this project) | `docs/adr/` | `docs/adr/` | `ADR_STRUCTURE.md` (master index) |
 | ADRs (the template mechanism) | `template/adr/` | `template/adr/` | `README.md` (master index) |
-| CI | `.github/workflows/` | (cross-cutting) | `checks.yml` (lint/typecheck/test/audit/guards), `afk.yml` (the pipeline, driven by issue events; hourly usage-limit resume; `stage` dispatch for overrides), `build.yml`, `deploy.yml`, `branch-protection.yml` |
+| CI | `.github/workflows/` | (cross-cutting) | `checks.yml` (lint/typecheck/test/audit/guards), `afk.yml` (the pipeline, driven by issue events; hourly usage-limit resume; `stage` dispatch for overrides), `build.yml`, `deploy.yml`, `branch-protection.yml`, `stale-prs.yml` (weekly `agent:reviewing` PR-age sweep) |
 | `<domain>` | `src/<domain>/` | declared on first feature | declared on first feature |
 
 ## Issue-Type → Files Index
