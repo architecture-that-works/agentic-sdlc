@@ -9,7 +9,7 @@ Covers the business rules that must not regress:
 3. $safeStr         — the safe-module list truncates to the first 5 with a count.
 
 The gate, impact and $safeStr tests replicate the logic inline. The analysis tests
-(#222) run the real stage in module scope, per docs/TESTING.md § Testing the
+(#222) run the real stage in module scope, per tests/README.md § Testing the
 orchestrator module — prefer that pattern for new tests.
 """
 
@@ -238,7 +238,7 @@ def test_safe_str_empty_is_none() -> None:
     assert result.stdout.strip() == "none"
 
 
-# ── The real stage, in module scope (docs/TESTING.md) ────────────────────────
+# ── The real stage, in module scope (tests/README.md) ────────────────────────
 # #222: on a cold runner uv prints download progress to stderr; merged into stdout it
 # broke the JSON, and the issue then claimed "At-risk: none". `uv` is faked with a
 # real child process so its stderr is genuine native stderr on every OS.

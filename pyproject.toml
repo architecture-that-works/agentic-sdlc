@@ -30,7 +30,7 @@ dev = [
 
 [tool.pytest.ini_options]
 # Evals call a model: opt in with `uv run pytest -m eval` (a later -m overrides this one).
-# DeepEval's own pytest plugin is off — evals are plain pytest (docs/TESTING.md).
+# DeepEval's own pytest plugin is off — evals are plain pytest (tests/README.md).
 addopts = ["-m", "not eval", "-p", "no:deepeval"]
 markers = [
     "eval: LLM-judged eval of a model-facing component; calls Claude (run with -m eval)",

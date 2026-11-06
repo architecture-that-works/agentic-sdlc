@@ -1,10 +1,11 @@
 # Skills Reference
 
-How to find, read, and invoke skills in this repository.
+How to find, read, and invoke the skills in this folder. Referenced from `AGENTS.md` §
+Conditional Context as "skill invocation protocol and lifecycle."
 
 ## What a Skill Is
 
-A skill is a packaged constraint document that tells an agent *how* to carry out one specific stage of work. Skills live under `.agents/skills/<name>/`. Reading a skill before implementing prevents re-deriving patterns that have already been agreed.
+A skill is a packaged constraint document that tells an agent *how* to carry out one specific stage of work. Each one lives in its own `<name>/` directory here. Reading a skill before implementing prevents re-deriving patterns that have already been agreed.
 
 **Always invoke the relevant skill before implementing manually.** The skills index in `AGENTS.md` lists every skill and its trigger condition.
 

@@ -11,12 +11,15 @@ project_type:
     type: str
     choices: [application, agent, ml]
     default: application
-    help: "Target project type — determines starter directory structure and accepted ADRs"
+    help: "Target project type — determines starter directory structure and which domain skill the implement stage invokes"
 
 _templates_suffix: ".jinja2"
 
 # .gitignore intentionally absent from _exclude — generated projects must inherit it.
 # .agents/skills/ intentionally absent from _exclude — skill files travel with every generated project
+# template/adr/ intentionally absent from _exclude — these ADRs document the orchestrator/
+# pipeline mechanism, which ships too (.github/orchestrator/, .agents/skills/); AGENTS.md's
+# Context Protocol cites them operationally wherever that mechanism runs.
 #
 # Template source layout: the template source is the repository root (no _subdirectory).
 # Functionality is grouped by the standard root folders (.github/, src/, tests/, docs/,
@@ -27,6 +30,10 @@ _templates_suffix: ".jinja2"
 # names). Both files coexist safely — Copier renders the .jinja2 template and the
 # smoke test in tests/test_copier_template.py asserts the generated pyproject.toml
 # carries the correct project_name.
+#
+# adr-staging/ and template/dev-notes/ are excluded: reusable app/domain ADRs staged for
+# a future cross-project store, and artifacts about assessing/developing this specific
+# template repo — neither is relevant to a generated project (#258).
 _exclude:
     - ".git"
     - ".venv"
@@ -35,5 +42,7 @@ _exclude:
     - "copier.yml"
     - "logs"
     - "tests/test_copier_template.py"
+    - "adr-staging"
+    - "template/dev-notes"
 
 # project_name substituted via pyproject.toml.jinja2 — no post-task required

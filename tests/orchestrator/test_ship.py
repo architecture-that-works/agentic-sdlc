@@ -50,13 +50,13 @@ def test_governance_files_are_matched_against_the_diff() -> None:
     out = _run(
         r"""
 function script:gh { $global:LASTEXITCODE = 0
-    'src/utils/m_version.py'; 'tests/utils/test_m_version.py'; '.github/workflows/stale.yml'; 'docs/adr/ADR-003-observability.md'; 'SECURITY.md' }
+    'src/utils/m_version.py'; 'tests/utils/test_m_version.py'; '.github/workflows/stale.yml'; 'docs/adr/ADR_STRUCTURE.md'; 'SECURITY.md' }
 [pscustomobject]@{ files = @(Get-GovernanceFiles -PRNumber 9) } | ConvertTo-Json -Compress
 """
     )
     assert out["files"] == [
         ".github/workflows/stale.yml",
-        "docs/adr/ADR-003-observability.md",
+        "docs/adr/ADR_STRUCTURE.md",
         "SECURITY.md",
     ]
 

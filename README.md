@@ -4,17 +4,14 @@ Copier-based Python 3.13 + UV project scaffold with typed config, structured log
 parity, GitHub Actions CI, and an agentic pipeline that takes a GitHub issue from idea to merged
 PR — refine → architect → plan → implement → review → ship.
 
-**SDLC maturity:** 3.50 / 10 (Junior AI Engineer), assessed 2026-06-27 —
-[`docs/assessment-2026-06-27.md`](docs/assessment-2026-06-27.md). To re-assess, load
-[`ASSESSMENT_PROMPT.md`](ASSESSMENT_PROMPT.md) into a Claude Code session and update this line.
-
 | Document | Holds |
 |---|---|
 | [`CONTEXT.md`](CONTEXT.md) | Glossary, Module Map, architectural constraints — what the project *is* |
 | [`AGENTS.md`](AGENTS.md) | Standing instructions and skill index for AI agents |
 | [`SECURITY.md`](SECURITY.md) | Secrets, accepted risks, and how to halt, override or roll back the agents |
 | [`ISSUES.md`](ISSUES.md) | Issue format, estimate and priority scales, local backlog |
-| [`docs/adr/`](docs/adr/ADR_STRUCTURE.md) | Architecture Decision Records |
+| [`docs/adr/`](docs/adr/ADR_STRUCTURE.md) | This project's own Architecture Decision Records — starts empty |
+| [`template/adr/`](template/adr/README.md) | Decisions about the orchestrator/pipeline mechanism itself |
 
 ---
 
@@ -151,13 +148,14 @@ The full skill index — including cross-cutting and domain skills — is in [`A
 
 ```
 src/                  application code — main.py, config.py, utils/ (generic m_*.py), tools/
-tests/                pytest suite mirroring src/
-.agents/skills/       one directory per skill
+tests/                pytest suite mirroring src/; README.md documents conventions
+.agents/skills/       one directory per skill; README.md documents the lifecycle
 .github/orchestrator/ the pipeline — stages/, engines/, lib/ (PowerShell module)
 .github/tasks/        one runnable per Taskfile target
 .github/checks/       validators run by checks.yml
 .github/workflows/    checks.yml (CI gates), afk.yml (the pipeline), build, deploy
-docs/                 ADRs and conditional agent context (TESTING, SKILLS)
+docs/adr/             this project's own ADRs — starts empty, fill in as you decide things
+template/adr/         decisions about the orchestrator/pipeline mechanism itself
 ```
 
 The Module Map in [`CONTEXT.md`](CONTEXT.md) is the authoritative index.

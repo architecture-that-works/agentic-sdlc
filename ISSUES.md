@@ -44,7 +44,7 @@ Estimates use the Fibonacci series: **1 · 2 · 3 · 5 · 8 · 13 · 21**. Point
 
 A 1-point issue is a single-file additive edit where correctness is verifiable by one command without running the test suite.
 
-- *Update `Status: Proposed → Accepted` in one ADR file. Verified by `grep 'Status: Accepted' docs/adr/ADR-001.md`.*
+- *Update `Status: Proposed → Accepted` in one ADR file. Verified by `grep 'Status: Accepted' docs/adr/ADR-001-your-decision.md`.*
 - *Add a single `.gitignore` pattern as a standalone issue. Verified by `git check-ignore -v <pattern>`.*
 
 A true 1 is rare as a standalone issue — in practice issues bundle and land at 2 minimum because AC always includes `uv run pytest`.

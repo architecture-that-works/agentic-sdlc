@@ -1,7 +1,7 @@
 """Scoring an eval and exporting its results over open specifications.
 
 Every metric score becomes one `gen_ai.evaluation.result` record (OpenTelemetry GenAI
-semantic conventions). This follows the ADR-003 telemetry egress model: records land in
+semantic conventions), local-first and OTLP-opt-in: records land in
 a local JSONL file by default; when OTEL_EXPORTER_OTLP_ENDPOINT is set they are exported
 over OTLP instead — one span per eval case, one event per metric — which MLflow (>= 3.6)
 or any OTel backend ingests. No vendor SDK in the export path.
@@ -110,7 +110,7 @@ def exporter_from_env() -> SpanExporter | None:
 def publish(
     results: Sequence[EvalResult], directory: Path, exporter: SpanExporter | None
 ) -> Path | None:
-    """ADR-003 egress: OTLP *instead of* the file when an exporter is configured.
+    """OTLP *instead of* the file when an exporter is configured.
 
     Returns the JSONL path, or None when the records went to the OTLP endpoint.
     """

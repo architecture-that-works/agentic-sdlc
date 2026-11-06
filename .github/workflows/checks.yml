@@ -80,7 +80,7 @@ jobs:
         shell: pwsh
         run: .github/checks/verify-settings.ps1
 
-  # ── Evals (docs/TESTING.md § Evals) ──────────────────────────────────────────
+  # ── Evals (tests/README.md § Evals) ──────────────────────────────────────────
   # Evals call Claude, so they run only on a PR that changes a model-facing path.
   # The skip is a job-level `if:` rather than a `paths:` filter: a job skipped by
   # `if:` reports success, so `eval` can be a required check without blocking

@@ -337,7 +337,7 @@ For streaming agent text output **to a client** (SSE to browser/CLI) → `applic
 
 ### Agent Observability
 
-Emit OpenTelemetry spans — one span per loop iteration. General OTel setup: `docs/adr/ADR-003-observability.md`. For agent-specific visualisation tooling → `docs/adr/ADR-006-agent-observability.md`.
+Emit OpenTelemetry spans — one span per loop iteration. For general OTel setup or agent-specific visualisation tooling, consult your architecture-decision store, or write one from `docs/adr/ADR-000-template-architecture-decision.md` if none exists yet.
 
 ```python
 from opentelemetry import trace

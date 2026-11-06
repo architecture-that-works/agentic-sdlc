@@ -128,5 +128,5 @@ If `architect` produced a blast-radius report for this PR, it must be referenced
 ## Self-review is not a gate
 
 A review reads the diff; it never executes it. This review approved both #154 and #192,
-which CI then rejected. Run the full local gate (`docs/TESTING.md` § The local gate)
+which CI then rejected. Run the full local gate (`tests/README.md` § The local gate)
 before pushing — do not lean on the reviewer to catch what only running the code can.

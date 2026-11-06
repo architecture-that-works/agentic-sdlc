@@ -1,4 +1,4 @@
-"""Eval harness fixtures — how to write an eval is in docs/TESTING.md § Evals.
+"""Eval harness fixtures — how to write an eval is in tests/README.md § Evals.
 
 An eval is a pytest test marked `eval` that scores one model-facing component against
 a golden dataset with DeepEval metrics, judged by Claude. Evals are deselected by
@@ -36,7 +36,7 @@ from eval_results import (
 
 from src.config import settings
 
-# ADR-003 egress: JSONL under Settings.log_dir, or OTLP instead when an endpoint is set.
+# Local-first egress: JSONL under Settings.log_dir, or OTLP instead when an endpoint is set.
 RESULTS_DIR = settings.log_dir / "evals"
 RESULTS = pytest.StashKey[list[EvalResult]]()
 
