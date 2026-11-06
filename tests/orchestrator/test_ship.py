@@ -228,9 +228,9 @@ def test_pr_merged_directly_without_going_through_ship_still_ships_the_issue(
     ]
 
 
-def test_already_terminal_issue_is_left_alone(tmp_path: Path) -> None:
+def test_already_shipped_issue_is_left_alone(tmp_path: Path) -> None:
     """Idempotency guard: Invoke-Ship's own in-process Complete-Ship almost always
-    wins the race against this webhook handler — once the issue is terminal, the
+    wins the race against this webhook handler — once the issue is shipped, the
     webhook handler is a no-op rather than double-shipping it."""
     shipped = _held(
         "$script:Labels = @('agent:shipped')\n"
@@ -238,13 +238,25 @@ def test_already_terminal_issue_is_left_alone(tmp_path: Path) -> None:
         tmp_path,
     )
     assert shipped == ["read:212"]
-    failed = _held(
-        "$script:Labels = @('agent:failed')\n"
-        "Complete-HeldPR -PRNumber 9 -Branch 'feature/212-x' -Merged $false",
-        tmp_path,
-    )
-    assert failed == ["read:212"]
     foreign = _held(
         "Complete-HeldPR -PRNumber 9 -Branch 'dependabot/x' -Merged $true", tmp_path
     )
     assert foreign == []
+
+
+def test_a_failed_issue_still_ships_when_its_pr_merges(tmp_path: Path) -> None:
+    """Regression (#266): #223/#251/#256 all reached agent:failed from the
+    pipeline's own blocked attempts, were fixed hands-on, and merged on the
+    matching branch — agent:failed must NOT skip reconciliation, or the merge
+    that should ship the issue leaves it stuck at agent:failed forever."""
+    log = _held(
+        "$script:Labels = @('agent:failed')\n"
+        "Complete-HeldPR -PRNumber 9 -Branch 'feature/212-x' -Merged $true",
+        tmp_path,
+    )
+    assert log == [
+        "read:212",
+        "state:agent:shipped",
+        "comment:🤖✅ Merged",
+        "context:212",
+    ]

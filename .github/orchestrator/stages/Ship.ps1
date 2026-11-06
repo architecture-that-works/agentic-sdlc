@@ -11,8 +11,9 @@
     (human:approval) or squash-merges it, deletes the branch and updates CONTEXT.md
     (Complete-Ship). Complete-HeldPR reconciles the issue on every feature-branch PR
     close (afk.yml, pull_request closed) — merged ships it, closed-unmerged fails it —
-    skipping only an issue already in a terminal state, so a direct `gh pr merge` that
-    bypasses Invoke-Ship still lands the issue on agent:shipped / Shipped.
+    skipping only an issue already agent:shipped, so a direct `gh pr merge` that
+    bypasses Invoke-Ship still lands the issue on agent:shipped / Shipped, even one
+    the pipeline had already marked agent:failed before the owner fixed it by hand.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -428,20 +429,25 @@ function Complete-Ship {
 # agent:shipped / Shipped. Merged: ships it. Closed unmerged: agent:failed at review,
 # so the owner's comment saying what should change starts the next attempt (retry.ps1).
 #
-# The only skip is an issue already in a terminal state (agent:shipped / agent:failed).
-# That is not a "was this held" check — it is an idempotency guard against the race
-# with Invoke-Ship's own in-process Complete-Ship call, which runs synchronously right
-# after its own `gh pr merge` and in practice always wins: this handler's job has to
-# cold-start (checkout, install uv, install the Claude CLI) before it ever reads a
-# label. Whichever path gets there first wins; the other is a no-op.
+# The only skip is an issue already agent:shipped. That is not a "was this held" check
+# — it is an idempotency guard against the race with Invoke-Ship's own in-process
+# Complete-Ship call, which runs synchronously right after its own `gh pr merge` and in
+# practice always wins: this handler's job has to cold-start (checkout, install uv,
+# install the Claude CLI) before it ever reads a label. Whichever path gets there first
+# wins; the other is a no-op. agent:failed is deliberately NOT a skip condition (#266):
+# issues #223/#251/#256 all reached agent:failed from the pipeline's own blocked
+# attempts, were then fixed hands-on and merged on the matching branch — exactly the
+# case this handler exists to catch. Treating agent:failed as terminal left all three
+# stuck, because the merge that should have shipped them saw the stale failed label and
+# skipped.
 function Complete-HeldPR {
     param([int]$PRNumber, [string]$Branch, [bool]$Merged)
 
     if ($Branch -notmatch '^feature/(\d+)-') { return }
     $issue = [int]$Matches[1]
     $labels = @(Get-IssueLabel -IssueNumber $issue)
-    if ($labels -contains 'agent:shipped' -or $labels -contains 'agent:failed') {
-        Write-Log "PR #$PRNumber closed; issue #$issue already in a terminal state — nothing to do." -Color DarkGray
+    if ($labels -contains 'agent:shipped') {
+        Write-Log "PR #$PRNumber closed; issue #$issue already shipped — nothing to do." -Color DarkGray
         return
     }
 
