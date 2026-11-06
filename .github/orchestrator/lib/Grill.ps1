@@ -207,11 +207,26 @@ function Invoke-Grill {
     )
 
     if ($Issue -gt 0) {
-        $issueJson = gh issue view $Issue --json title,body 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) {
-            throw "Could not fetch issue #${Issue} via gh: $($issueJson.Trim())"
+        # Keep stderr out of the parsed string (#270) — merging it via 2>&1 let any
+        # incidental gh notice/warning break the strict ConvertFrom-Json below with a
+        # cryptic "unexpected character" error instead of a clear one. Same anti-pattern
+        # already fixed once for `uv` in Architect.ps1 (#232).
+        $errTmp = New-TemporaryFile
+        try {
+            $issueJson = gh issue view $Issue --json title,body 2> $errTmp.FullName | Out-String
+            $exit      = $LASTEXITCODE
+            $stderr    = "$(Get-Content $errTmp.FullName -Raw -ErrorAction SilentlyContinue)".Trim()
+        } finally {
+            Remove-Item $errTmp.FullName -ErrorAction SilentlyContinue
         }
-        $parsed = $issueJson | ConvertFrom-Json
+        if ($exit -ne 0 -or -not $issueJson.Trim()) {
+            throw "Could not fetch issue #${Issue} via gh (exit $exit): $stderr"
+        }
+        try {
+            $parsed = $issueJson.Trim() | ConvertFrom-Json -ErrorAction Stop
+        } catch {
+            throw "Issue #${Issue} fetch was not valid JSON: $($issueJson.Trim())$(if ($stderr) { "`nstderr: $stderr" })"
+        }
         $Title  = $parsed.title
         $Body   = $parsed.body
     }
@@ -250,10 +265,10 @@ function Invoke-Grill {
     $tools    = [System.Collections.Generic.List[string]]::new()
     foreach ($line in ($raw -split '\r?\n')) {
         if ($line -notmatch '^\s*\{') { continue }
-        try { $event = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
-        if ($event.type -eq 'result') { $envelope = $event }
-        elseif ($event.type -eq 'assistant') {
-            foreach ($block in @($event.message.content)) {
+        try { $streamEvent = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+        if ($streamEvent.type -eq 'result') { $envelope = $streamEvent }
+        elseif ($streamEvent.type -eq 'assistant') {
+            foreach ($block in @($streamEvent.message.content)) {
                 if ($block.type -eq 'tool_use') { $tools.Add([string]$block.name) }
             }
         }
