@@ -5,8 +5,12 @@
 
 .DESCRIPTION
     Checks two things:
-    1. The current branch name matches: ^(feature|fix|docs|refactor)/\d+-[a-z0-9-]{1,40}$
-    2. The last commit subject matches:  ^(feat|fix|refactor|test|docs|chore)(\(.+\))?: .+$
+    1. The current branch name matches: ^feature/\d+-[a-z0-9-]{1,40}$
+    2. The last commit subject matches: ^(feat|fix|refactor|test|docs|chore)(\(.+\))?: .+$
+
+    Every issue-linked branch uses the feature/ prefix regardless of change type — the
+    commit type already signals fix/docs/refactor/etc. A second branch prefix is invisible
+    to the orchestrator's own branch matchers, which look for feature/ alone (#252).
 
     Exits 0 if both pass. Exits 1 with an actionable message (showing the failing string,
     the expected pattern, and a corrective example) if either fails.
@@ -37,7 +41,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 
 # ── Patterns ─────────────────────────────────────────────────────────────────
 
-$branchPattern = '^(feature|fix|docs|refactor)/\d+-[a-z0-9-]{1,40}$'
+$branchPattern = '^feature/\d+-[a-z0-9-]{1,40}$'
 $commitPattern = '^(feat|fix|refactor|test|docs|chore)(\(.+\))?: .+'
 
 # ── Read current state ────────────────────────────────────────────────────────
@@ -67,9 +71,9 @@ if (-not $branchOk) {
     Write-Host ""
     Write-Host "  Valid examples:"
     Write-Host "    feature/42-user-auth-endpoint"
-    Write-Host "    fix/17-order-rounding"
-    Write-Host "    docs/16-sdlc-prd"
-    Write-Host "    refactor/55-extract-config-loader"
+    Write-Host "    feature/17-order-rounding      (a fix — the branch prefix doesn't change)"
+    Write-Host "    feature/16-sdlc-prd            (docs-only — same)"
+    Write-Host "    feature/55-extract-config-loader (a refactor — same)"
     Write-Host ""
     Write-Host "  To fix: git checkout -b feature/<issue-number>-<2-4-word-slug>"
     Write-Host ""
