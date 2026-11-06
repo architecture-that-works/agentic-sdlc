@@ -336,6 +336,19 @@ Return ONLY JSON, no fences:
 #     Plan.ps1). That path owns its own readiness/abort semantics.
 #   * ordinary issue — write an ordered implementation plan into the body and mark
 #     readiness.planned. A failure throws: the conductor's attempt loop retries it.
+# The planned paths that $OrchestratorConfig.WritablePaths does not cover — same
+# -like glob matching Invoke-CommitAndPR applies at commit time (#223). Moved here,
+# earlier: an issue whose plan only touches e.g. .github/ used to be granted
+# agent:backlog, implemented, and aborted at staging three times before landing on
+# agent:failed, burning the whole retry budget on a predictable outcome.
+function Get-UnwritablePaths {
+    param([string[]]$Paths)
+    return @($Paths | Where-Object {
+        $p = "$_".Trim()
+        $p -and @($OrchestratorConfig.WritablePaths | Where-Object { $p -like $_ }).Count -eq 0
+    })
+}
+
 function Invoke-Plan {
     param([int]$Number)
     Write-Log "  Plan — issue #$Number" -Color Yellow
@@ -363,25 +376,61 @@ $(Format-OwnerComments -IssueNumber $Number)
 Write an ordered implementation plan: the concrete steps an engineer (or coding
 agent) will take to satisfy every requirement and acceptance criterion, in order.
 Reference the files/modules likely to change (use the Architecture Impact section
-above if present). Keep it tight — 3 to 8 numbered steps, no preamble, Markdown only.
+above if present). Keep it tight — 3 to 8 numbered steps, no preamble.
+
+Return ONLY valid JSON — no fences, no prose — matching this shape:
+{
+  "plan_markdown": "<the ordered implementation plan, Markdown, no preamble>",
+  "paths_to_modify": ["<every relative repo path the plan will create or change>"]
+}
 "@
 
     # No plan, no readiness: a failure fails this attempt and the conductor retries.
-    $planMd = if ($KanbanEngine -eq 'gemini') {
+    $raw = if ($KanbanEngine -eq 'gemini') {
         Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String)
     } else {
         Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
     }
-    if ($LASTEXITCODE -ne 0 -or -not "$planMd".Trim()) {
-        throw "Plan: the engine returned no implementation plan (exit code $LASTEXITCODE):`n$("$planMd".Trim())"
+    if ($LASTEXITCODE -ne 0 -or -not "$raw".Trim()) {
+        throw "Plan: the engine returned no implementation plan (exit code $LASTEXITCODE):`n$("$raw".Trim())"
+    }
+    $json = $raw.Trim()
+    if ($json -match '(?s)```(?:json)?\s*(\{.+\})\s*```') { $json = $Matches[1] }
+    try {
+        $result = $json | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        throw "Plan: the engine's response was not valid JSON:`n$json"
+    }
+    $planMd = "$($result.plan_markdown)".Trim()
+    if (-not $planMd) {
+        throw "Plan: the engine returned no plan_markdown."
     }
 
-    $section = "## Implementation Plan`n`n$($planMd.Trim())"
+    $section = "## Implementation Plan`n`n$planMd"
     $ok = Set-IssueBodySection -IssueNumber $Number `
         -BeginMarker $KanbanPlanBeginMarker -EndMarker $KanbanPlanEndMarker -Markdown $section
     if ($ok) { Write-Log "  Implementation Plan written to issue #$Number body." -Color DarkGray }
 
     Set-PlanningReadiness -IssueNumber $Number -Stage 'planned' -StageLabel 'plan' -PopulatedBy "plan ($KanbanEngine)"
+
+    # Writable-path gate: a plan that touches a path outside WritablePaths cannot be
+    # auto-implemented. readiness.planned still goes true (the plan was written) —
+    # the injected open question is what blocks Test-Readiness and routes to
+    # Request-Decisions, the same human:decision flow an unresolved question uses.
+    $plannedPaths = @($result.paths_to_modify | Where-Object { $_ })
+    $unwritable   = Get-UnwritablePaths -Paths $plannedPaths
+    if ($unwritable.Count -gt 0) {
+        $state = Get-IssueState -IssueNumber $Number
+        $question = [pscustomobject]@{
+            text         = "This plan touches paths outside the agent-writable allowlist and cannot be auto-implemented: $($unwritable -join ', ')."
+            decision     = 'Implement it hands-on (HITL) and merge — the issue closes on its own once the PR references it; no need to reply here first.'
+            alternatives = @('Narrow the plan so every path stays inside WritablePaths, then comment to retry.')
+        }
+        $state.open_questions = @(@($state.open_questions | Where-Object { $_ }) + $question)
+        Set-PlanningState -IssueNumber $Number -State $state
+        Write-Log "  ⚠️ Plan touches non-writable paths: $($unwritable -join ', ') — held for human:decision." -Color Yellow
+    }
+
     Add-Comment -Number $Number -Body '· planned — implementation plan written to issue body'
     Write-Log "  Issue #$Number — readiness.planned ✓" -Color Green
 }
