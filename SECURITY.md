@@ -35,7 +35,7 @@ call) succeeds before revoking the old value.
   `admin:*`, `delete_repo` or `write:packages`.
 - **Why classic:** fine-grained PATs cannot mutate Projects v2 boards. **Why a PAT at all:**
   label changes made with the workflow's built-in `GITHUB_TOKEN` do not trigger workflows, and
-  the `ship` job is triggered by the `agent:reviewing` label.
+  the `implement` job is triggered by the `agent:backlog` label.
 - **Accepted risk:** a classic PAT is broader than a fine-grained one. Generate one per
   repository and never share it across projects.
 - **Accepted risk (ADR-012):** the cloud pipeline and your local `gh` authenticate as the same
@@ -92,7 +92,7 @@ it stops work on `agent:paused` and an hourly job resumes it once the allowance 
 | Everything, immediately | Actions → AFK → **⋯ → Disable workflow** (`gh workflow disable afk.yml`). Nothing runs — not refine, not implement, not comment handling — until re-enabled. |
 | The current run | Actions → the running AFK run → **Cancel workflow** (`gh run cancel <run-id>`). The feature branch and any open PR are kept. |
 | An issue from being processed | Close it; reopen it to release it. The pipeline only processes open issues. |
-| An issue from auto-merging | Nothing, for governance changes: a PR touching agent instructions, CI, the orchestrator, ADRs, security docs or skills (`GovernancePaths` in `lib/Config.ps1`) is always held, green, for a human to merge, and the issue is labelled `human:approval`. To hold any other issue, add `human:approval` yourself before ship. |
+| An issue from auto-merging | Nothing, for governance changes: a PR touching agent instructions, CI, the orchestrator, ADRs, security docs or skills (`GovernancePaths` in `lib/Config.ps1`) is always held, green, for a human to merge, and the issue is labelled `human:approval`. To hold any other issue, add `human:approval` yourself before ship — it is kept even when a later state replaces the label (`approval_required` in the issue). |
 
 A cancelled run can leave the issue on `agent:implementing` or `agent:reviewing`; run
 `task retry ISSUE=<n>` to resume it from the stage it was in.

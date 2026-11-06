@@ -200,7 +200,7 @@ function Request-Decisions {
         -NotePropertyValue (Get-Date).ToUniversalTime().ToString('o') -Force
     Set-PlanningState   -IssueNumber $IssueNumber -State $state
     Set-DecisionSection -IssueNumber $IssueNumber -State $state
-    Set-IssueLabel -Number $IssueNumber -Add 'human:decision'
+    Set-AgentState -IssueNumber $IssueNumber -Label 'human:decision'
 
     $head = if ($Answered -gt 0) { "🤖⏸ Thanks — $Answered answer(s) recorded. Still needed:" }
             else { "🤖⏸ Needs your decision — $($open.Count) question(s) before this can be built:" }

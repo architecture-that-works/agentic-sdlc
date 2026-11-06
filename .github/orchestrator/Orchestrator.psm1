@@ -104,6 +104,18 @@ function Invoke-Orchestration {
                 return $false
             }
 
+            # A planned issue on human:approval is a PR held for the owner's merge: it
+            # carries no agent:* label (#225), and a comment on it must not re-plan it.
+            # An owner's human:approval on a new, unplanned issue is a hold request and
+            # is refined as usual (Set-AgentState keeps the request in the carrier).
+            if ($labels -contains 'human:approval') {
+                $held = Get-IssueState -IssueNumber $IssueNumber
+                if ($held -and $held.readiness.planned.done) {
+                    Write-Log "  Issue #$IssueNumber is held for the owner's merge — skipping alignment." -Color DarkGray
+                    return $false
+                }
+            }
+
             $null = Add-IssueToBoard -IssueNumber $IssueNumber
 
             # The owner's reply first. An issue that is refined and waiting on decisions
@@ -164,8 +176,7 @@ function Invoke-Orchestration {
             $state = Get-IssueState -IssueNumber $IssueNumber
             if (Test-Readiness -State $state) {
                 Set-DecisionSection -IssueNumber $IssueNumber -State $state
-                Set-IssueLabel -Number $IssueNumber -Remove 'human:decision'
-                Set-AgentState -IssueNumber $IssueNumber -Label 'agent:backlog'
+                Set-AgentState -IssueNumber $IssueNumber -Label 'agent:backlog'   # replaces human:decision
                 Add-Comment -Number $IssueNumber -Body "🤖✅ Ready — refined, architected and planned, with nothing waiting on you. Implementation starts automatically (agent:backlog)."
                 Write-Log "✅ Issue #$IssueNumber aligned — agent:backlog granted." -Color Green
                 return $true
@@ -224,8 +235,8 @@ function Invoke-Orchestration {
                 $merged = Invoke-Ship -IssueNumber $IssueNumber -PRNumber $prNum
                 Reset-AttemptCount -IssueNumber $IssueNumber
 
-                # Invoke-Ship returns $false when it holds a human:approval issue at
-                # agent:reviewing rather than merging — report that honestly.
+                # Invoke-Ship returns $false when it holds the issue at human:approval
+                # rather than merging — report that honestly.
                 if ($false -eq $merged) {
                     Write-Log "⏸ Issue #$IssueNumber implemented and held at review — merge PR #$prNum to complete." -Color Yellow
                 } else {

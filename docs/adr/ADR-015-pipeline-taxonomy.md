@@ -444,6 +444,15 @@ was never updated. The PR's closed event now finishes a held issue (`Complete-He
 `agent:shipped` and the CONTEXT.md update, the same path as the pipeline's own merge; closed
 unmerged → `agent:failed` at review, so the owner's comment starts the next attempt.
 
+**2026-10-02** — one pipeline label per issue (#225). The pipeline labels are the `agent:*`
+states plus the two `human:*` holds, and an issue carries exactly one: `Set-AgentState` is the
+single setter and replaces whichever the issue has, so a held PR shows only `human:approval`
+(Review lane) instead of `agent:reviewing` + `human:approval`, and `agent:backlog` replaces
+`human:decision`. An owner's `human:approval` stays a merge-hold request: when a later state
+replaces the label, `approval_required` in the carrier keeps it, and ship honours the flag. A
+planned issue on `human:approval` never re-enters refine — neither the `afk.yml` comment
+trigger nor the refine entry point picks it up.
+
 Amendment rather than supersession: this ADR carries a living Implementation section by its
 own design, and the refactor it describes had not finished landing when these surfaced.
 
