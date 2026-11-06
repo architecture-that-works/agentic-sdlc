@@ -194,12 +194,12 @@ working on `feature/99-admin-endpoint` in the main worktree.
 
 ```bash
 # From the project root (main worktree on feature/99-admin-endpoint)
-git worktree add ../fix-branch-99-auth-guard -b fix/99-auth-guard
+git worktree add ../fix-branch-99-auth-guard -b feature/99-auth-guard
 
 # Verify both worktrees are registered
 git worktree list
 # /home/user/my-project                   abc1234 [feature/99-admin-endpoint]
-# /home/user/fix-branch-99-auth-guard     abc1234 [fix/99-auth-guard]
+# /home/user/fix-branch-99-auth-guard     abc1234 [feature/99-auth-guard]
 ```
 
 The fix worktree starts at the same HEAD as the main worktree. Both branches are now
@@ -224,7 +224,7 @@ Closes #99"
 ### Step 3 — Push the fix branch
 
 ```bash
-git push -u origin fix/99-auth-guard
+git push -u origin feature/99-auth-guard
 
 gh pr create \
   --title "fix(admin): add authentication guard to admin endpoint" \
@@ -258,7 +258,7 @@ git worktree list
 # /home/user/my-project  def5678 [feature/99-admin-endpoint]
 
 # Optionally delete the remote tracking branch
-git push origin --delete fix/99-auth-guard
+git push origin --delete feature/99-auth-guard
 ```
 
 ### Stale worktree cleanup

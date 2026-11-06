@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     Checks two things:
-    1. The current branch name matches: ^(feature|fix|docs|refactor)/\d+-[a-z0-9-]{1,40}$
+    1. The current branch name matches: ^feature/\d+-[a-z0-9-]{1,40}$
     2. The last commit subject matches:  ^(feat|fix|refactor|test|docs|chore)(\(.+\))?: .+$
 
     Exits 0 if both pass. Exits 1 with an actionable message (showing the failing string,
@@ -37,7 +37,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 
 # ── Patterns ─────────────────────────────────────────────────────────────────
 
-$branchPattern = '^(feature|fix|docs|refactor)/\d+-[a-z0-9-]{1,40}$'
+$branchPattern = '^feature/\d+-[a-z0-9-]{1,40}$'
 $commitPattern = '^(feat|fix|refactor|test|docs|chore)(\(.+\))?: .+'
 
 # ── Read current state ────────────────────────────────────────────────────────
@@ -65,11 +65,8 @@ if (-not $branchOk) {
     Write-Host "  Current branch : $branch"
     Write-Host "  Required pattern: $branchPattern"
     Write-Host ""
-    Write-Host "  Valid examples:"
+    Write-Host "  Valid example:"
     Write-Host "    feature/42-user-auth-endpoint"
-    Write-Host "    fix/17-order-rounding"
-    Write-Host "    docs/16-sdlc-prd"
-    Write-Host "    refactor/55-extract-config-loader"
     Write-Host ""
     Write-Host "  To fix: git checkout -b feature/<issue-number>-<2-4-word-slug>"
     Write-Host ""

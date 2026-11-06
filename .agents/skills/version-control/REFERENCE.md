@@ -11,25 +11,18 @@ patterns (feature branch, commit series, worktree-isolated fix).
 ### Canonical pattern
 
 ```
-^(feature|fix|docs|refactor)/\d+-[a-z0-9-]{1,40}$
+^feature/\d+-[a-z0-9-]{1,40}$
 ```
 
 | Segment | Rule | Example |
 |---------|------|---------|
-| Prefix | One of `feature`, `fix`, `docs`, `refactor` — matches the conventional-commit type | `feature` |
+| Prefix | Always `feature` — every issue-linked branch uses this prefix | `feature` |
 | `/` | Literal separator | `/` |
 | Issue number | One or more decimal digits — the GitHub Issue number, no leading zeros | `42` |
 | `-` | Literal separator after the issue number | `-` |
 | Slug | 1–40 lowercase alphanumeric characters and hyphens; 2–4 words; no trailing hyphen | `user-auth-endpoint` |
 
-**Prefix selection rules:**
-
-| Prefix | Use when | Maps to commit type |
-|--------|----------|---------------------|
-| `feature` | New behaviour is being added | `feat` |
-| `fix` | Existing behaviour is being corrected | `fix` |
-| `docs` | Only documentation or comments change | `docs` |
-| `refactor` | Internal restructuring, no behaviour change | `refactor` |
+The commit type (`feat`/`fix`/`docs`/`refactor`) is the sole carrier of change-kind signal — all issue-linked branches use the `feature/` prefix regardless of whether the change is a new feature, a bug fix, documentation, or a refactor.
 
 **Slug rules:**
 - Lowercase only — no uppercase, no underscores.
@@ -161,14 +154,14 @@ Do NOT use `git worktree` for routine feature work — one branch, one checkout 
 
 ```bash
 # 1. Add — creates the worktree at a sibling path
-git worktree add ../fix-<description> -b fix/<issue-number>-<slug>
+git worktree add ../fix-<description> -b feature/<issue-number>-<slug>
 
 # 2. Work — navigate to the worktree and make changes
 cd ../fix-<description>
 # ... implement, test, commit ...
 
 # 3. Push — push the worktree branch like any branch
-git push -u origin fix/<issue-number>-<slug>
+git push -u origin feature/<issue-number>-<slug>
 
 # 4. Remove — clean up after merge or abandonment
 cd <project-root>

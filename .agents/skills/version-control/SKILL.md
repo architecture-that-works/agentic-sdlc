@@ -50,21 +50,16 @@ squash-merge, a conventional-commit series, and a worktree-isolated fix branch).
 ### Branch Naming
 
 ```
-feature/{issue-number}-{dense-slug}     # New feature linked to a GitHub Issue
-fix/{issue-number}-{dense-slug}         # Bug fix linked to a GitHub Issue
-docs/{issue-number}-{dense-slug}        # Documentation only
-refactor/{issue-number}-{dense-slug}    # Refactoring with no behaviour change
+feature/{issue-number}-{dense-slug}     # Every issue-linked branch — feature, fix, docs, refactor alike
 ```
 
 Use kebab-case. Slug: 2–4 words maximum, describing the change densely. Issue number is required — it is the traceability anchor that links the branch to the kanban pipeline and enables auto-branch detection in `implement.ps1`.
 
 ```bash
 git checkout -b feature/42-user-auth-endpoint
-git checkout -b fix/17-gitignore-secret-patterns
-git checkout -b docs/16-sdlc-prd
 ```
 
-The Director Workflow (`implement.ps1`) auto-generates branch names as `feature/{number}-{word1}-{word2}-{word3}` from the issue title. Manual branches must follow the same pattern so `Get-CurrentIssueNumber` can parse the issue number from the branch name.
+The commit type (`feat`/`fix`/`docs`/`refactor`) is the sole carrier of change-kind signal — the branch prefix no longer duplicates it. The Director Workflow (`implement.ps1`) auto-generates branch names as `feature/{number}-{word1}-{word2}-{word3}` from the issue title. Manual branches must follow the same pattern so `Get-CurrentIssueNumber` can parse the issue number from the branch name.
 
 ### Commit Message Format
 
@@ -109,7 +104,7 @@ Closes #42" \
 When the review auto-fix loop needs an isolated environment:
 
 ```bash
-git worktree add ../fix-branch-<description> -b fix/<description>
+git worktree add ../fix-branch-<description> -b feature/<issue-number>-<description>
 # Work in ../fix-branch-<description>
 # On completion:
 git worktree remove ../fix-branch-<description>
@@ -119,8 +114,7 @@ git worktree remove ../fix-branch-<description>
 
 | Convention | Pattern | Example |
 |---|---|---|
-| Feature branch | `feature/<desc>` | `feature/user-auth` |
-| Fix branch | `fix/<desc>` | `fix/order-rounding` |
+| Issue branch | `feature/<issue-number>-<desc>` | `feature/42-user-auth` |
 | Commit type | `feat\|fix\|refactor\|test\|docs\|chore` | `feat(orders): ...` |
 | Auto-close | `Closes #N` in commit or PR body | `Closes #42` |
 | Merge strategy | Squash only (owned by `ship`) | `gh pr merge --squash` |
