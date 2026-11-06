@@ -5,9 +5,8 @@ from the PR's actual diff once CI is green. A PR touching a governance file is h
 for the owner to merge; any other PR merges. The owner can still force a hold by
 adding the label. Complete-HeldPR reconciles the issue on every feature-branch PR
 close — a held PR the owner merged, or any other PR merged/closed outside the
-pipeline entirely (e.g. a direct `gh pr merge`) — skipping only an issue already in
-a terminal state (agent:shipped / agent:failed). gh and git are in-memory fakes at
-module script scope.
+pipeline entirely (e.g. a direct `gh pr merge`) — skipping only an issue already
+agent:shipped. gh and git are in-memory fakes at module script scope.
 """
 
 import json
@@ -260,3 +259,74 @@ def test_a_failed_issue_still_ships_when_its_pr_merges(tmp_path: Path) -> None:
         "comment:🤖✅ Merged",
         "context:212",
     ]
+
+
+# ── Invoke-ContextUpdate: best-effort, never leaks a stale exit code (#268) ─────
+# The real function (not the script:Invoke-ContextUpdate stub _HELD uses) ran on a
+# live merge of #267 and reported the whole workflow step as failed even though the
+# issue shipped correctly: claude's "workspace not trusted" warning wasn't stripped
+# from the response, so a harmless, already-logged git-apply failure left
+# $LASTEXITCODE non-zero after the function returned — and nothing after it in the
+# script ever reset it, so the GitHub Actions step inherited that stale code.
+
+_CONTEXT_UPDATE_PRELUDE = """\
+function script:Test-Path { param($Path) $true }
+function script:Get-Content { param($Path, [switch]$Raw) '# CONTEXT.md' }
+function script:Add-Comment { param($Number, $Body) }
+function script:gh {
+    $global:LASTEXITCODE = 0
+    '{"title":"t","body":"b"}'
+}
+"""
+
+
+def _context_update(git_body: str, claude_output: str) -> int:
+    script = (
+        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        "& (Get-Module Orchestrator) {\n"
+        "function script:Write-Log { param($Message, $Color) }\n"
+        f"{_CONTEXT_UPDATE_PRELUDE}\n"
+        f"function script:git {{ {git_body} }}\n"
+        f'function script:claude {{ $global:LASTEXITCODE = 0; "{claude_output}" }}\n'
+        "Invoke-ContextUpdate -IssueNumber 212\n"
+        '"__EXIT__$LASTEXITCODE"\n'
+        "}\n"
+    )
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    marker = next(
+        line for line in result.stdout.splitlines() if line.startswith("__EXIT__")
+    )
+    return int(marker.removeprefix("__EXIT__"))
+
+
+def test_context_update_strips_the_claude_trust_dialog_warning() -> None:
+    """The exact text from the live #267 run: a trust-dialog warning line ahead of
+    the real answer. Stripped, the response is exactly NO_CHANGES — no git apply is
+    even attempted, and the process exit code stays clean."""
+    exit_code = _context_update(
+        git_body="$global:LASTEXITCODE = 0",
+        claude_output=(
+            "Ignoring 12 permissions.allow entries from .claude/settings.json: "
+            "this workspace has not been trusted.\nNO_CHANGES"
+        ),
+    )
+    assert exit_code == 0
+
+
+def test_context_update_resets_lastexitcode_after_a_handled_git_apply_failure() -> None:
+    """A genuinely malformed patch still fails git apply — handled (logged, and the
+    function returns normally) rather than thrown — but must not leave a stale
+    non-zero $LASTEXITCODE for the calling workflow step to inherit."""
+    exit_code = _context_update(
+        git_body="$global:LASTEXITCODE = if ($args[0] -eq 'apply') { 1 } else { 0 }",
+        claude_output="not a real diff, not NO_CHANGES either",
+    )
+    assert exit_code == 0
