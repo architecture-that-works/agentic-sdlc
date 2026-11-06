@@ -77,6 +77,38 @@ function f($t) { $r = Get-UsageLimitResume -Text $t -Now $now; if ($r) { $r.ToSt
     }
 
 
+def test_spend_and_session_limit_wording_is_a_limit() -> None:
+    """#229: Claude's spend/session-limit wording failed #225 three times instead of
+    pausing it. The exact message must pause, with the reset time it names."""
+    out = _run(
+        r"""
+$now = [datetime]::SpecifyKind([datetime]'2026-09-25T13:50:00', 'Utc')
+function f($t) { $r = Get-UsageLimitResume -Text $t -Now $now; if ($r) { $r.ToString('yyyy-MM-ddTHH:mm') } else { $null } }
+[pscustomobject]@{
+    issue225 = f "Plan: the engine returned no implementation plan (exit code 1): You've hit your org's monthly spend limit · ask your admin to raise it at claude.ai/admin-settings/usage · your session limit resets 5:20pm (UTC)"
+    session  = f "Your session limit resets 5:20pm"
+    spend    = f "You've hit your monthly spend limit"
+    daily    = f "You've hit your daily limit"
+    team     = f "You've hit your team's limit · resets 6pm"
+    auth     = f "Error: Invalid API key · Please run /login"
+    engine   = f "Plan: the engine returned no implementation plan (exit code 1): timeout"
+    apart    = f "Could not hit your endpoint. Retrying later. Note: the request size limit is 10MB"
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert out == {
+        "issue225": "2026-09-25T17:20",
+        "session": "2026-09-25T17:20",
+        "spend": "2026-09-25T14:50",  # no reset time named: one hour
+        "daily": "2026-09-25T14:50",
+        "team": "2026-09-25T18:00",
+        "auth": None,
+        "engine": None,
+        # "hit your" and "limit" in different sentences are not one phrase.
+        "apart": None,
+    }
+
+
 def test_probe_without_a_runnable_cli_is_not_a_limit() -> None:
     """A missing or crashing engine CLI is not a usage limit — and must not throw."""
     out = _run(
