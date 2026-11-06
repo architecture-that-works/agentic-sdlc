@@ -39,9 +39,9 @@ if ($LASTEXITCODE -ne 0) { throw "Could not list agent:reviewing issues: $issues
 $reviewingIssues = @(($issuesJson | ConvertFrom-Json) | ForEach-Object { [int]$_.number })
 
 # ── 2. The matching open PR for each, by branch naming convention ────────────
-# Get-BranchName (lib/GitHub.ps1) embeds the issue number as the branch's first
-# path segment for every agent PR — feature/{n}-{slug} — so a head-branch search
-# finds it without GraphQL or the Projects v2 board (ADR-012).
+# The orchestrator's own branch-name generator embeds the issue number as the
+# branch's first path segment for every agent PR — feature/{n}-{slug} — so a
+# head-branch search finds it without GraphQL or the Projects v2 board (ADR-012).
 $rows = [System.Collections.Generic.List[pscustomobject]]::new()
 foreach ($issueNumber in $reviewingIssues) {
     $prJson = gh pr list --repo $Repo --search "head:feature/$issueNumber-" --state open `
