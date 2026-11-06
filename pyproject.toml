@@ -3,10 +3,10 @@ name = "my-template-repo"
 version = "0.1.1"
 requires-python = "==3.13.*"
 dependencies = [
-    "anthropic>=0.121.0",
-    "msgpack>=1.2.2",
-    "pip>=26.2.1",
-    "pydantic-settings>=2.15.0",
+    "anthropic>=2.6.0",
+    "msgpack>=1.2.4",
+    "pip>=26.3",
+    "pydantic-settings>=2.16.2",
 ]
 
 [project.scripts]
@@ -15,17 +15,17 @@ codebase-map = "src.tools.codebase_map:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=9.1.1",
+    "pytest>=9.2.0",
     "pyright>=1.1.414",
-    "ruff>=0.16.8",
+    "ruff>=0.17.4",
     "pytest-cov>=7.1.0",
     "pip-audit>=2.10.1",
-    "copier>=9.18.2",
-    "pre-commit>=4.6.2",
-    "hypothesis>=6.163.0",
-    "deepeval>=4.2.6",
-    "opentelemetry-exporter-otlp-proto-http>=1.45.0",
-    "opentelemetry-sdk>=1.45.0",
+    "copier>=9.19.1",
+    "pre-commit>=4.7.0",
+    "hypothesis>=6.170.15",
+    "deepeval>=4.3.3",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.2",
+    "opentelemetry-sdk>=1.45.2",
 ]
 
 [tool.pytest.ini_options]
