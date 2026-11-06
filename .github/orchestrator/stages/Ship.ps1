@@ -66,12 +66,18 @@ $contextContent
 
     Write-Log "  Calling Claude for CONTEXT.md update (issue #$IssueNumber)..." -Color DarkGray
     $response = if ($KanbanEngine -eq 'gemini') {
-        $prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String
+        Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String)
     } else {
-        $prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String
+        Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
     }
+    # This whole function is best-effort (the merge already happened) — every branch
+    # below returns normally after logging, never throws. But a handled native-command
+    # failure (claude, git apply, git commit) still leaves $LASTEXITCODE non-zero, and
+    # the workflow step that calls Complete-HeldPR/Invoke-Ship reports THAT as its own
+    # exit code even though nothing actually failed. Reset it on every early return.
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Claude invocation failed — skipping context update." -Color Yellow
+        $global:LASTEXITCODE = 0
         return
     }
     $response = $response.Trim()
@@ -110,6 +116,7 @@ $contextContent
         if ($LASTEXITCODE -ne 0) {
             Write-Log "  ⚠️ git apply failed — malformed Claude response. Logging raw output." -Color Yellow
             Write-Log "  [RAW CLAUDE RESPONSE] $response" -Color DarkGray
+            $global:LASTEXITCODE = 0
             return
         }
     } finally {
@@ -122,6 +129,7 @@ $contextContent
     git commit -m $commitMsg 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Context update commit failed — original merge unaffected." -Color Yellow
+        $global:LASTEXITCODE = 0
         return
     }
 
@@ -131,6 +139,7 @@ $contextContent
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Push failed for context update — reverting local commit to keep $defaultBranch in sync." -Color Yellow
         git reset --hard --quiet "origin/$defaultBranch" 2>&1 | Out-Null
+        $global:LASTEXITCODE = 0
     } else {
         Write-Log "  ✅ CONTEXT.md updated — $commitMsg" -Color Green
     }
