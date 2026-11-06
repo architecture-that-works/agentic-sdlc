@@ -10,7 +10,7 @@
 
     Every issue-linked branch uses the feature/ prefix regardless of change type — the
     commit type already signals fix/docs/refactor/etc. A second branch prefix is invisible
-    to Complete-HeldPR and Get-CurrentIssueNumber, which match on feature/ alone (#252).
+    to the orchestrator's own branch matchers, which look for feature/ alone (#252).
 
     Exits 0 if both pass. Exits 1 with an actionable message (showing the failing string,
     the expected pattern, and a corrective example) if either fails.
