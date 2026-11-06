@@ -47,6 +47,28 @@ def test_generate_commit_message_cli_takes_priority_over_sdk() -> None:
     assert result == "feat: from cli"
 
 
+def test_generate_commit_message_drops_attribution_trailers() -> None:
+    """A fresh Claude CLI appends attribution trailers to commit messages — in CI it
+    added `Co-Authored-By: Claude Sonnet 5.5`, a model that never wrote it (#155's
+    eval found it). The tool returns the message only; trailers are the author's call."""
+    answer = (
+        "feat(utils): add package_version helper\n"
+        "\n"
+        "Return '0.0.0' when the package is not installed.\n"
+        "\n"
+        "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>\n"
+        "Signed-off-by: Claude <noreply@anthropic.com>"
+    )
+    with patch("src.tools.commit._claude_cli", return_value=answer):
+        result = generate_commit_message("diff")
+
+    assert result == (
+        "feat(utils): add package_version helper\n"
+        "\n"
+        "Return '0.0.0' when the package is not installed."
+    )
+
+
 def test_generate_commit_message_exits_when_both_providers_fail() -> None:
     with (
         patch("src.tools.commit._claude_cli", return_value=None),

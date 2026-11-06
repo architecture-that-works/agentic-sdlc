@@ -28,6 +28,7 @@ __PROJECT_DESCRIPTION__
 | `agent:` | Label prefix — the agent holds the ball. Exactly one `agent:` label at a time. | — |
 | `human:` | Label prefix — a human holds the ball; nothing advances until they act. `human:decision` = the issue waits on answers to the questions listed in it (set by refine); `human:approval` = a green PR waits for the owner's merge (set by ship when the diff touches `GovernancePaths`, or by the owner). Labels are the pipeline's output — issues are written without them. | `human:approval`, not `human:review` — "review" already names the agent's own stage |
 | `KANBAN_*` variables | Deliberately retained — the one exception to the single-vocabulary rule. `KANBAN_ENGINE` and `KANBAN_RUNNER_PROFILE` are live GitHub repository variables; renaming them means touching repository Settings and every generated project's setup for no functional gain. Do not "fix" them. | The module is `Orchestrator`; only the variable prefix is legacy |
+| Eval | A pytest test marked `eval` that scores one model-facing component (a prompt, skill or LLM call) against a golden dataset with DeepEval metrics, judged by Claude. Opt-in: `uv run pytest -m eval`; gated in CI by the `eval` job when a model-facing path changes (`docs/TESTING.md` § Evals) | Not the review stage: review judges a *change* against its issue; an eval judges a *component* against fixed goldens |
 | ISSUES.md | Local backlog of Agile User Story blocks, synced to GitHub Issues via `task sync` | Separate from GitHub Issues themselves |
 | Signal comment | Issue comment starting with the robot emoji; posted by the orchestrator for agent decisions and outcomes (review results, failures, CI). Retrieved by agents by that prefix to reconstruct issue history | Not orchestrator log noise |
 | Noise comment | Issue comment starting with a middle dot; orchestrator log entry (state transitions, stage starts). Never retrieved by agents | — |
@@ -74,6 +75,7 @@ For each kind of work, read these files before opening anything else. If an unex
 | sync-issues change | `.github/tasks/sync.ps1`, `tests/orchestrator/test_sync_issues.py` |
 | `src/utils/` change | `src/utils/m_*.py`, matching `tests/utils/test_*.py` |
 | `src/tools/` change | `src/tools/*.py`, matching `tests/tools/test_*.py` |
+| eval change | `tests/evals/conftest.py` (the `evaluate` fixture), `tests/evals/claude_judge.py`, `tests/evals/eval_results.py`, the target's `tests/evals/test_*_eval.py` + `goldens/*.jsonl`, `docs/TESTING.md` § Evals |
 | ADR addition | `docs/adr/ADR_STRUCTURE.md`, `ADR-000` template |
 | CI workflow change | `.github/workflows/*.yml`, `Taskfile.yml`, `pyproject.toml` |
 | skill change | `.agents/skills/<name>/SKILL.md`, `.agents/skills/<name>/REFERENCE.md`, `.agents/skills/<name>/EXAMPLES.md`, `AGENTS.md` skill index |

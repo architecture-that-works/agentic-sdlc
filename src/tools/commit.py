@@ -1,5 +1,10 @@
+import re
 import subprocess
 import sys
+
+# Attribution trailers are the author's call, not the model's: a fresh Claude CLI
+# appends its own (in CI it credited a model that never wrote the message).
+_TRAILER = re.compile(r"^(co-authored-by|signed-off-by):", re.IGNORECASE)
 
 _PROMPT_TEMPLATE = """Generate a conventional commit message for the following diff.
 
@@ -9,7 +14,8 @@ Rules:
 - Scope: the module, file, or area changed (omit if not obvious)
 - Description: imperative mood, <=72 chars, no period at end
 - Add a blank line + body only if the change is complex or non-obvious
-- Return ONLY the commit message — no explanation, no markdown fences
+- Return ONLY the commit message — no explanation, no markdown fences, no trailers
+  such as Co-Authored-By or Signed-off-by
 
 DIFF:
 {diff}"""
@@ -67,16 +73,17 @@ def _claude_sdk(prompt: str) -> str | None:
 # Future: add _gemini_cli(prompt) here as a third provider slot.
 
 
+def _without_trailers(message: str) -> str:
+    lines = [line for line in message.splitlines() if not _TRAILER.match(line.strip())]
+    return "\n".join(lines).strip()
+
+
 def generate_commit_message(diff: str) -> str:
     prompt = _PROMPT_TEMPLATE.format(diff=diff)
 
-    msg = _claude_cli(prompt)
+    msg = _claude_cli(prompt) or _claude_sdk(prompt)
     if msg:
-        return msg
-
-    msg = _claude_sdk(prompt)
-    if msg:
-        return msg
+        return _without_trailers(msg)
 
     print("No AI provider available. Install the Claude CLI or set ANTHROPIC_API_KEY.")
     sys.exit(1)
