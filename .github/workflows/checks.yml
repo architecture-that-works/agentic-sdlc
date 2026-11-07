@@ -84,7 +84,9 @@ jobs:
   # Evals call Claude, so they run only on a PR that changes a model-facing path.
   # The skip is a job-level `if:` rather than a `paths:` filter: a job skipped by
   # `if:` reports success, so `eval` can be a required check without blocking
-  # unrelated PRs. Add your own eval targets to MODEL_FACING.
+  # unrelated PRs. Each target has its own PATHS_<TARGET> regex so a PR that
+  # touches one target's inputs skips the others; shared harness paths
+  # (conftest, judge, results, goldens loader) fire every target.
   eval-scope:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
@@ -92,6 +94,8 @@ jobs:
       contents: read
     outputs:
       run: ${{ steps.diff.outputs.run }}
+      run_commit: ${{ steps.diff.outputs.run_commit }}
+      run_refine: ${{ steps.diff.outputs.run_refine }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -100,13 +104,21 @@ jobs:
         shell: bash
         env:
           BASE_REF: ${{ github.base_ref }}
-          MODEL_FACING: '^(\.agents/skills/|\.github/orchestrator/(stages/|lib/Grill\.ps1)|src/tools/commit\.py|tests/evals/)'
+          PATHS_SHARED: '^tests/evals/(conftest\.py|claude_judge\.py|eval_goldens\.py|eval_results\.py)$'
+          PATHS_COMMIT: '^(src/tools/commit\.py|tests/evals/test_commit_eval\.py|tests/evals/goldens/commit\.jsonl)$'
+          PATHS_REFINE: '^(\.agents/skills/refine/|\.github/orchestrator/(stages/|lib/Grill\.ps1)|tests/evals/test_refine_eval\.py|tests/evals/goldens/refine\.jsonl)'
         run: |
-          if git diff --name-only "origin/$BASE_REF...HEAD" | grep -qE "$MODEL_FACING"; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
+          changed=$(git diff --name-only "origin/$BASE_REF...HEAD")
+          shared=false
+          commit=false
+          refine=false
+          if echo "$changed" | grep -qE "$PATHS_SHARED"; then shared=true; fi
+          if $shared || echo "$changed" | grep -qE "$PATHS_COMMIT"; then commit=true; fi
+          if $shared || echo "$changed" | grep -qE "$PATHS_REFINE"; then refine=true; fi
+          if $commit || $refine; then run=true; else run=false; fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "run_commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "run_refine=$refine" >> "$GITHUB_OUTPUT"
 
   eval:
     needs: eval-scope
@@ -128,8 +140,27 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync
-      - run: sudo npm install -g @anthropic-ai/claude-code
-      - run: uv run pytest -m eval --junitxml=logs/evals/junit.xml
+      # Cache the Claude CLI npm global install. The CLI ships weekly-ish
+      # patches, so the key rolls over each ISO week so cached installs never
+      # outlive their upstream.
+      - id: cli-cache-key
+        shell: bash
+        run: echo "week=$(date -u +%Y-W%V)" >> "$GITHUB_OUTPUT"
+      - id: cli-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /usr/local/lib/node_modules/@anthropic-ai/claude-code
+            /usr/local/bin/claude
+          key: claude-code-${{ runner.os }}-${{ steps.cli-cache-key.outputs.week }}
+      - if: steps.cli-cache.outputs.cache-hit != 'true'
+        run: sudo npm install -g @anthropic-ai/claude-code
+      - name: Run commit eval
+        if: needs.eval-scope.outputs.run_commit == 'true'
+        run: uv run pytest tests/evals/test_commit_eval.py -m eval --junitxml=logs/evals/junit-commit.xml
+      - name: Run refine eval
+        if: needs.eval-scope.outputs.run_refine == 'true'
+        run: uv run pytest tests/evals/test_refine_eval.py -m eval --junitxml=logs/evals/junit-refine.xml
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
