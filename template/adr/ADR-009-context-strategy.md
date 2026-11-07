@@ -105,6 +105,36 @@ not competing: CONTEXT.md §Out of Scope holds a top-5 summary view with an expl
 * Plan-phase deduplication instructions in `plan/SKILL.md` reference `.out-of-scope.md`.
 * Revisit if the ledger grows past 50 entries (signal that a directory structure is warranted).
 
+## Addendum — codebase-map generator retired; SDLC criterion 4.8 permanently waived (issue #281)
+
+**Context:** The previous addendum ("Generated codebase-map artefact removed") removed the
+committed artefact and declared the Module Map in `CONTEXT.md` the single leading source of
+truth, but left behind the generator (`src/tools/codebase_map.py`), its test suite
+(`tests/tools/test_codebase_map.py`), and the `codebase-map` console entry point in
+`pyproject.toml`. Nothing in any task, skill, or workflow invoked the generator. The tool
+carried dead weight and contradicted the single-source-of-truth decision it was built for.
+
+**Decision (issue #281, owner: ysuurme):** Retire the generator entirely.
+
+- `src/tools/codebase_map.py` has been deleted.
+- `tests/tools/test_codebase_map.py` has been deleted in the same PR (test-parity invariant).
+- The `codebase-map = "src.tools.codebase_map:main"` entry has been removed from
+  `[project.scripts]` in `pyproject.toml`.
+- Two stale references in `tests/README.md` (File-Mirroring Rule row and "What Tests Live
+  Where" table row) have been removed.
+
+**SDLC maturity criterion 4.8** ("Pre-computed codebase map / context graph") is hereby
+**permanently waived** in favour of the Module Map in `CONTEXT.md` as the single source of
+truth for agent navigation. Rationale: the tool's own docstring acknowledged it was
+supplementary and must never replace the Module Map; it had no caller anywhere in the project;
+and a competing generated artefact that nothing reads is rubric-chasing rather than
+engineering. A second map competing with the Module Map contradicts this ADR's own
+single-source-of-truth decision. Reopen only if a live context graph with an active consumer
+justifies it as a new engineering requirement.
+
+**Consequence:** `grep -rn 'codebase.map\|codebase_map'` returns only references inside this
+addendum. `uv run pytest` and `check-doc-paths.ps1` pass against the resulting state.
+
 ## Pros and Cons of the Options
 
 ### Option A — Homework draft verbatim

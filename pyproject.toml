@@ -11,7 +11,6 @@ dependencies = [
 
 [project.scripts]
 commit-msg = "src.tools.commit:main"
-codebase-map = "src.tools.codebase_map:main"
 
 [dependency-groups]
 dev = [
