@@ -218,14 +218,64 @@ function Invoke-RebaseOnMaster {
 # ── Hold announcement ─────────────────────────────────────────────────────────
 
 # The PR's changed paths that match GovernancePaths ($OrchestratorConfig).
-function Get-GovernanceFiles {
+function Get-PRPath {
     param([Parameter(Mandatory)][int]$PRNumber)
     $files = @(gh pr diff $PRNumber --repo $KanbanRepo --name-only 2>$null | Where-Object { "$_".Trim() })
     if ($LASTEXITCODE -ne 0) { return @() }
-    return @($files | Where-Object {
-        $f = "$_".Trim()
+    return @($files | ForEach-Object { "$_".Trim() })
+}
+
+function Get-GovernanceFiles {
+    param([Parameter(Mandatory)][int]$PRNumber)
+    return @(Get-PRPath -PRNumber $PRNumber | Where-Object {
+        $f = $_
         @($OrchestratorConfig.GovernancePaths | Where-Object { $f -like $_ }).Count -gt 0
     })
+}
+
+# Files the PR changes that sit outside the agent write allowlist — the "proposal"
+# half of the merge decision (#285). These are committed like any other change, but
+# they are what makes the PR something the owner approves rather than something the
+# pipeline merges. Delegates to Get-UnwritablePaths so the plan stage's early
+# warning and this merge-time decision cannot disagree.
+function Get-ProposedFiles {
+    param([Parameter(Mandatory)][int]$PRNumber)
+    return @(Get-UnwritablePaths -Paths (Get-PRPath -PRNumber $PRNumber))
+}
+
+# Paths that define the agent's own limits. Called out separately in the hold
+# comment: a PR that widens the allowlist, edits CODEOWNERS or changes a workflow
+# is altering the rules the next PR will be judged by, and that should not be one
+# bullet among twenty in a long file list.
+$KanbanBoundaryPaths = @(
+    '.github/orchestrator/lib/Config.ps1', '.github/CODEOWNERS', '.github/workflows/*'
+)
+
+# filename → "+adds -dels", so the hold comment shows the size of what is proposed,
+# not only its name. One REST call, and only on the hold path.
+function Get-PRDiffstat {
+    param([Parameter(Mandatory)][int]$PRNumber)
+    $stat = @{}
+    $raw = gh api "repos/$KanbanRepo/pulls/$PRNumber/files?per_page=100" `
+        --jq '.[] | "\(.filename)\t+\(.additions) -\(.deletions)"' 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { return $stat }
+    foreach ($line in @($raw -split '\r?\n' | Where-Object { $_ -match "`t" })) {
+        $parts = $line -split "`t", 2
+        $stat[$parts[0].Trim()] = $parts[1].Trim()
+    }
+    return $stat
+}
+
+# The hold comment's file list: one line per file, with its diffstat, and a marker
+# on anything that changes the agent's own boundary.
+function Format-HeldFiles {
+    param([string[]]$Files, [hashtable]$Diffstat)
+    return (@($Files | Sort-Object -Unique | ForEach-Object {
+        $f     = $_
+        $size  = if ($Diffstat.ContainsKey($f)) { " — $($Diffstat[$f])" } else { '' }
+        $flag  = if (@($KanbanBoundaryPaths | Where-Object { $f -like $_ }).Count -gt 0) { '  ⚠️ **changes the agent''s own boundary**' } else { '' }
+        "- ``$f``$size$flag"
+    }) -join "`n")
 }
 
 function Test-HoldAnnounced {
@@ -380,19 +430,34 @@ function Invoke-Ship {
     # directly. -Force overrides, for a deliberate merge from a local session.
     if (-not $Force) {
         $governance = @(Get-GovernanceFiles -PRNumber $PRNumber)
+        $proposed   = @(Get-ProposedFiles   -PRNumber $PRNumber)
         # The owner's hold: the label, or — once a later state replaced it — the
         # carrier's approval_required (Set-AgentState, #225).
         $state      = Get-IssueState -IssueNumber $IssueNumber
         $manual     = (@(Get-IssueLabel -IssueNumber $IssueNumber) -contains 'human:approval') -or
                       ($state -and $state.PSObject.Properties['approval_required'] -and $state.approval_required)
-        if ($governance.Count -gt 0 -or $manual) {
+        if ($governance.Count -gt 0 -or $proposed.Count -gt 0 -or $manual) {
             Set-AgentState -IssueNumber $IssueNumber -Label 'human:approval'
-            $why = if ($governance.Count -gt 0) {
-                "it changes governance files, which a human merges:`n" + (($governance | ForEach-Object { "- ``$_``" }) -join "`n")
+
+            # Only fetch the diffstat on the hold path — the owner is about to read
+            # this list and decide on it, so it should say how big each change is.
+            $held = @($governance) + @($proposed)
+            $why  = if ($held.Count -gt 0) {
+                $stat   = Get-PRDiffstat -PRNumber $PRNumber
+                $reason = if ($proposed.Count -gt 0 -and $governance.Count -gt 0) {
+                    'it changes governance files and files outside the agent write allowlist'
+                } elseif ($proposed.Count -gt 0) {
+                    'it changes files outside the agent write allowlist'
+                } else {
+                    'it changes governance files'
+                }
+                "$reason — these are proposals for you to approve:`n`n" + (Format-HeldFiles -Files $held -Diffstat $stat)
             } else { 'this issue is labelled ``human:approval``.' }
+
             Add-Comment -Number $IssueNumber -Body ("🤖⏸ Held for human approval`n`nPR #$PRNumber is green and self-reviewed, but " +
-                "$why`n`nReview and merge PR #$PRNumber. To change it instead, close the PR and comment on this issue with what should change.")
-            Write-Log "⏸ Issue #$IssueNumber held for human approval — PR #$PRNumber awaits a human merge." -Color Yellow
+                "$why`n`n**Merge PR #$PRNumber to accept.** To reject, close the PR and comment on this issue with what should " +
+                "change — the agent reads the issue, not PR review comments. Nothing reaches the default branch until you merge.")
+            Write-Log "⏸ Issue #$IssueNumber held for human approval — $($governance.Count) governance, $($proposed.Count) proposed file(s)." -Color Yellow
             return $false
         }
     }

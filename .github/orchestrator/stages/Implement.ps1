@@ -170,12 +170,20 @@ function Invoke-CommitAndPR {
     $fmtOut = uv run ruff format . 2>&1 | Out-String
     Write-Log "  ruff format: $($fmtOut.Trim())" -Color DarkGray
 
-    # ── Allowlist gate ────────────────────────────────────────────────────────────
-    # A missing or empty WritablePaths is a hard failure — never a silent pass.
-    if (-not $OrchestratorConfig.ContainsKey('WritablePaths') -or -not $OrchestratorConfig.WritablePaths) {
-        throw "OrchestratorConfig.WritablePaths is missing or empty — agent staging is disabled as a safety measure."
+    # ── Allowlist classification ──────────────────────────────────────────────────
+    # WritablePaths decides whether a PR can auto-merge, not whether the agent may
+    # write (#285). A change outside it is staged and committed like any other, and
+    # ship then holds the PR at human:approval with the diff named, so the owner
+    # approves or rejects it. Blocking the commit instead meant the agent could not
+    # even produce a diff for the owner to read — and the owner had to write every
+    # pipeline change by hand.
+    #
+    # A missing or empty WritablePaths is fail-safe, not fatal: with no allowlist
+    # nothing is auto-mergeable, so every path counts as a proposal and ship holds.
+    $writablePaths = if ($OrchestratorConfig.ContainsKey('WritablePaths')) { @($OrchestratorConfig.WritablePaths) } else { @() }
+    if ($writablePaths.Count -eq 0) {
+        Write-Log "  ⚠️ WritablePaths is missing or empty — treating every change as a proposal." -Color Yellow
     }
-    $writablePaths = $OrchestratorConfig.WritablePaths
 
     # Enumerate all changed paths before any git add.
     $changedPaths = @(@(git status --porcelain 2>&1) |
@@ -185,17 +193,18 @@ function Invoke-CommitAndPR {
             if ($entry -match ' -> ') { ($entry -split ' -> ')[1] } else { $entry }
         } | Where-Object { $_ })
 
-    # Throw with every out-of-bounds path named — no git add until all paths clear.
+    # Name them in the issue when they exist. Ship re-derives this from the PR diff —
+    # the diff is the truth, and this is only the early warning.
     $outOfBounds = @($changedPaths | Where-Object {
         $p = $_
         -not ($writablePaths | Where-Object { $p -like $_ })
     })
     if ($outOfBounds.Count -gt 0) {
-        $offending = ($outOfBounds | ForEach-Object { "  - $_" }) -join "`n"
-        throw "Agent staging blocked — the following changed paths are outside WritablePaths:`n$offending"
+        Write-Log "  $($outOfBounds.Count) changed path(s) outside the write allowlist — the PR will be held for approval." -Color Yellow
+        foreach ($p in $outOfBounds) { Write-Log "    proposal: $p" -Color DarkGray }
     }
 
-    # Stage only in-bounds paths (allowlist is the primary layer).
+    # Stage every changed path. The secrets denylist below is the one absolute bar.
     foreach ($p in $changedPaths) {
         git add -- $p 2>&1 | Out-Null
     }

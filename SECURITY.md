@@ -60,18 +60,36 @@ call) succeeds before revoking the old value.
 
 ## Agent permission model
 
-The agent's write authority is bounded by an explicit allowlist, not by advisory guidance.
+The agent's authority is bounded at the **merge**, not at the keystroke. It may propose a
+change to almost anything; only a human decides what reaches the default branch.
 
-- **Where the allowlist lives:** `WritablePaths` in `$OrchestratorConfig` in
-  `.github/orchestrator/lib/Config.ps1`.
-- **How it is enforced:** `Invoke-CommitAndPR` in `.github/orchestrator/stages/Implement.ps1`
-  enumerates all changed paths before any `git add`. Any path that matches none of the
-  `WritablePaths` patterns aborts staging immediately and throws with every offending path
-  named — no files are staged. A missing or empty `WritablePaths` is itself a hard failure.
-  The existing name denylist (`.env`, `*.key`, …) runs after staging as a second defence layer.
-- **Test coverage:** `tests/orchestrator/test_implement_allowlist.py` verifies that an
-  in-bounds path (`src/foo.py`) is allowed and an out-of-bounds path
-  (`.github/workflows/x.yml`) raises an error that names the offending path.
+- **What may merge without a human:** every changed path must be inside `WritablePaths` **and**
+  outside `GovernancePaths`, both in `$OrchestratorConfig` in
+  `.github/orchestrator/lib/Config.ps1`. In practice that is `src/`, `tests/`, `docs/`
+  (excluding `docs/adr/`), `pyproject.toml` and `uv.lock` — application code, its tests and
+  its dependencies.
+- **Everything else is a proposal.** `Invoke-CommitAndPR` commits it like any other change, and
+  `Invoke-Ship` then holds the PR at `human:approval` with every out-of-allowlist and
+  governance file listed, each with its diffstat, and anything that alters the agent's own
+  boundary (`lib/Config.ps1`, `.github/CODEOWNERS`, `.github/workflows/`) flagged explicitly.
+  Merging the PR is the approval; closing it is the rejection.
+- **The one absolute bar:** the name denylist in `Invoke-CommitAndPR` — `.env`, `*.key`,
+  `*.pem`, `*.pfx`, `*secret*`, `*credential*` — is unstaged from the index whatever else
+  happens. No proposal mechanism can carry a secret into a PR.
+- **Fail-safe:** a missing or empty `WritablePaths` makes *every* path a proposal, so the
+  failure mode is "everything needs approval", never "anything merges unreviewed".
+
+**Accepted risk (#285):** because the agent can propose changes to `.github/`, a single PR
+could in principle widen `WritablePaths`, weaken a CI workflow, and edit `CODEOWNERS` at once.
+Nothing merges without a human reading that diff, and such files are called out separately in
+the hold comment for exactly this reason — but the control is review, not impossibility. The
+previous design also blocked the agent from *staging* those paths; that was dropped because it
+made every pipeline-improvement issue hands-on while adding no merge-time protection that
+`GovernancePaths` did not already provide.
+
+- **Test coverage:** `tests/orchestrator/test_implement_allowlist.py` (classification, and that
+  the secrets denylist still bites) and `tests/orchestrator/test_ship.py` (the hold fires on an
+  out-of-allowlist path, and an in-allowlist PR still merges).
 
 ---
 
