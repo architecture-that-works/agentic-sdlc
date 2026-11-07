@@ -435,24 +435,33 @@ Return ONLY valid JSON — no fences, no prose — matching this shape:
     # architect and plan, which re-created it. #273 looped three times that way, and
     # the question's own recommended answer was "implement it hands-on" — a question
     # whose best outcome is "the pipeline cannot help you" should not be asked.
-    $state        = Get-IssueState -IssueNumber $Number
     $plannedPaths = @($result.paths_to_modify | Where-Object { $_ })
     $proposed     = Get-UnwritablePaths -Paths $plannedPaths
 
-    # Drop the legacy question so issues the old gate parked unblock on their next
-    # plan run instead of needing the carrier edited by hand.
-    $open   = @($state.open_questions | Where-Object { $_ })
-    $kept   = @($open | Where-Object { "$($_.text)" -notlike '*outside the agent-writable allowlist*' })
-    $dirty  = $kept.Count -ne $open.Count
+    # Get-IssueState returns $null when the carrier cannot be parsed. Skip the write
+    # rather than crash the stage: ship re-derives the proposal from the PR diff, so
+    # an unwritten note costs an early warning, not the hold itself.
+    $state = Get-IssueState -IssueNumber $Number
+    if ($state) {
+        # Drop the legacy question so issues the old gate parked unblock on their next
+        # plan run instead of needing the carrier edited by hand.
+        $open  = @($state.open_questions | Where-Object { $_ })
+        $kept  = @($open | Where-Object { "$($_.text)" -notlike '*outside the agent-writable allowlist*' })
+        $dirty = $kept.Count -ne $open.Count
 
-    if ($proposed.Count -gt 0) {
-        $state | Add-Member -NotePropertyName proposed_paths -NotePropertyValue $proposed -Force
-        $dirty = $true
-        Write-Log "  Plan proposes $($proposed.Count) path(s) outside the write allowlist — the PR will be held for approval." -Color DarkGray
+        if ($proposed.Count -gt 0) {
+            $state | Add-Member -NotePropertyName proposed_paths -NotePropertyValue $proposed -Force
+            $dirty = $true
+        }
+        if ($dirty) {
+            $state.open_questions = $kept
+            Set-PlanningState -IssueNumber $Number -State $state
+        }
+    } else {
+        Write-Log "  ⚠️ Carrier unreadable on #${Number} — skipping the proposal note; ship still derives it from the PR." -Color Yellow
     }
-    if ($dirty) {
-        $state.open_questions = $kept
-        Set-PlanningState -IssueNumber $Number -State $state
+    if ($proposed.Count -gt 0) {
+        Write-Log "  Plan proposes $($proposed.Count) path(s) outside the write allowlist — the PR will be held for approval." -Color DarkGray
     }
 
     if ($proposed.Count -gt 0) {

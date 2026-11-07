@@ -180,3 +180,32 @@ Invoke-Plan -Number 7
     # The out-of-allowlist path is recorded as a proposal, and announced on the issue.
     assert out["proposed"] == [".github/workflows/x.yml"]
     assert out["announced"] is True
+
+
+def test_an_unreadable_carrier_does_not_crash_the_plan_stage() -> None:
+    """Get-IssueState returns $null when the AGENT-STATE block cannot be parsed.
+    The proposal note is a convenience — ship re-derives the hold from the PR diff
+    — so losing it must cost a warning, not the stage."""
+    script = (
+        _import_prelude()
+        + r"""
+function script:Write-Log { param($Message, $Color) }
+function script:Get-IssueEstimate { param($IssueNumber) 3 }
+function script:Set-IssueBodySection { param($IssueNumber, $BeginMarker, $EndMarker, $Markdown) $true }
+function script:Set-PlanningReadiness { param($IssueNumber, $Stage, $StageLabel, $PopulatedBy) }
+function script:Format-OwnerComments { param($IssueNumber) '' }
+function script:Add-Comment { param($Number, $Body) }
+function script:Set-PlanningState { param($IssueNumber, $State) throw 'must not be called with a null state' }
+function script:Get-IssueState { param($IssueNumber) $null }
+function script:claude { $global:LASTEXITCODE = 0
+    '{"plan_markdown":"1. do it","paths_to_modify":[".github/workflows/x.yml"]}' }
+function script:gh { $global:LASTEXITCODE = 0; '{"title":"t","body":"b"}' }
+
+Invoke-Plan -Number 7
+[pscustomobject]@{ survived = $true } | ConvertTo-Json -Compress
+"""
+        + "}\n"
+    )
+    result = _ps(script)
+    assert result.returncode == 0, result.stderr
+    assert '"survived":true' in result.stdout.replace(" ", "")
