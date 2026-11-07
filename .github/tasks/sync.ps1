@@ -79,7 +79,7 @@ $Content = Get-Content $IssuesPath -Raw
 $SentinelMatch = [regex]::Match($Content, '(?m)^<!-- ISSUES -->\s*$')
 $ParseContent  = if ($SentinelMatch.Success) { $Content.Substring($SentinelMatch.Index) } else { $Content }
 
-$IssueRegex = '(?s)ISSUE:\s*(.*?)\r?\n(.*?)\r?\nEND_ISSUE'
+$IssueRegex = '(?s)```\r?\nISSUE:\s*(.*?)\r?\n(.*?)\r?\nEND_ISSUE\r?\n```'
 $Found      = [regex]::Matches($ParseContent, $IssueRegex)
 
 if ($Found.Count -eq 0) {
