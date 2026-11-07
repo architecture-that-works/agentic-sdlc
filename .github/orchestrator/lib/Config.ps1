@@ -83,6 +83,18 @@ $OrchestratorConfig = @{
 
     # Orchestrator behaviour
     MaxRetries = 3    # failed attempts per round (implement, review, CI, refine) before agent:failed
+
+    # Reconciliation (the hourly warden, lib/Reconcile.ps1). An agent-held label
+    # claims work in progress; when nothing has touched the issue for this long,
+    # no runner is doing that work and the state is stale. Must stay comfortably
+    # above the longest silent stretch of a live run — an Opus implement can go a
+    # while between its `·` progress comments — or the warden re-enters live work.
+    StuckAfterMinutes = 90
+
+    # How many times one issue may be re-entered at the same label before the
+    # warden stops and hands it to the owner on agent:failed. Prevents a
+    # permanently broken issue from being re-dispatched every hour forever.
+    MaxReconcile = 2
 }
 
 # ── Project constants (env, with defaults) ────────────────────────────────────
@@ -105,6 +117,43 @@ $KanbanStopWords = @(
     'a','an','the','and','or','for','to','of','in','on','at','with','via','by','from',
     'fix','feat','add','update','remove'
 )
+
+# ── The pipeline state machine — one row per label ────────────────────────────
+# The single table behind every state question. An issue carries exactly one of
+# these labels (ADR-015, #225), and this is the only place that says what each one
+# means:
+#
+#   LaneName         the board column the label implies. Set-AgentState reads it —
+#                    it used to carry two parallel switch statements over the same
+#                    label set, which is two copies of one mapping. The column's
+#                    board option id is NOT here: those come from repository
+#                    variables and must be read when the transition runs, not frozen
+#                    when this file loads (Get-LaneOptionId in lib/GitHub.ps1).
+#   Holder           who owes the next move while the label is set:
+#                      agent — the pipeline owes progress, so a state that has gone
+#                              quiet is stale and the warden may re-enter it
+#                      human — a person owes the move; reconciliation never touches it
+#                      none  — terminal; nothing is owed
+#   Recovery         what re-entry means for an agent-held state that has stalled
+#                    (Invoke-Reconciliation):
+#                      implement — the label is already the go signal; dispatch the
+#                                  implement job, which nothing is currently running
+#                      restart   — re-enter from the carrier's stage (Restart-Issue)
+#                      resume    — the time-gated usage-limit path (Resume-PausedIssues)
+#                      none      — never re-entered
+#
+# Adding a state means adding one row. Nothing else in the module may switch on a
+# label; a second mapping is how #252, #266 and #275 each shipped the same bug.
+$PipelineStates = [ordered]@{
+    'agent:backlog'      = @{ LaneName = 'Backlog';      Holder = 'agent'; Recovery = 'implement' }
+    'agent:implementing' = @{ LaneName = 'Implementing'; Holder = 'agent'; Recovery = 'restart'   }
+    'agent:reviewing'    = @{ LaneName = 'Review';       Holder = 'agent'; Recovery = 'restart'   }
+    'agent:paused'       = @{ LaneName = 'Backlog';      Holder = 'agent'; Recovery = 'resume'    }
+    'agent:shipped'      = @{ LaneName = 'Shipped';      Holder = 'none';  Recovery = 'none'      }
+    'agent:failed'       = @{ LaneName = 'Backlog';      Holder = 'human'; Recovery = 'none'      }
+    'human:decision'     = @{ LaneName = 'Backlog';      Holder = 'human'; Recovery = 'none'      }
+    'human:approval'     = @{ LaneName = 'Review';       Holder = 'human'; Recovery = 'none'      }
+}
 
 # Resolve the repo slug WITHOUT a GraphQL call. `gh repo view` hits the GraphQL
 # API, which throttles independently of REST (5000 pts/hr each). When GraphQL is
@@ -165,6 +214,8 @@ $KanbanMaxTurns_Review        = if ($env:KANBAN_MAX_TURNS_REVIEW)  { [int]$env:K
 $KanbanMaxTurns_Refine        = if ($env:KANBAN_MAX_TURNS_REFINE)  { [int]$env:KANBAN_MAX_TURNS_REFINE  } else { $OrchestratorConfig.MaxTurns_Refine         }
 $KanbanMaxTurns_ContextUpdate = if ($env:KANBAN_MAX_TURNS_CONTEXT) { [int]$env:KANBAN_MAX_TURNS_CONTEXT } else { $OrchestratorConfig.MaxTurns_ContextUpdate  }
 $KanbanMaxRetries             = if ($env:KANBAN_MAX_RETRIES)       { [int]$env:KANBAN_MAX_RETRIES       } else { $OrchestratorConfig.MaxRetries              }
+$KanbanStuckAfterMinutes      = if ($env:KANBAN_STUCK_AFTER_MINUTES) { [int]$env:KANBAN_STUCK_AFTER_MINUTES } else { $OrchestratorConfig.StuckAfterMinutes   }
+$KanbanMaxReconcile           = if ($env:KANBAN_MAX_RECONCILE)     { [int]$env:KANBAN_MAX_RECONCILE     } else { $OrchestratorConfig.MaxReconcile            }
 
 $KanbanEstimateFieldId = if ($env:KANBAN_ESTIMATE_FIELD_ID) { $env:KANBAN_ESTIMATE_FIELD_ID } else { '' }
 $KanbanPriorityFieldId = if ($env:KANBAN_PRIORITY_FIELD_ID) { $env:KANBAN_PRIORITY_FIELD_ID } else { '' }

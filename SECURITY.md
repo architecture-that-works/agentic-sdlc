@@ -85,17 +85,32 @@ reacts to comments only from people with write access. When the Claude usage all
 it stops work on `agent:paused` and an hourly job resumes it once the allowance resets (at most
 5 hours later).
 
+An hourly reconciliation pass recovers work that stopped without failing — a lost runner, a
+cancelled job, an Actions timeout. It re-enters only states the agent holds and that nothing
+is working on, and it is bounded: an issue it cannot move lands on `agent:failed` after
+`KANBAN_MAX_RECONCILE` (2) attempts with the history named. **It never touches a state a human
+holds** — `human:decision`, `human:approval` and `agent:failed` wait indefinitely, by design.
+Which labels those are is declared once, in `$PipelineStates` (`lib/Config.ps1`); nothing else
+in the pipeline decides it.
+
 ### Halt
 
 | To stop… | Do this |
 |---|---|
 | Everything, immediately | Actions → AFK → **⋯ → Disable workflow** (`gh workflow disable afk.yml`). Nothing runs — not refine, not implement, not comment handling — until re-enabled. |
-| The current run | Actions → the running AFK run → **Cancel workflow** (`gh run cancel <run-id>`). The feature branch and any open PR are kept. |
+| The current run | Actions → the running AFK run → **Cancel workflow** (`gh run cancel <run-id>`). The feature branch and any open PR are kept. **Temporary:** the issue keeps its agent-held label, so the hourly reconciliation re-enters it within the hour — cancel to interrupt, not to stop. |
 | An issue from being processed | Close it; reopen it to release it. The pipeline only processes open issues. |
 | An issue from auto-merging | Nothing, for governance changes: a PR touching agent instructions, CI, the orchestrator, ADRs, security docs or skills (`GovernancePaths` in `lib/Config.ps1`) is always held, green, for a human to merge, and the issue is labelled `human:approval`. To hold any other issue, add `human:approval` yourself before ship — it is kept even when a later state replaces the label (`approval_required` in the issue). |
 
-A cancelled run can leave the issue on `agent:implementing` or `agent:reviewing`; run
-`task retry ISSUE=<n>` to resume it from the stage it was in.
+A cancelled run leaves the issue on `agent:implementing` or `agent:reviewing`. The hourly
+reconciliation pass re-enters it on its own within the hour, so cancelling is safe to do and
+safe to forget. To resume it immediately instead of waiting, run `task retry ISSUE=<n>` (one
+issue) or `task reconcile` (everything stuck); `task reconcile -- -WhatIf` reports what it
+would do and changes nothing.
+
+Note the asymmetry, and that it is deliberate: **halting by cancelling a run is temporary** —
+the issue still carries an agent-held label, so reconciliation treats it as work the pipeline
+owes and picks it up again. To stop an issue for good, close it, or disable the workflow.
 
 ### Override
 

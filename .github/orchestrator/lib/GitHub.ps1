@@ -652,28 +652,16 @@ function Set-AgentFailedState {
 function Set-AgentState {
     param([int]$IssueNumber, [string]$Label)
 
-    $laneId   = switch ($Label) {
-        'agent:backlog'      { $KanbanOpt_Backlog      }
-        'agent:implementing' { $KanbanOpt_Implementing }
-        'agent:reviewing'    { $KanbanOpt_Review       }
-        'agent:shipped'      { $KanbanOpt_Merged       }
-        'agent:failed'       { $KanbanOpt_Backlog      }
-        'agent:paused'       { $KanbanOpt_Backlog      }
-        'human:approval'     { $KanbanOpt_Review       }
-        'human:decision'     { $KanbanOpt_Backlog      }
-        default              { ''                      }
-    }
-    $laneName = switch ($Label) {
-        'agent:backlog'      { 'Backlog'      }
-        'agent:implementing' { 'Implementing' }
-        'agent:reviewing'    { 'Review'       }
-        'agent:shipped'      { 'Shipped'      }
-        'agent:failed'       { 'Backlog'      }
-        'agent:paused'       { 'Backlog'      }
-        'human:approval'     { 'Review'       }
-        'human:decision'     { 'Backlog'      }
-        default              { ''             }
-    }
+    # The lane comes from $PipelineStates (lib/Config.ps1) — the one table that says
+    # what each pipeline label means. This used to be two parallel switch statements
+    # over the same label set, i.e. two copies of one mapping that could disagree.
+    #
+    # The board option id is resolved here, not stored in the table: $KanbanOpt_* are
+    # repository variables, and freezing them into the table at load time made every
+    # lane move a no-op whenever they were set after the module loaded.
+    $spec     = $PipelineStates[$Label]
+    $laneName = if ($spec) { $spec.LaneName } else { '' }
+    $laneId   = if ($laneName) { Get-LaneOptionId -LaneName $laneName } else { '' }
 
     # Readiness gate: backlog entry requires refined + architected + planned and zero open questions.
     if ($Label -eq 'agent:backlog') {
@@ -685,9 +673,10 @@ function Set-AgentState {
     }
 
     # Read the labels via REST (Get-IssueLabel), not the GraphQL `gh issue view`.
-    # Hot path — runs on every transition.
+    # Hot path — runs on every transition. "Which labels are the pipeline's" is the
+    # key set of $PipelineStates, so a new state is recognised here by adding its row.
     $current = @(Get-IssueLabel -IssueNumber $IssueNumber |
-        Where-Object { $_ -like 'agent:*' -or $_ -in @('human:approval', 'human:decision') })
+        Where-Object { $PipelineStates.Contains($_) })
     $replace = @($current | Where-Object { $_ -ne $Label })
 
     if ($replace -contains 'human:approval' -and $Label -ne 'agent:shipped') {
@@ -974,6 +963,24 @@ function Get-ProjectItemId {
     } | Select-Object -First 1
     if (-not $match) { return $null }
     return $match.id
+}
+
+# The board option id for one of the four lanes. Separate from $PipelineStates on
+# purpose: that table declares the state machine, which is fixed, while these ids
+# are repository variables written by `task setup` and read from the environment.
+# Resolving them here means a transition reads whatever is configured when it runs
+# — holding them in the table instead froze the values at module-load time, which
+# silently turned every lane move into a no-op for any caller that set them after
+# the import (every test in test_pipeline_label.py, and any re-setup mid-session).
+function Get-LaneOptionId {
+    param([string]$LaneName)
+    switch ($LaneName) {
+        'Backlog'      { $KanbanOpt_Backlog      }
+        'Implementing' { $KanbanOpt_Implementing }
+        'Review'       { $KanbanOpt_Review       }
+        'Shipped'      { $KanbanOpt_Merged       }
+        default        { '' }
+    }
 }
 
 function Move-ToLane {
