@@ -341,11 +341,19 @@ Return ONLY JSON, no fences:
 # earlier: an issue whose plan only touches e.g. .github/ used to be granted
 # agent:backlog, implemented, and aborted at staging three times before landing on
 # agent:failed, burning the whole retry budget on a predictable outcome.
+# The one definition of "this path is outside the agent write allowlist". The plan
+# stage calls it on the planned paths to warn early; the ship stage calls it on the
+# PR's actual diff to decide whether the PR is a proposal (Get-ProposedFiles). Two
+# copies of this predicate would be the same shape of bug as #252/#266/#275.
+#
+# An empty or missing allowlist returns every path: with nothing declared writable,
+# nothing is auto-mergeable, which is the fail-safe direction.
 function Get-UnwritablePaths {
     param([string[]]$Paths)
+    $writable = if ($OrchestratorConfig.ContainsKey('WritablePaths')) { @($OrchestratorConfig.WritablePaths) } else { @() }
     return @($Paths | Where-Object {
         $p = "$_".Trim()
-        $p -and @($OrchestratorConfig.WritablePaths | Where-Object { $p -like $_ }).Count -eq 0
+        $p -and @($writable | Where-Object { $p -like $_ }).Count -eq 0
     })
 }
 
@@ -417,18 +425,50 @@ Return ONLY valid JSON — no fences, no prose — matching this shape:
     # auto-implemented. readiness.planned still goes true (the plan was written) —
     # the injected open question is what blocks Test-Readiness and routes to
     # Request-Decisions, the same human:decision flow an unresolved question uses.
+    # Paths outside WritablePaths are a *proposal*, not a question (#285). The agent
+    # implements them like anything else; ship then holds the PR at human:approval
+    # with the files and their diffstat named, and the owner merges or rejects. The
+    # PR is never auto-merged, so the change is a proposal the owner approves.
+    #
+    # This used to inject an open question, which was unanswerable by construction:
+    # Invoke-Plan regenerates it from the plan on every run, so answering it re-ran
+    # architect and plan, which re-created it. #273 looped three times that way, and
+    # the question's own recommended answer was "implement it hands-on" — a question
+    # whose best outcome is "the pipeline cannot help you" should not be asked.
     $plannedPaths = @($result.paths_to_modify | Where-Object { $_ })
-    $unwritable   = Get-UnwritablePaths -Paths $plannedPaths
-    if ($unwritable.Count -gt 0) {
-        $state = Get-IssueState -IssueNumber $Number
-        $question = [pscustomobject]@{
-            text         = "This plan touches paths outside the agent-writable allowlist and cannot be auto-implemented: $($unwritable -join ', ')."
-            decision     = 'Implement it hands-on (HITL) and merge — the issue closes on its own once the PR references it; no need to reply here first.'
-            alternatives = @('Narrow the plan so every path stays inside WritablePaths, then comment to retry.')
+    $proposed     = Get-UnwritablePaths -Paths $plannedPaths
+
+    # Get-IssueState returns $null when the carrier cannot be parsed. Skip the write
+    # rather than crash the stage: ship re-derives the proposal from the PR diff, so
+    # an unwritten note costs an early warning, not the hold itself.
+    $state = Get-IssueState -IssueNumber $Number
+    if ($state) {
+        # Drop the legacy question so issues the old gate parked unblock on their next
+        # plan run instead of needing the carrier edited by hand.
+        $open  = @($state.open_questions | Where-Object { $_ })
+        $kept  = @($open | Where-Object { "$($_.text)" -notlike '*outside the agent-writable allowlist*' })
+        $dirty = $kept.Count -ne $open.Count
+
+        if ($proposed.Count -gt 0) {
+            $state | Add-Member -NotePropertyName proposed_paths -NotePropertyValue $proposed -Force
+            $dirty = $true
         }
-        $state.open_questions = @(@($state.open_questions | Where-Object { $_ }) + $question)
-        Set-PlanningState -IssueNumber $Number -State $state
-        Write-Log "  ⚠️ Plan touches non-writable paths: $($unwritable -join ', ') — held for human:decision." -Color Yellow
+        if ($dirty) {
+            $state.open_questions = $kept
+            Set-PlanningState -IssueNumber $Number -State $state
+        }
+    } else {
+        Write-Log "  ⚠️ Carrier unreadable on #${Number} — skipping the proposal note; ship still derives it from the PR." -Color Yellow
+    }
+    if ($proposed.Count -gt 0) {
+        Write-Log "  Plan proposes $($proposed.Count) path(s) outside the write allowlist — the PR will be held for approval." -Color DarkGray
+    }
+
+    if ($proposed.Count -gt 0) {
+        Add-Comment -Number $Number -Body ("🤖 Proposal — this plan changes files outside the agent write allowlist`n`n" +
+            (($proposed | ForEach-Object { "- ``$_``" }) -join "`n") +
+            "`n`nThe agent will implement them, but the PR will **not** be merged automatically: it is held at " +
+            "``human:approval`` with the exact diff for you to approve or reject. Nothing here reaches the default branch without you.")
     }
 
     Add-Comment -Number $Number -Body '· planned — implementation plan written to issue body'

@@ -103,6 +103,53 @@ $r = Invoke-Ship -IssueNumber 1 -PRNumber 9
     assert "comment:🤖⏸ Held for human approval" in out["log"]
 
 
+def test_a_path_outside_the_allowlist_is_held_as_a_proposal(tmp_path: Path) -> None:
+    """Taskfile.yml is outside WritablePaths and outside GovernancePaths. Before
+    #285 that combination had no merge-time guard at all — staging blocked it, so
+    the case never arose, but anything that did reach a PR would have auto-merged.
+    Now the allowlist decides the merge, so it is held."""
+    out = _run(
+        _SHIP
+        + r"""
+$script:Diff = @('src/x.py', 'Taskfile.yml')
+$r = Invoke-Ship -IssueNumber 1 -PRNumber 9
+[pscustomobject]@{ r = $r; log = @($script:Log) } | ConvertTo-Json -Compress
+""",
+        tmp_path,
+    )
+    assert out["r"] is False
+    assert "merged" not in out["log"]
+    assert "state:human:approval" in out["log"]
+    assert "comment:🤖⏸ Held for human approval" in out["log"]
+
+
+def test_the_hold_names_every_file_awaiting_approval(tmp_path: Path) -> None:
+    """The owner is about to approve or reject these specific changes, so the
+    comment has to list them — governance and out-of-allowlist alike."""
+    out = _run(
+        _SHIP
+        + r"""
+function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:$Body") }
+$script:Diff = @('src/x.py', 'Taskfile.yml', '.github/workflows/afk.yml')
+$null = Invoke-Ship -IssueNumber 1 -PRNumber 9
+$held = @($script:Log | Where-Object { $_ -like '*Held for human approval*' })[0]
+[pscustomobject]@{
+    taskfile = [bool]($held -match 'Taskfile\.yml')
+    workflow = [bool]($held -match 'afk\.yml')
+    boundary = [bool]($held -match "own boundary")
+    src      = [bool]($held -match 'src/x\.py')
+} | ConvertTo-Json -Compress
+""",
+        tmp_path,
+    )
+    assert out["taskfile"] is True
+    assert out["workflow"] is True
+    # afk.yml redefines what the next PR may do — flagged, not just listed.
+    assert out["boundary"] is True
+    # src/x.py is inside the allowlist and not governed: not part of what is approved.
+    assert out["src"] is False
+
+
 def test_ordinary_change_merges(tmp_path: Path) -> None:
     out = _run(
         _SHIP

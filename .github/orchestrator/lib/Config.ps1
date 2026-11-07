@@ -70,10 +70,19 @@ $OrchestratorConfig = @{
         'docs/adr/*', '.agents/skills/*'
     )
 
-    # Writable paths: the authoritative allowlist of path patterns an agent commit may
-    # touch. Invoke-CommitAndPR enforces this before any git-add; a changed path that
-    # matches none of these patterns aborts staging with the offending paths named.
-    # A missing or empty WritablePaths is itself a hard failure — never a silent pass.
+    # Writable paths: what the agent may change *and have merged automatically*. This
+    # is a classifier, not a bar on writing (#285) — a change outside it is committed
+    # like any other, and ship then holds the PR at human:approval with the files and
+    # their diffstat named, for the owner to merge or reject. Nothing outside this
+    # list reaches the default branch without a human.
+    #
+    # So a PR auto-merges only when every changed path is inside WritablePaths AND
+    # outside GovernancePaths — in practice src/, tests/, docs/ (bar docs/adr/),
+    # pyproject.toml and uv.lock.
+    #
+    # An empty list is fail-safe, not fatal: with no allowlist every path is a
+    # proposal and every PR is held. The one absolute bar is the secrets denylist in
+    # Invoke-CommitAndPR (.env, *.key, *.pem, *secret*), which is never staged.
     # Matched with -like against changed relative paths (same operator as GovernancePaths).
     WritablePaths = @(
         'src/*', 'tests/*', 'docs/*', '.agents/skills/*',
