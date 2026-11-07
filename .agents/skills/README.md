@@ -23,8 +23,7 @@ Each skill directory follows this layout:
 
 Load `SKILL.md` first. If the task is non-trivial, also load `REFERENCE.md` and `EXAMPLES.md` — they contain detail that `SKILL.md` compresses out.
 
-Skills with `REFERENCE.md` + `EXAMPLES.md`: `refine`, `architect`, `plan`, `implement`, `review`, `diagnosis`, `write-skills`.
-Skills with `SKILL.md` only: `ship`, `version-control`, domain skills.
+Skills with `REFERENCE.md` + `EXAMPLES.md`: `refine`, `architect`, `plan`, `implement`, `review`, `diagnosis`, `write-skills`, `ship`, `version-control`, `application-engineering`, `agentic-engineering`, `data-engineering`.
 
 ## Workflow Skill Lifecycle
 
