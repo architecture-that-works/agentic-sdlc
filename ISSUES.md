@@ -86,3 +86,28 @@ Default new issues to **P3** (new work) or **P4** (improvement). Escalation to P
 ---
 
 <!-- ISSUES -->
+
+```
+ISSUE: Burn down the whole ISSUE block on sync, fences included
+PRIORITY: P4
+ESTIMATE: 2
+**Goal**: The file the owner writes issues into stays clean after every sync, with no debris to tidy by hand.
+**Description**: `task sync` removes a synced block's *content* but leaves its fenced code block behind. Syncing five issues on 2026-11-07 left five empty ` ``` ` / ` ``` ` pairs under the `<!-- ISSUES -->` sentinel, which the owner then had to delete by hand.
+
+Reproduction: add any `ISSUE: … END_ISSUE` block inside a fenced code block below the sentinel (the format the Block Format section mandates), run `task sync`, and inspect the tail of `ISSUES.md`.
+
+Cause: `$IssueRegex` in `.github/tasks/sync.ps1` matches `ISSUE:\s*(.*?)\r?\n(.*?)\r?\nEND_ISSUE` — the fence lines sit outside the match, so the burn-down loop that replaces each processed block never removes them. The subsequent blank-line collapse then packs the orphaned fences together, which is why they appear as adjacent empty pairs rather than as obvious gaps.
+
+This is cosmetic — sync is idempotent and an empty fence parses as no block — but `ISSUES.md` is the intake surface for every new issue, and debris accumulating on it one sync at a time is the opposite of a clean intake path.
+**Requirements**:
+1. Make the burn-down remove the fenced wrapper along with the block, without consuming a fence that belongs to neighbouring prose — the Block Format section above the sentinel contains a literal example block that must survive untouched.
+2. Prefer matching the fence as part of the block at parse time over post-hoc cleanup of leftover fences, so there is one definition of "where a block starts and ends" rather than two.
+3. Keep the existing behaviour intact: blocks above the sentinel are never parsed, the idempotent title reuse still applies, and `-DryRun` still changes nothing.
+4. Add a test in `tests/orchestrator/test_sync_issues.py` that syncs a fenced block and asserts the tail of the file contains no empty fence pair, and that the Block Format example above the sentinel is unchanged.
+**Acceptance Criteria**:
+- After a sync of one or more fenced blocks, `ISSUES.md` contains no empty ` ``` ` pair and no trailing blank-line run.
+- The literal example block in the Block Format section is byte-identical before and after a sync.
+- `-DryRun` leaves the file untouched.
+- `uv run pytest` passes, and the new test fails against the current burn-down logic.
+END_ISSUE
+```

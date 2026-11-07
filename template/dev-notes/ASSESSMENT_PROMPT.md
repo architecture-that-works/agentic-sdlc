@@ -387,6 +387,14 @@ arithmetic explicit:
 
 ## After Assessment
 
-1. **Update `README.md`** — change the SDLC Maturity section to reflect the new score,
-   role, criteria counts per stage, and today's date. Follow the existing table format.
-2. **Commit:** `docs: update SDLC maturity assessment to X.XX/10`
+1. **Write the artifact** to `template/dev-notes/assessment-<YYYY-MM-DD>.md`, following the
+   Required Output Format above and citing the prior assessment's score in the header. This
+   directory is excluded by `copier.yml` — assessments are about building the template, not
+   about any project generated from it, so they never ship.
+2. **Do not touch `README.md`.** It carried an SDLC Maturity section until 2026-11-06; it was
+   removed because a score about the *template* is meaningless in a generated project. The
+   dated artifact in this directory is the only record.
+3. **Open an issue per unmet criterion** you intend to close, citing the criterion by tier and
+   number. Roadmap items score zero (see Evaluation Discipline) — the issue is how the gap
+   becomes work, not how it becomes credit.
+4. **Commit:** `docs(dev-notes): SDLC maturity assessment X.XX/10`
