@@ -33,9 +33,14 @@ tasks:
       - pwsh -NoProfile -File .github/tasks/afk.ps1 {{.CLI_ARGS}}
 
   retry:
-    desc: "Recovery — reset a stuck or failed issue back to agent:backlog (ISSUE=N required)"
+    desc: "Recovery — re-enter one stuck or failed issue from where it got to (ISSUE=N required)"
     cmds:
       - pwsh -NoProfile -File .github/tasks/retry.ps1 -Issue {{.ISSUE}}
+
+  reconcile:
+    desc: "Recovery — re-enter every pipeline state nothing is working on (afk.yml runs this hourly; -- -WhatIf to preview)"
+    cmds:
+      - pwsh -NoProfile -File .github/tasks/reconcile.ps1 {{.CLI_ARGS}}
 
   protect:
     desc: "Governance — apply branch-protection rules to main (requires GH_TOKEN with repo/admin scope)"

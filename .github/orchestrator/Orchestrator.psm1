@@ -10,9 +10,11 @@
 
     Load order (dependencies first):
 
-        lib/Config     settings, run context (Get-OrchestratorContext), model selection
+        lib/Config     settings, run context (Get-OrchestratorContext), the
+                       $PipelineStates label table, model selection
         lib/Util       logging, runtime, lock, ISSUES.md reader, engine ping, usage limit
         lib/GitHub     labels, lanes, comments, board, issue-body carrier sections
+        lib/Reconcile  re-entry (Restart-Issue) and the hourly warden over stuck states
         engines/       Claude and Gemini adapters (streaming, commit messages)
         lib/Grill      refine's self-grill subagent (Invoke-Grill)
         stages/        Refine, Architect, Plan, Implement, Review, Ship
@@ -30,6 +32,7 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\engines\Claude.ps1"
 . "$PSScriptRoot\engines\Gemini.ps1"
 
+. "$PSScriptRoot\lib\Reconcile.ps1"
 . "$PSScriptRoot\lib\Grill.ps1"
 
 # stages — one file per stage, in pipeline order

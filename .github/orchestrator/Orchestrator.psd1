@@ -29,21 +29,29 @@
         'Invoke-Ship'
 
         # Issue + board state
-        'Set-AgentState'
         'Move-ToLane'
-        'Add-Comment'
         'Resolve-PR'
-        'Reset-AttemptCount'
 
         # Hourly resume of issues paused on the engine's usage limit (afk.yml)
         'Resume-PausedIssues'
 
+        # Recovery (lib/Reconcile.ps1). Invoke-Reconciliation is the hourly warden
+        # over states nothing is working on; Restart-Issue is the single re-entry
+        # point it and task retry both use.
+        #
+        # Collapsing task retry onto Restart-Issue took five functions out of this
+        # list — Set-AgentState, Add-Comment, Reset-AttemptCount, Get-IssueState and
+        # Set-IssueLabel. retry.ps1 was their only external caller, and it had to
+        # sequence all five by hand to do what Restart-Issue now does in one call.
+        # That sequence was a second copy of the re-entry rule, and it had drifted:
+        # it keyed on failed_at, which a killed runner never records. A narrower
+        # surface is the point of ADR-015 — Set-AgentState in particular should not
+        # be reachable from outside the module that owns every transition.
+        'Invoke-Reconciliation'
+        'Restart-Issue'
+
         # The owner merged or closed a PR held for approval (afk.yml)
         'Complete-HeldPR'
-
-        # Carrier read + label primitive — task retry resumes from failed_at
-        'Get-IssueState'
-        'Set-IssueLabel'
 
         # The single "is this issue already shipped" rule — afk.yml's pr-closed
         # cheap pre-check and Complete-HeldPR's own guard both call this (#275)

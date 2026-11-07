@@ -16,8 +16,11 @@ name: AFK
 #                                                  CONTEXT.md update; closed unmerged →
 #                                                  agent:failed, your comment retries. Skipped
 #                                                  only if the issue is already terminal.
-#   hourly schedule                             → resume agent:paused issues once the Claude
-#                                                  usage limit has reset (max 5 h pause)
+#   hourly schedule                             → reconcile: re-enter any agent-held state
+#                                                  nothing is working on, and resume
+#                                                  agent:paused once the Claude usage limit
+#                                                  has reset (max 5 h pause). Never touches a
+#                                                  state a human holds
 #   workflow_dispatch stage=refine, issue 0     → refine every issue with no agent:* label
 #   workflow_dispatch stage=implement / ship    → manual override for one issue (ship: your
 #                                                  dispatch is the approval)
@@ -336,36 +339,53 @@ jobs:
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           Complete-HeldPR -PRNumber ([int]$env:PR_NUMBER) -Branch $env:PR_BRANCH -Merged ($env:PR_MERGED -eq 'true')
 
-  # ── Resume (hourly) — issues paused on the Claude usage limit ────────────────
-  resume:
-    name: Resume paused issues
+  # ── Reconcile (hourly) — states nothing is working on ───────────────────────
+  # The warden. Every other recovery path runs inside the conductor's try/catch,
+  # which a killed process never reaches: a lost runner, a cancelled job, an
+  # Actions timeout or a failed drain re-dispatch leaves an issue holding a label
+  # that claims work nobody is doing. This pass re-enters those, and resumes
+  # anything paused on the Claude usage limit. A state a human holds —
+  # human:decision, human:approval, agent:failed — is never touched (#278).
+  reconcile:
+    name: Reconcile stuck issues
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     concurrency:
-      group: resume-paused
+      group: reconcile
       cancel-in-progress: false
     steps:
-      # Cheap check first: most hours nothing is paused, and then nothing is installed.
-      - name: Any paused issues?
-        id: paused
-        shell: bash
-        run: |
-          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --label agent:paused --state open --json number --jq length)
-          echo "count=${n:-0}" >> "$GITHUB_OUTPUT"
-
+      # The default branch, for Import-Module. Checkout is cheap; the tooling
+      # install below is what's worth gating.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.paused.outputs.count != '0'
 
+      # Cheap check first: most hours nothing is stuck and nothing is paused, and
+      # then no tooling is installed. Reports the verdict for every open issue to
+      # the job summary either way, so a quiet hour is observably quiet rather
+      # than indistinguishable from a job that never ran.
+      - name: Is anything stuck or paused?
+        id: survey
+        shell: pwsh
+        run: |
+          Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
+          # Deferred rows are in-flight states a live run still owns — the next pass
+          # an hour from now handles them, so they are not worth an engine install.
+          $todo = @(Invoke-Reconciliation -WhatIf | Where-Object { $_.Action -ne 'deferred' })
+          "pending=$(($todo.Count -gt 0).ToString().ToLower())" >> $env:GITHUB_OUTPUT
+
+      # Re-entry needs the engine: Restart-Issue can dispatch refine, and
+      # Resume-PausedIssues probes the engine before releasing a pause.
       - name: Install tooling
-        if: steps.paused.outputs.count != '0'
+        if: steps.survey.outputs.pending == 'true'
         shell: bash
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           sudo npm install -g @anthropic-ai/claude-code
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Resume issues whose usage-limit pause has passed
-        if: steps.paused.outputs.count != '0'
+      - name: Re-enter what nothing is working on
+        if: steps.survey.outputs.pending == 'true'
         shell: pwsh
         run: |
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
-          Resume-PausedIssues
+          $null = Invoke-Reconciliation
