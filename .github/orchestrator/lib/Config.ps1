@@ -123,9 +123,12 @@ $KanbanStopWords = @(
 # these labels (ADR-015, #225), and this is the only place that says what each one
 # means:
 #
-#   Lane / LaneName  the board column the label implies. Set-AgentState reads these
-#                    — it used to carry two parallel switch statements over the same
-#                    label set, which is two copies of one mapping.
+#   LaneName         the board column the label implies. Set-AgentState reads it —
+#                    it used to carry two parallel switch statements over the same
+#                    label set, which is two copies of one mapping. The column's
+#                    board option id is NOT here: those come from repository
+#                    variables and must be read when the transition runs, not frozen
+#                    when this file loads (Get-LaneOptionId in lib/GitHub.ps1).
 #   Holder           who owes the next move while the label is set:
 #                      agent — the pipeline owes progress, so a state that has gone
 #                              quiet is stale and the warden may re-enter it
@@ -142,14 +145,14 @@ $KanbanStopWords = @(
 # Adding a state means adding one row. Nothing else in the module may switch on a
 # label; a second mapping is how #252, #266 and #275 each shipped the same bug.
 $PipelineStates = [ordered]@{
-    'agent:backlog'      = @{ Lane = $KanbanOpt_Backlog;      LaneName = 'Backlog';      Holder = 'agent'; Recovery = 'implement' }
-    'agent:implementing' = @{ Lane = $KanbanOpt_Implementing; LaneName = 'Implementing'; Holder = 'agent'; Recovery = 'restart'   }
-    'agent:reviewing'    = @{ Lane = $KanbanOpt_Review;       LaneName = 'Review';       Holder = 'agent'; Recovery = 'restart'   }
-    'agent:paused'       = @{ Lane = $KanbanOpt_Backlog;      LaneName = 'Backlog';      Holder = 'agent'; Recovery = 'resume'    }
-    'agent:shipped'      = @{ Lane = $KanbanOpt_Merged;       LaneName = 'Shipped';      Holder = 'none';  Recovery = 'none'      }
-    'agent:failed'       = @{ Lane = $KanbanOpt_Backlog;      LaneName = 'Backlog';      Holder = 'human'; Recovery = 'none'      }
-    'human:decision'     = @{ Lane = $KanbanOpt_Backlog;      LaneName = 'Backlog';      Holder = 'human'; Recovery = 'none'      }
-    'human:approval'     = @{ Lane = $KanbanOpt_Review;       LaneName = 'Review';       Holder = 'human'; Recovery = 'none'      }
+    'agent:backlog'      = @{ LaneName = 'Backlog';      Holder = 'agent'; Recovery = 'implement' }
+    'agent:implementing' = @{ LaneName = 'Implementing'; Holder = 'agent'; Recovery = 'restart'   }
+    'agent:reviewing'    = @{ LaneName = 'Review';       Holder = 'agent'; Recovery = 'restart'   }
+    'agent:paused'       = @{ LaneName = 'Backlog';      Holder = 'agent'; Recovery = 'resume'    }
+    'agent:shipped'      = @{ LaneName = 'Shipped';      Holder = 'none';  Recovery = 'none'      }
+    'agent:failed'       = @{ LaneName = 'Backlog';      Holder = 'human'; Recovery = 'none'      }
+    'human:decision'     = @{ LaneName = 'Backlog';      Holder = 'human'; Recovery = 'none'      }
+    'human:approval'     = @{ LaneName = 'Review';       Holder = 'human'; Recovery = 'none'      }
 }
 
 # Resolve the repo slug WITHOUT a GraphQL call. `gh repo view` hits the GraphQL

@@ -27,10 +27,19 @@ def test_engine_is_pinned_to_an_installed_cli():
 
 
 def _job(name: str) -> str:
-    """Text of one top-level job, up to the next job header."""
+    """Text of one top-level job, up to the next job header or its section divider.
+
+    Every job in afk.yml is introduced by a `  # ── Name ──` divider. Stopping at
+    one matters: without it a job absorbed the *next* job's leading comment, so
+    describing one job's rules in prose made assertions about the job above it
+    fail — which is what adding the reconcile job's comment block did to
+    test_any_feature_pr_close_reconciles_the_issue (#278).
+    """
     text = WORKFLOW.read_text(encoding="utf-8")
     match = re.search(
-        rf"^  {name}:\n(.*?)(?=^  [\w-]+:\n|\Z)", text, re.MULTILINE | re.DOTALL
+        rf"^  {name}:\n(.*?)(?=^  [\w-]+:\n|^  # ──|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
     )
     assert match, f"job {name!r} not found"
     return match.group(1)

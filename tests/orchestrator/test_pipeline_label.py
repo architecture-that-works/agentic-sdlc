@@ -23,13 +23,15 @@ pytestmark = pytest.mark.skipif(not shutil.which("pwsh"), reason="pwsh not avail
 _FAKES = r"""
 $script:Current = @()
 $script:Lanes = [System.Collections.Generic.List[string]]::new()
+$script:Options = [System.Collections.Generic.List[string]]::new()
 $script:State = [pscustomobject]@{ open_questions = @() }
 function script:Write-Log { param($Message, $Color) }
 function script:Get-IssueLabel { param($IssueNumber) @($script:Current) }
 function script:Set-IssueLabel { param($Number, $Add = '', $Remove = '')
     if ($Remove) { $script:Current = @($script:Current | Where-Object { $_ -ne $Remove }) }
     if ($Add)    { $script:Current = @($script:Current) + $Add } }
-function script:Move-ToLane { param($IssueNumber, $OptionId, $LaneName) $script:Lanes.Add($LaneName) }
+function script:Move-ToLane { param($IssueNumber, $OptionId, $LaneName)
+    $script:Lanes.Add($LaneName); $script:Options.Add("$LaneName=$OptionId") }
 function script:Get-IssueState { param($IssueNumber) $script:State }
 function script:Set-PlanningState { param($IssueNumber, $State) $script:State = $State }
 function script:Test-Readiness { param($State) $true }
@@ -80,6 +82,34 @@ $after = foreach ($l in 'agent:backlog', 'agent:implementing', 'agent:reviewing'
     ]
     assert out["all"] == ["enhancement", "agent:shipped"]  # other labels untouched
     assert out["lanes"] == ["Backlog", "Implementing", "Review", "Review", "Shipped"]
+
+
+def test_the_board_option_id_is_read_when_the_transition_runs() -> None:
+    """The four lane option ids are repository variables, so Set-AgentState must
+    read them at call time.
+
+    Holding them in `$PipelineStates` alongside the lane names froze them at
+    module-load time, which turned every lane move into a no-op for any caller
+    that configured them after the import — including this suite's own fakes.
+    Asserting only the lane *name* hid it: on a developer machine `.env` supplies
+    real ids at load, so the move still happened, just with the wrong id. Only CI,
+    which has no `.env`, failed. Pinning the id is what makes this env-independent.
+    """
+    out = _run(
+        r"""
+$script:Current = @()
+foreach ($l in 'agent:backlog', 'agent:implementing', 'agent:reviewing', 'agent:shipped') {
+    Set-AgentState -IssueNumber 1 -Label $l
+}
+[pscustomobject]@{ options = @($script:Options) } | ConvertTo-Json -Compress
+"""
+    )
+    assert out["options"] == [
+        "Backlog=b",
+        "Implementing=i",
+        "Review=r",
+        "Shipped=m",
+    ]
 
 
 def test_a_human_hold_replaces_the_agent_state() -> None:
