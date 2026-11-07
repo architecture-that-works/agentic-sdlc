@@ -727,6 +727,18 @@ function Get-IssueLabel {
 ' | Where-Object { $_ })
 }
 
+# The single definition of "this issue's own merge/close event was already
+# processed" (#275). agent:shipped is the only terminal label for this question —
+# agent:failed is NOT: a human fixing a failed issue by hand and merging is exactly
+# the case that must still transition to agent:shipped (#266). Exported so both the
+# cheap pre-check in afk.yml's pr-closed job and Complete-HeldPR's own guard call the
+# same rule instead of each re-typing it — afk.yml's bash check re-typing this exact
+# rule, and drifting from it, is what left #268 stuck at agent:failed after #267.
+function Test-IssueShipped {
+    param([int]$IssueNumber)
+    return (@(Get-IssueLabel -IssueNumber $IssueNumber) -contains 'agent:shipped')
+}
+
 # ── Comment helper ────────────────────────────────────────────────────────────
 
 function Add-Comment {

@@ -283,7 +283,7 @@ jobs:
   pr-closed:
     name: Reconcile issue after PR close
     # Every feature-branch PR close lands here; Complete-HeldPR skips only an issue
-    # already in a terminal state (agent:shipped / agent:failed) — see Ship.ps1.
+    # Test-IssueShipped already reports as agent:shipped — see Ship.ps1 / GitHub.ps1.
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
@@ -297,31 +297,28 @@ jobs:
       PR_BRANCH: ${{ github.event.pull_request.head.ref }}
       PR_MERGED: ${{ github.event.pull_request.merged }}
     steps:
-      # Cheap check first: skip only if the issue already reached a terminal state —
-      # the pipeline's own in-process merge path almost always wins that race (see
-      # Ship.ps1), so by the time this job's tooling install would finish, the
-      # common case is already done.
-      - name: Does the issue still need reconciling?
-        id: reconcile
-        shell: bash
-        run: |
-          issue=$(sed -nE 's#^feature/([0-9]+)-.*#\1#p' <<< "$PR_BRANCH")
-          pending=false
-          if [ -n "$issue" ]; then
-            labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$issue/labels" --jq '.[].name')
-            if ! grep -qx -e 'agent:shipped' -e 'agent:failed' <<< "$labels"; then
-              pending=true
-            fi
-          fi
-          echo "pending=$pending" >> "$GITHUB_OUTPUT"
-
-      # The default branch, not the PR: the CONTEXT.md update commits on top of it.
+      # The default branch, not the PR: the CONTEXT.md update commits on top of it,
+      # and the cheap pre-check below needs it to Import-Module. Unconditional —
+      # checkout is cheap; what's expensive (and gated below) is the tooling install.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.reconcile.outputs.pending == 'true'
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
           token: ${{ secrets.GH_TOKEN }}
+
+      # Cheap check first: skip only if Test-IssueShipped already says so — the
+      # pipeline's own in-process merge path almost always wins that race (see
+      # Ship.ps1), so by the time this job's tooling install would finish, the
+      # common case is already done. Calls the exact same function Complete-HeldPR
+      # itself calls (#275) — no second, hand-synced copy of the rule to drift from.
+      - name: Does the issue still need reconciling?
+        id: reconcile
+        shell: pwsh
+        run: |
+          Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
+          $issue = if ($env:PR_BRANCH -match '^feature/(\d+)-') { [int]$Matches[1] } else { 0 }
+          $pending = $issue -gt 0 -and -not (Test-IssueShipped -IssueNumber $issue)
+          "pending=$($pending.ToString().ToLower())" >> $env:GITHUB_OUTPUT
 
       - name: Install tooling
         if: steps.reconcile.outputs.pending == 'true'

@@ -45,6 +45,10 @@
         'Get-IssueState'
         'Set-IssueLabel'
 
+        # The single "is this issue already shipped" rule — afk.yml's pr-closed
+        # cheap pre-check and Complete-HeldPR's own guard both call this (#275)
+        'Test-IssueShipped'
+
         # Self-grill subagent (refine stage; also driven standalone by the
         # refine skill's grill.ps1 probe)
         'Invoke-Grill'
