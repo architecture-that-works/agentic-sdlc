@@ -18,3 +18,19 @@ repos:
         entry: uv run ruff format --check
         types: [python]
         pass_filenames: true
+
+      - id: pyright
+        name: pyright
+        language: system
+        entry: uv run pyright
+        types: [python]
+        pass_filenames: true
+        # Measured: ~6 s on ubuntu-latest (issue #280)
+
+      - id: pytest-staged
+        name: pytest (staged tests)
+        language: system
+        entry: uv run python scripts/staged_tests.py
+        types: [python]
+        pass_filenames: true
+        # Measured: ~3 s on ubuntu-latest (issue #280)
