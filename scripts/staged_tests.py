@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Map staged src/**/*.py files to their test counterparts and run them.
 
 Usage: staged_tests.py <staged_file> [<staged_file> ...]
