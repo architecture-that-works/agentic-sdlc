@@ -237,3 +237,87 @@ def test_root_resolves_two_levels_up_from_tasks_dir() -> None:
     assert r"$PSScriptRoot\..\.." in content, (
         r"$_Root must be $PSScriptRoot\..\.. (two levels up to the repo root)"
     )
+
+
+# ── Fence burndown ────────────────────────────────────────────────────────────
+# The mandated Block Format wraps every ISSUE block in plain triple-backtick
+# fences.  $IssueRegex must include those fences so the burn-down removes the
+# entire fenced unit — not just the content inside it.
+
+_FENCE_BURNDOWN_SNIPPET = r"""
+function Invoke-BurnDown([string]$Content) {
+    $SentinelMatch = [regex]::Match($Content, '(?m)^<!-- ISSUES -->\s*$')
+    $ParseContent  = if ($SentinelMatch.Success) { $Content.Substring($SentinelMatch.Index) } else { $Content }
+    $IssueRegex    = '(?s)```\r?\nISSUE:\s*(.*?)\r?\n(.*?)\r?\nEND_ISSUE\r?\n```'
+    $Found         = [regex]::Matches($ParseContent, $IssueRegex)
+    $NewContent    = $Content
+    foreach ($match in $Found) {
+        $escaped    = [regex]::Escape($match.Value)
+        $NewContent = [regex]::Replace($NewContent, "$escaped\s*", '')
+    }
+    $NewContent = $NewContent -replace '(\r?\n){3,}', "`r`n`r`n"
+    return $NewContent
+}
+"""
+
+
+def test_script_uses_fenced_issue_regex() -> None:
+    """sync.ps1 $IssueRegex must require triple-backtick fences around blocks."""
+    content = SCRIPT.read_text(encoding="utf-8")
+    assert r"```\r?\nISSUE:" in content, (
+        r"sync.ps1 $IssueRegex must start with ```\r?\nISSUE: to capture the fence"
+    )
+
+
+def test_fenced_block_burndown_removes_fences() -> None:
+    """After burn-down of a fenced ISSUE block, no empty fence pair remains and
+    the Block Format prose above the sentinel is byte-identical to the input."""
+    result = _ps(
+        _FENCE_BURNDOWN_SNIPPET
+        + r"""
+$Content = @'
+## Block Format
+
+```
+ISSUE: Example Title
+**Goal**: This is a docs example.
+END_ISSUE
+```
+
+<!-- ISSUES -->
+
+```
+ISSUE: Real Issue Title
+**Goal**: This is the real thing.
+END_ISSUE
+```
+'@
+
+$out = Invoke-BurnDown $Content
+
+# Assert no empty fence pair (two consecutive lines that are bare ```)
+$lines = $out -split '\r?\n'
+for ($i = 0; $i -lt ($lines.Count - 1); $i++) {
+    if ($lines[$i].Trim() -eq '```' -and $lines[$i + 1].Trim() -eq '```') {
+        Write-Host "FAIL: empty fence pair at lines $i and $($i + 1)"
+        Write-Host $out
+        exit 1
+    }
+}
+
+# Assert content above sentinel is unchanged
+$sepIn  = $Content.IndexOf('<!-- ISSUES -->')
+$sepOut = $out.IndexOf('<!-- ISSUES -->')
+if ($sepIn -lt 0 -or $sepOut -lt 0) {
+    Write-Host "FAIL: sentinel missing from result"
+    exit 1
+}
+if ($Content.Substring(0, $sepIn) -ne $out.Substring(0, $sepOut)) {
+    Write-Host "FAIL: content before sentinel changed"
+    exit 1
+}
+
+exit 0
+"""
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
