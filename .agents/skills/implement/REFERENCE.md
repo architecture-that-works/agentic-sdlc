@@ -90,18 +90,20 @@ patterns. Do not apply domain patterns before the checklist above completes.
 
 ## Shortcut Comments
 
-A shortcut is a deliberate simplification with a known limit — a linear scan that is fine for
-hundreds of rows, a single-process lock, a hardcoded region. It is written as one comment on
-the line it limits:
+A shortcut is a deliberate simplification the issue does not need resolved now — a linear scan
+that is fine for the current data, a single-process lock, one input format handled. It is written
+as one comment on the line it limits, naming the follow-up:
 
 ```python
-# shortcut: linear scan, fine below ~10k rows; index when the table outgrows that
+# shortcut: linear scan — to be fixed in orders-index-lookup
 ```
 
-Three parts, in order: the word `shortcut:`, the limit, when to upgrade. `review` treats a
-marked shortcut as a decision, not a finding, unless the expected load already crosses the
-limit; an unmarked shortcut is a finding. A shortcut is never allowed on validation at a trust
-boundary, error handling that prevents data loss, or security.
+Two parts, in order: `shortcut:` and the reason, then `to be fixed in` and the slug of the
+follow-up (an ISSUES.md block or an open issue). REFACTOR never removes a shortcut silently —
+removing one means doing the follow-up, in its own issue. `review` lists lines bearing the
+comment under `Not checked:` instead of raising them as findings; an unmarked simplification is
+a finding. A shortcut is never allowed on validation at a trust boundary, error handling that
+prevents data loss, or security.
 
 ---
 

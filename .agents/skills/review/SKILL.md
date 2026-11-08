@@ -7,7 +7,7 @@ description: Use when validating a pull request, running the fix loop on review 
 
 ## Overview
 
-Prevents defects, architectural drift and bloat from reaching `main`. Review a change like the senior developer who will be paged when it breaks: read the connected code, not only the diff; report only findings with a concrete case; propose the smallest fix. Order of importance: correct, safe, holds under load, tested, fast, lean. Lean still matters — every extra line must be read, tested and fixed later.
+Prevents defects, architectural drift and bloat from reaching `main`. Review a change like the senior developer who will be paged when it breaks: read the connected code, not only the diff; report only findings with a concrete case; propose the smallest fix. Order of importance: correct, safe, holds under load, tested, fast, lean. Lean still matters — every extra line must be read, tested and fixed later. Implement and review share one standard — the rules in `implement` § Green and § Refactor. Review catches what breaks them or the correctness bar; it never undoes a choice made by them.
 
 **Primary artifact:** A verdict a busy human understands in one read, with numbered findings that each carry their own fix — all resolved or escalated before `ship`.
 
@@ -21,7 +21,7 @@ fixed in one round, a clean approval, escalation after three rejections).
 
 **Does not own:** Code implementation and fixing findings (→ `implement`), static topology analysis and the repo-wide audit (→ `architect`), merge and security governance (→ `ship`), lint and format (the `ruff` gate in CI).
 
-**Interfaces with:** `implement` — review validates that GREEN and REFACTOR produced compliant code; a rejection hands the numbered findings back to `implement`; a `shortcut:` comment from `implement` is a decision, not a finding. `architect` — the blast-radius report is surfaced in the review; the repo audit reuses the finding categories defined here. `ship` — a clean review is the gate for `ship`.
+**Interfaces with:** `implement` — review validates that GREEN and REFACTOR produced code compliant with `implement`'s own rules, the team's one standard; a rejection hands the numbered findings back to `implement`; a `shortcut:` line from `implement` is listed under `Not checked:`, never as a finding. `architect` — the blast-radius report is surfaced in the review; the repo audit reuses the finding categories defined here. `ship` — a clean review is the gate for `ship`.
 
 ## When to Use
 
@@ -40,7 +40,7 @@ fixed in one round, a clean approval, escalation after three rejections).
 
 ## Primary Outputs
 
-- Review report: verdict first, then numbered findings tagged BLOCK / WARN / INFO
+- Review report: verdict first, then numbered three-part findings, most important first
 - In the pipeline: `APPROVED` proceeds to `ship`; `REJECTED` returns the issue to `implement` with the findings
 - Escalation when the rejection budget is spent (the issue lands on `agent:failed`)
 
@@ -61,7 +61,7 @@ fixed in one round, a clean approval, escalation after three rejections).
 3. **Scale** — fine for one user, wrong for many: check-then-write races, work repeated by every process, lists that only grow, a query per item, O(n²) on big input.
 4. **Missing test** — risky new logic (a branch, a parser, money, security, data writes, a bug fix) with no test that fails when it breaks. One good test, not coverage.
 5. **Speed** — big slowdowns are problems; small wins are suggestions.
-6. **Lean** — code that should not exist or should be smaller: dead code, a helper the repo already has (name the path), stdlib doing the same, an abstraction with one implementation, near-copies that must change together, a function doing several unrelated jobs.
+6. **Lean** — code that breaks `implement`'s rules (§ Green ladder, § Refactor): dead code, a helper the repo already has (name the path), stdlib doing the same, an abstraction with one implementation, near-copies that must change together, a function doing several unrelated jobs. Simpler code chosen by those rules is not lean debt.
 
 Plus the governance checks — `CONTEXT.md` constraints, internal mocks, Module Map rows, secrets, test traceability. The severity of each is in REFERENCE § Finding categories.
 
@@ -69,31 +69,30 @@ Plus the governance checks — `CONTEXT.md` constraints, internal mocks, Module 
 
 - Every finding needs a concrete case: "this input or situation leads to this wrong result". No case, no finding.
 - Re-read the lines and confirm: the caller exists, the value can really be empty, the code really is unused (grep the whole tree, tests and fixtures included).
-- A `shortcut:` comment that names its limit is a decision, not a finding, unless the expected load already crosses it.
+- A line bearing a `shortcut:` comment is a known gap with a named follow-up: list it under `Not checked:`, never as a finding.
+- Never overrule a choice `implement` made by the shared rules: simpler code, a marked `shortcut:`, a declared `Left undone:` that no criterion requires. A finding that asks for more code than the rules require is not a finding.
 - Propose the smallest fix that works. Prefer fixes that delete code. Never add layers, frameworks or config the problem does not need.
 - No style taste, no "consider", no vague worries. Lint and format belong to the `ruff` gate.
 
 ### Step 4 — Report
 
-First line: the verdict — `APPROVED`, or `REJECTED — fix 1 and 3`. The pipeline reads this line.
+First line: the verdict — `APPROVED`, or `REJECTED — fix 1 and 3`, naming every finding that must be fixed. The pipeline reads this line.
 Then `What this change does:` in two or three sentences.
-Then the findings, numbered across all groups so the owner can say "fix 2 and 5" — BLOCK first, then WARN, then INFO; skip empty groups. Every finding has four parts, each one or two short sentences:
+Then the findings, numbered, most important first (the order of Step 2), so the owner can say "fix 2 and 5". No severity tag on a finding — the verdict line says which numbers block; the rest are suggestions. Every finding has three parts, each one or two short sentences:
 
 ```
-2. **Orders land on the wrong day** (`billing/close_day.py:L40-52`) — BLOCK
-   - **What this is:** At midnight this job closes the day and bills all orders of that day.
-   - **Problem:** It takes "today" from the server clock, which runs in UTC. An order placed
-     at 00:30 in Berlin is billed on the day before.
+2. **Orders land on the wrong day** (`billing/close_day.py:L40-52`)
+   - **Defect:** The job takes "today" from the server clock, which runs in UTC.
+   - **Case:** An order placed at 00:30 in Berlin is billed on the day before.
    - **Fix:** Compute the day once in the shop's time zone:
      `datetime.now(ZoneInfo("Europe/Berlin")).date()`. One line, nothing else changes.
-   - **If we skip it:** Late orders show the wrong date, and accounting fixes them by hand.
 ```
 
-End with `Lean: -<N> lines possible.` when lean findings exist, and `Not checked:` in one line when something mattered and you could not check it.
+End with `Lean: -<N> lines possible.` when lean findings exist, then `Not checked:` — a heading listing the `shortcut:` lines you passed over and anything that mattered but you could not check.
 
 Nothing found: the verdict, `What this change does:`, `Looks good.` and one line on what you checked.
 
-**Verdict rule.** `REJECTED` when any BLOCK stands, or any WARN is neither fixed nor waived. A WARN is waived only when the fix would be larger than the problem; the waiver is one line inside the finding. INFO never changes the verdict.
+**Verdict rule.** A finding's severity (REFERENCE § Finding categories) is the reviewer's rule, never printed: `REJECTED` names every BLOCK and every WARN that is not waived. A WARN is waived only when the fix would be larger than the problem; the waiver is one line inside the finding. INFO never changes the verdict.
 
 ### Step 5 — Fix loop and escalation
 
@@ -106,6 +105,8 @@ HITL: the same loop by hand on the feature branch (an isolated worktree if the m
 If a finding maps to a principle from `CONTEXT.md` or a constraint established in `refine` (encapsulation leak, tracer-bullet violation, mocking rule breach), it is automatically elevated to BLOCK regardless of initial severity. These are not negotiable.
 
 ## Quick Reference
+
+Severity is the reviewer's internal rule for the verdict line; it is never printed on a finding.
 
 | Severity | Holds | Gate | Resolution |
 |---|---|---|---|
@@ -127,8 +128,8 @@ A changed signature breaks callers the diff never shows. Grep every caller befor
 **A finding without a case.**
 "This might be slow" and "consider extracting" are not findings. Name the input and the wrong result, or drop it.
 
-**Suggesting an abstraction for a future that has not arrived.**
-One implementation needs no interface beyond what the Architectural Constraints require; three copies do (Rule of Three). The reviewer's job is to shrink the change, not to grow it.
+**Undoing what `implement` did on purpose.**
+Simpler code, a marked `shortcut:` or a declared `Left undone:` is a decision made by the shared rules — the same team standard the reviewer holds. One implementation needs no interface beyond what the Architectural Constraints require; three copies do (Rule of Three). The reviewer's job is to shrink the change, not to grow it.
 
 **Continuing past the rejection budget.**
 Three rounds is the cap. A fourth compounds drift and wastes context. Escalate and stop.

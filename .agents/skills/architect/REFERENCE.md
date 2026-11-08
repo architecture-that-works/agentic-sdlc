@@ -197,15 +197,15 @@ Circular dependency
 
 ## Repo Audit — Finding to ISSUES.md Block
 
-Each BLOCK and WARN finding from the audit (SKILL.md § Repo Audit) becomes one block in
-ISSUES.md, in the shape its header defines. The four parts of the finding map onto the block:
+Each audit finding but the small suggestions (SKILL.md § Repo Audit) becomes one block in
+ISSUES.md, in the shape its header defines. The three parts of the finding map onto the block:
 
 ```
 ISSUE: <finding title, action-oriented — "Close the check-then-write race in …">
 ESTIMATE: <ISSUES.md scale — 2 for a one-line fix with its test, 3 for a function, 5 across modules>
-PRIORITY: <P2 for a BLOCK with a reproduction; P4 for lean; P3 otherwise>
-**Goal**: <"If we skip it", inverted — the outcome once fixed>
-**Description**: <"What this is" + "Problem": the concrete case, with path:Lx-y>
+PRIORITY: <P2 for a bug or risk with a reproduction; P4 for lean; P3 otherwise>
+**Goal**: <the outcome once fixed>
+**Description**: <defect + case, with path:Lx-y>
 **Requirements**:
 1. <"Fix" — the smallest change; prefer deletion>
 2. <the one test that fails when it breaks — for bug, risk, scale and missing-test findings>
@@ -216,4 +216,4 @@ END_ISSUE
 ```
 
 No label: `refine` sets `agent:backlog`, or `human:decision` when the fix needs the owner.
-INFO findings are not issues; they stay in the audit report.
+Small suggestions are not issues; they stay in the audit report.

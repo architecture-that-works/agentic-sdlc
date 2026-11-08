@@ -6,7 +6,7 @@ categories, the verdict rule and the fix loop.
 
 ---
 
-## Example 1: BLOCK Finding Fixed in One Round
+## Example 1: Blocking Findings Fixed in One Round
 
 **Context:** PR #42 adds `Order.total()` with tax calculation. The issue's acceptance
 criteria: "total includes tax", "an empty order totals 0.0".
@@ -26,35 +26,35 @@ when the cart is empty.
 ### Round 1 — Report (posted to the issue)
 
 ```
-REJECTED — fix 1 and 2
+REJECTED — fix 1, 2 and 3
 
 What this change does: Adds an Order class with total(), which sums item prices and applies
 a tax rate. checkout.py calls it to show the price before confirmation.
 
-1. **Empty cart crashes checkout** (`src/orders/__init__.py:L14`) — BLOCK
-   - **What this is:** total() sums self._items.
-   - **Problem:** checkout.py:31 passes items=None for an empty cart; sum(None) raises
-     TypeError. The "empty order totals 0.0" criterion is not met.
+1. **Empty cart crashes checkout** (`src/orders/__init__.py:L14`)
+   - **Defect:** total() sums self._items, which checkout.py:31 sets to None for an empty cart.
+   - **Case:** An empty cart → sum(None) raises TypeError; the "empty order totals 0.0"
+     criterion is not met.
    - **Fix:** `items: list = field(default_factory=list)`; keep sum() as is. One line.
-   - **If we skip it:** Every empty-cart visit to checkout returns a 500.
 
-2. **Test proves nothing** (`tests/test_orders.py:L8-12`) — BLOCK
-   - **What this is:** test_order_total_with_no_items patches src.orders.TaxCalculator.
-   - **Problem:** TaxCalculator is an internal collaborator; with it mocked the test passes
-     whether or not total() handles an empty order (implement mocking rule, CONTEXT.md).
+2. **Test proves nothing** (`tests/test_orders.py:L8-12`)
+   - **Defect:** test_order_total_with_no_items patches src.orders.TaxCalculator, an internal
+     collaborator (implement mocking rule, CONTEXT.md).
+   - **Case:** With the mock in place the test passes whether or not total() handles an empty
+     order, so finding 1 ships green.
    - **Fix:** Drop the patch; call Order(items=[], tax_rate=0.1).total() and assert 0.0.
-   - **If we skip it:** Finding 1 ships green.
 
-3. **items is a public field** (`src/orders/__init__.py:L11`) — WARN
-   - **What this is:** The dataclass exposes the item list.
-   - **Problem:** checkout.py can mutate the list after total() was shown.
+3. **items is a public field** (`src/orders/__init__.py:L11`)
+   - **Defect:** The dataclass exposes the item list.
+   - **Case:** checkout.py appends to it after total() was shown → the displayed total is stale.
    - **Fix:** Rename to `_items`; the constructor keeps the `items` keyword. Two lines.
-   - **If we skip it:** A later caller edits the list and the shown total is stale.
 
 Not checked: rounding of fractional tax rates — no criterion asks for it.
 ```
 
-The pipeline posts this as `🤖❌ Review Rejected` and sets `agent:implementing`.
+Findings 1 and 2 are BLOCK and 3 is an unwaived WARN by the reviewer's rule, so the verdict
+names all three; no tag is printed. The pipeline posts this as `🤖❌ Review Rejected` and sets
+`agent:implementing`.
 
 ### Round 2 — `implement` fixes all three; review re-reads the current diff
 
@@ -80,16 +80,17 @@ APPROVED
 What this change does: Adds DEFAULT_TIMEOUT (30 s) to Settings, read from .env like every
 other field, with one test for the default and one for the override.
 
-1. **Why 30 seconds** (`src/config.py:L22`) — INFO
-   - **What this is:** The new default.
-   - **Problem:** Nothing says where 30 came from; the next reader will guess.
+1. **Why 30 seconds** (`src/config.py:L22`)
+   - **Defect:** Nothing says where the 30 s default came from.
+   - **Case:** The next reader "tunes" it without knowing the upstream API itself times out
+     at 30 s.
    - **Fix:** One comment: `# 30 s: the upstream API's own timeout — never wait longer than it does`.
-   - **If we skip it:** Someone "tunes" it without knowing the constraint.
 
 Looks good. Checked: the one caller of Settings, extra="ignore" still set, the two tests.
 ```
 
-INFO never changes the verdict. The pipeline proceeds to `ship`.
+A suggestion like this never changes the verdict; the verdict line names only what must be
+fixed. The pipeline proceeds to `ship`.
 
 ---
 

@@ -7,8 +7,9 @@ output shape. See [EXAMPLES.md](EXAMPLES.md) for worked review sessions.
 
 ## Finding categories
 
-Severity follows what happens if the finding ships, not how big the fix is. `architect`'s repo
-audit uses the same table.
+Severity follows what happens if the finding ships, not how big the fix is. It is the reviewer's
+rule for the verdict line and for what `architect`'s repo audit turns into an issue; it is never
+printed on a finding.
 
 ### BLOCK — merge prohibited
 
@@ -34,7 +35,7 @@ Any of:
 - **Missing test:** risky new logic (a branch, a parser, money, security, a data write, a bug
   fix) with no test that fails when it breaks. Ask for one good test, not coverage
 - **Speed:** a real slowdown on the expected load
-- **Lean:** code that should not exist or should be smaller —
+- **Lean:** code that breaks `implement`'s rules — it should not exist or should be smaller —
   - *delete:* dead code, unused options, flags and config, speculative features
   - *reuse:* the repo already has this helper (name the path)
   - *stdlib / native:* the standard library or platform already does it; a new dependency for
@@ -58,12 +59,14 @@ Any of:
 
 ### What is not a finding
 
-- A `shortcut:` comment that names its limit and when to upgrade — a decision, unless the
-  expected load already crosses the limit
+- A line bearing a `shortcut:` comment — a known gap with a named follow-up; list it under
+  `Not checked:`
 - Style and formatting — the `ruff` gate owns them
 - "Consider…", "might…", "could be cleaner" — no concrete case, no finding
 - Something the implementation declared under `Left undone:` that no acceptance criterion
   requires
+- Code simpler than the reviewer would have written, when it meets the acceptance criteria and
+  `implement`'s rules — the team holds one standard, and review does not undo a choice made by it
 
 ### Automatic elevation to BLOCK
 

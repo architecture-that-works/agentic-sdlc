@@ -163,16 +163,15 @@ The PR is not merged until the circular dependency issue is closed.
 process per deployment, a nightly job, no concurrent writers — that is the load assumed. Entry
 points from the Module Map; the nightly job read fully because it writes data.
 
-The audit reports eleven findings (3 BLOCK, 5 WARN, 3 INFO). One of them:
+The audit reports eleven findings, most important first. One of them:
 
 ```
-4. **Nightly job re-reads every file every night** (`src/jobs/ingest.py:L40-61`) — WARN
-   - **What this is:** The job lists the inbox and parses every file into the database.
-   - **Problem:** Nothing marks a file as done; after 200 nights the job parses 200 nights
-     of files and the run takes 40 minutes. The parse is idempotent, so nothing breaks — yet.
+4. **Nightly job re-reads every file every night** (`src/jobs/ingest.py:L40-61`)
+   - **Defect:** The job parses every inbox file into the database; nothing marks a file as done.
+   - **Case:** After 200 nights it parses 200 nights of files and the run takes 40 minutes; it
+     outgrows its nightly window within a year.
    - **Fix:** Skip files already recorded: one query for the set of ingested names, one
      `if name in done: continue`. Four lines.
-   - **If we skip it:** The job outgrows its nightly window within a year.
 ```
 
 Written as the block `task sync` turns into the issue:
@@ -193,7 +192,7 @@ file as done, so the run grows by one night's files every night (40 minutes afte
 END_ISSUE
 ```
 
-INFO findings stay in the report. The report ends:
+The three small suggestions stay in the report. It ends:
 
 ```
 Verdict: fix 1 first — a check-then-write race in the upload handler.

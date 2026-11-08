@@ -41,7 +41,7 @@ Prevents structural drift and unplanned side-effects by making the dependency to
 - Blast-radius report (posted as a PR comment via `gh pr comment`)
 - List of blocked / at-risk / safe modules
 - Refactoring recommendation (proceed | refactor first | block)
-- Repo audit: at most 20 ranked findings; each BLOCK and WARN written as an ISSUES.md block
+- Repo audit: at most 20 ranked findings; each one but the small suggestions written as an ISSUES.md block
 
 ## Core Pattern
 
@@ -94,10 +94,10 @@ Audit like the senior developer who just inherited the repo and will be paged wh
 
 1. **Map first.** Read the README, the build and deploy config, the dependency list, the entry points (the Module Map in `CONTEXT.md`) and the tests. Find the expected load — one person running a script, or many users and processes at once — and say which you assumed. Trace the main flows end to end (input, storage, output) and read those paths fully: user input, auth, data writes, anything shared between processes. Big repo: go deep where a mistake costs the most, not file by file, and say what you did not read.
 2. **Look for** the `review` finding categories, in order: bug, risk, scale, missing test, speed, lean (REFERENCE § Finding categories in `review`). Before calling code unused, grep the whole tree — tests, fixtures, config and string references included.
-3. **Check** each finding the way `review` does: a concrete case or no finding; a `shortcut:` comment is a decision; the smallest fix, preferably one that deletes.
+3. **Check** each finding the way `review` does: a concrete case or no finding; a `shortcut:` line goes under `Not checked:`; the smallest fix, preferably one that deletes.
 4. **Dedupe** against open issues (the research loop above) and `.out-of-scope.md`.
-5. **Report**, at most 20 findings ranked BLOCK → WARN → INFO: `What this repo does:` and the load assumed; the numbered four-part findings (what this is / problem / fix / if we skip it); `Verdict:` healthy, or what to fix first; `Lean: -<N> lines, -<M> dependencies possible.`; `Not checked:`.
-6. **Write each BLOCK and WARN finding as an ISSUES.md block**, one per finding, sized with the ISSUES.md scale — template in [REFERENCE.md](REFERENCE.md). `task sync` opens them; `refine` takes it from there. INFO stays in the report.
+5. **Report**, at most 20 findings, most important first, no severity tags: `What this repo does:` and the load assumed; the numbered three-part findings (defect / case / fix); `Verdict:` healthy, or the numbers to fix first; `Lean: -<N> lines, -<M> dependencies possible.`; `Not checked:`.
+6. **Write each finding as an ISSUES.md block** — except the small suggestions (INFO in `review`'s table), which stay in the report — one per finding, sized with the ISSUES.md scale; template in [REFERENCE.md](REFERENCE.md). `task sync` opens them; `refine` takes it from there.
 
 ## Quick Reference
 
@@ -108,7 +108,7 @@ Audit like the senior developer who just inherited the repo and will be paged wh
 | Shallow module detected | Trigger REFACTOR phase in `implement` |
 | Pattern grade F | Block — raise with `refine` before `plan` |
 | Blast-radius crosses boundary | Post report, await explicit approval |
-| Audit finding, BLOCK or WARN | One ISSUES.md block each; `task sync` |
+| Audit finding (not a small suggestion) | One ISSUES.md block each; `task sync` |
 
 **Context sensitivity:** Medium. Graph outputs go to filesystem; only summary metrics enter context. Safe to run in Transition Zone if raw outputs are offloaded.
 
