@@ -62,10 +62,10 @@ Invoke the matching skill before implementing manually. Each lives at
 | Skill | When to invoke |
 |-------|----------------|
 | `refine` | Starting a new feature — align on glossary, boundaries and ADRs before any code |
-| `architect` | Analysing dependencies, blast radius, or module structure |
+| `architect` | Analysing dependencies, blast radius, or module structure; auditing the whole repo for bugs, risk and bloat |
 | `plan` | Turning an Agent Brief into a Lean PRD and decomposed GitHub Issues |
 | `implement` | Implementing via Red-Green-Refactor |
-| `review` | Code review, auto-fix loop, PR validation |
+| `review` | Code review, fix loop, PR validation |
 | `ship` | Pre-merge security checks, squash merge, knowledge-base update |
 
 ### Cross-cutting — load on demand
