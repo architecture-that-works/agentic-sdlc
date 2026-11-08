@@ -149,3 +149,16 @@ PRIORITY: P4
 - The ADR names all five patterns and the orchestrator-as-agent decision, each with a revisit trigger.
 - `pwsh .github/checks/check-doc-paths.ps1` passes.
 END_ISSUE
+
+ISSUE: Refine reads the issue's own branch and PR before asking the owner
+ESTIMATE: 3
+PRIORITY: P4
+**Goal**: When work for an issue already exists on its feature branch, refine decides from that branch instead of asking the owner questions the branch answers.
+**Description**: Observed on #294 while pairing: the issue was implemented on `feature/294-lean-implement-review` and PR #295 opened minutes after the issue, yet refine raised three questions — the four parts of a finding, the `shortcut:` contract, the four follow-up issues — every one answered by the diff. Rule 1 (codebase first) reads the default branch only; in pairing mode, which the flow always runs through, the branch is the codebase. Each avoidable `human:decision` round costs the owner a context switch and delays review by a day. Smallest change: the grill's task prompt tells the subagent that when `feature/<N>-*` exists on origin (or an open PR references the issue) it reads that diff first and records what the diff answers in `decided_questions[]` with the PR as evidence. Nothing else changes.
+**Requirements**:
+1. `Get-GrillUserPrompt` receives the PR number and branch when one exists and adds one line to the task: "A PR exists for this issue: #M on branch B — run `gh pr diff M` first; a question the diff answers is decided, evidence: the PR".
+2. No new question type, label or state; the `GrillResult` schema is unchanged.
+**Acceptance Criteria**:
+- `tests/orchestrator/test_grill.py`: with a PR present the rendered prompt names it; without one the prompt is byte-identical to today's.
+- Re-running refine on an issue whose PR answers every question yields `open_questions=0`.
+END_ISSUE
