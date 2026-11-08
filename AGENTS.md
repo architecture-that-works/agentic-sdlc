@@ -73,6 +73,7 @@ Invoke the matching skill before implementing manually. Each lives at
 | Skill | When to invoke |
 |-------|----------------|
 | `diagnosis` | Implementation or CI fails and the root cause is unclear — before attempting a fix |
+| `intake` | When converting raw owner thoughts into a pipeline-ready issue, before any pipeline stage runs |
 | `version-control` | Branching (`feature/{number}-{slug}`), commits, PRs |
 | `write-skills` | Creating or updating skills in `.agents/skills/` |
 
