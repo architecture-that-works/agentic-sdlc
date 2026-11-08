@@ -29,7 +29,10 @@ def conventional_commit(judge) -> GEval:
             ),
             (
                 "The type fits the diff: a bug fix is fix, new behaviour is feat, a "
-                "documentation-only change is docs."
+                "documentation-only change is docs. Do not deduct for a "
+                "borderline-but-valid type choice (e.g. `refactor` vs `feat` when the "
+                "change both refactors and adds behaviour); only a clear mismatch (e.g. "
+                "`fix` for a purely new feature) should deduct."
             ),
             (
                 "The description is in the imperative mood, at most 72 characters, "
@@ -38,13 +41,13 @@ def conventional_commit(judge) -> GEval:
             (
                 "The output holds nothing but the commit message — no explanation "
                 "addressed to the reader, no preamble, no markdown fences. A body after "
-                "a blank line is part of the message. Ignore leading or trailing "
-                "whitespace."
+                "a blank line is part of the message. Do not deduct for leading or "
+                "trailing whitespace — treat the message as if it were stripped."
             ),
         ],
         evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT],
         model=judge,
-        threshold=0.7,
+        threshold=0.6,
     )
 
 

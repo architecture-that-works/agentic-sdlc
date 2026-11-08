@@ -78,16 +78,19 @@ def refine_rules(judge) -> GEval:
             ),
             (
                 "Every decided question states the evidence it rests on: the code, "
-                "existing behaviour, an ADR, or a documented project constraint."
+                "existing behaviour, an ADR, or a documented project constraint. Do not "
+                "deduct for a borderline-but-valid citation style; only a complete "
+                "absence of evidence should deduct."
             ),
             (
                 "Judge only the steps above; how many questions are open versus decided "
-                "is not a criterion."
+                "is not a criterion. Do not deduct for formatting, whitespace, or style "
+                "choices in the output — only evaluate the substance of each step."
             ),
         ],
         evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT],
         model=judge,
-        threshold=0.7,
+        threshold=0.6,
     )
 
 
