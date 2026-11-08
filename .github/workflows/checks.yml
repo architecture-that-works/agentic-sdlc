@@ -73,6 +73,9 @@ jobs:
       - name: Check Doc Paths
         shell: pwsh
         run: .github/checks/check-doc-paths.ps1
+      - name: Check Doc Function Names
+        shell: pwsh
+        run: .github/checks/check-doc-functions.ps1
       - name: Check Module API boundary
         shell: pwsh
         run: .github/checks/check-module-api.ps1
