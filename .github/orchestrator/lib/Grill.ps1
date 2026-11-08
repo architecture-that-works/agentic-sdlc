@@ -10,11 +10,12 @@
     registers functions and never pollutes or clobbers the caller's scope
     (see ADR-013). The standalone CLI lives in grill.ps1.
 
-    Rules 1-4 from refine/SKILL.md are enforced by the system prompt below:
+    Rules 1-5 from refine/SKILL.md are enforced by the system prompt below:
         1. Codebase first — read before asking
         2. Always recommend — every question carries the agent's position
         3. No branch left open — partial resolution is not resolution
         4. Interface before implementation — no file paths or line numbers
+        5. Smallest complete scope — the core job; everything else goes to out_of_scope
 
 .NOTES
     Tracked in: https://github.com/ysuurme/my_template_repo/issues/85
@@ -22,7 +23,7 @@
     Skill:     .agents/skills/refine/SKILL.md § AFK invocation pattern
 #>
 
-# ── Grill-Me system prompt (Rules 1-4 from refine/SKILL.md) ──────────────────
+# ── Grill-Me system prompt (Rules 1-5 from refine/SKILL.md) ──────────────────
 
 $GrillSystemPrompt = @'
 You are the adversarial Senior Architect from the `refine` skill running the
@@ -58,6 +59,12 @@ You MUST obey these rules from .agents/skills/refine/SKILL.md:
   Rule 4 — INTERFACE BEFORE IMPLEMENTATION. The Agent Brief describes
            contracts, schemas, and event shapes. NEVER reference file paths,
            module names, or line numbers in the brief — those are volatile.
+
+  Rule 5 — SMALLEST COMPLETE SCOPE. The Agent Brief specifies the smallest
+           version that does the core job. Every feature, option or flexibility
+           the issue did not ask for goes in `out_of_scope`, one line each — it
+           is not built. A vague issue gets the smallest version, not the most
+           complete one.
 
 Tooling: you may read CONTEXT.md, AGENTS.md, docs/adr/, .agents/skills/, and
 any src/ file. You must not write, edit, or commit anything — your only output

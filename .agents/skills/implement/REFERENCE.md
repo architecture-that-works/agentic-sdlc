@@ -76,10 +76,32 @@ re-run the full test suite; repeat from the top.
    name, a data structure type, an algorithm parameter)? Replace with a stable abstraction.
 4. **Responsibility count:** Does this module own more than one domain concept? If yes, split.
 5. **Naming clarity:** Do all public identifiers name the domain concept, not the mechanism?
+6. **Unasked-for code:** Options, wrappers, type conversions, config knobs and "for later"
+   branches that no acceptance criterion needs. Delete.
+7. **Moved code:** Any error handling or validation the move dropped. Restore it.
+8. **Comments:** Any comment that says what the code does. Delete it, or rewrite it as the
+   one-line why.
 
 **Domain extension:** After this checklist, load the domain skill (`application-engineering`,
 `data-engineering`, or `agentic-engineering`) for language- and stack-specific REFACTOR
 patterns. Do not apply domain patterns before the checklist above completes.
+
+---
+
+## Shortcut Comments
+
+A shortcut is a deliberate simplification with a known limit — a linear scan that is fine for
+hundreds of rows, a single-process lock, a hardcoded region. It is written as one comment on
+the line it limits:
+
+```python
+# shortcut: linear scan, fine below ~10k rows; index when the table outgrows that
+```
+
+Three parts, in order: the word `shortcut:`, the limit, when to upgrade. `review` treats a
+marked shortcut as a decision, not a finding, unless the expected load already crosses the
+limit; an unmarked shortcut is a finding. A shortcut is never allowed on validation at a trust
+boundary, error handling that prevents data loss, or security.
 
 ---
 

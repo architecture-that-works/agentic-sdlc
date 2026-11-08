@@ -178,7 +178,7 @@ Flag any overlap in the blast-radius report: "Open issue #N may be affected by t
 ```
 Pattern grade F  OR  fragility > 0.6
   └─ Block merge
-  └─ Open a refactoring issue labelled human:approval
+  └─ Write a refactoring issue (ISSUES.md block, no label — refine sets them)
   └─ Raise with `refine` to revise the boundary if needed
   └─ Do NOT proceed until the refactoring issue is closed
 
@@ -189,6 +189,31 @@ Shallow module detected
 
 Circular dependency
   └─ Block merge immediately — no exceptions
-  └─ Open a fix issue with no human: label if the fix is mechanical
-  └─ Open a human:decision issue if the fix requires boundary decisions
+  └─ Write a fix issue; when the fix needs a boundary decision, say so in the body —
+     refine raises it to the owner as human:decision
 ```
+
+---
+
+## Repo Audit — Finding to ISSUES.md Block
+
+Each BLOCK and WARN finding from the audit (SKILL.md § Repo Audit) becomes one block in
+ISSUES.md, in the shape its header defines. The four parts of the finding map onto the block:
+
+```
+ISSUE: <finding title, action-oriented — "Close the check-then-write race in …">
+ESTIMATE: <ISSUES.md scale — 2 for a one-line fix with its test, 3 for a function, 5 across modules>
+PRIORITY: <P2 for a BLOCK with a reproduction; P4 for lean; P3 otherwise>
+**Goal**: <"If we skip it", inverted — the outcome once fixed>
+**Description**: <"What this is" + "Problem": the concrete case, with path:Lx-y>
+**Requirements**:
+1. <"Fix" — the smallest change; prefer deletion>
+2. <the one test that fails when it breaks — for bug, risk, scale and missing-test findings>
+**Acceptance Criteria**:
+- <the concrete case now produces the right result>
+- `uv run pytest` passes
+END_ISSUE
+```
+
+No label: `refine` sets `agent:backlog`, or `human:decision` when the fix needs the owner.
+INFO findings are not issues; they stay in the audit report.

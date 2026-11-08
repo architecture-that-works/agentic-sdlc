@@ -75,14 +75,17 @@ $diff
 $signalSection
 
 REVIEW INSTRUCTIONS:
-- Verify every requirement and acceptance criterion is fully met.
-- Check for bugs, regressions, missing test coverage, or style violations.
+- Read .agents/skills/review/SKILL.md and its REFERENCE.md first and review by that method: read
+  the connected code (every caller of a changed function), not only the diff; every finding needs
+  a concrete case; the verdict rule and the output shape are in the skill.
+- Verify every requirement and acceptance criterion is fully met. The signal history holds the
+  test run output (🤖✅ Tests Passing) and the implementation's ``Left undone:`` line — nothing
+  left undone may be an acceptance criterion.
 - Check that the conventions in AGENTS.md and .agents/skills/ are followed.
-- The signal history includes the test run output (🤖✅ Tests Passing) — verify it confirms the requirements are tested.
-- Be strict: reject if anything is incomplete, incorrect, or missing.
+- Lint and format are CI's job — report no style findings.
 
-First line of your response MUST be exactly APPROVED or REJECTED (all caps).
-Follow with your detailed reasoning.
+First line of your response MUST be exactly APPROVED or REJECTED (all caps), followed by the
+review in the skill's § Report shape.
 "@
 
     if ($KanbanEngine -eq 'gemini') {

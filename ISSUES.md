@@ -86,3 +86,66 @@ Default new issues to **P3** (new work) or **P4** (improvement). Escalation to P
 ---
 
 <!-- ISSUES -->
+
+ISSUE: Post a dense implementation record for every implement run
+ESTIMATE: 5
+PRIORITY: P4
+**Goal**: The owner and the reviewer see in one issue comment what an implement run did, what it left undone, which commands ran with which exit code, what it discovered, and whether it followed the procedure.
+**Description**: The 🤖 Implementation comment holds the agent's last bullets and a file list; the orchestrator's own commands (pytest, ruff format, git) and their exit codes live only in the runner log, and nobody records whether the agent read AGENTS.md, CONTEXT.md and a skill, or ran the suite before stopping. The stream the orchestrator already parses (tool_use blocks for Read/Write/Edit/Bash) is enough to derive a procedure line without a second medium — the issue stays the only carrier (ADR-011; an `emitEvent` log is in `.out-of-scope.md`). This record is the base the self-healing issue builds on: a failure kind is only useful once the run is legible. Spec-driven analogue: BMAD's Dev Agent Record, kept inside our story file — the issue. Depends on #294 (merge it first): it introduces the `Left undone:` / `Issues discovered:` bullets this record extends.
+**Requirements**:
+1. Extend the 🤖 Implementation comment with five dense lines after the file list: `Implemented:` (the agent's bullets), `Left undone:` and `Issues discovered:` (the agent's closing bullets, per the implement skill), `Commands:` (every command the orchestrator itself ran in the stage — pytest, ruff, git — as `name → exit code`), `Procedure:` (derived from the stream: AGENTS.md read, CONTEXT.md read, a skill read, pytest run — each ✓ or ✗).
+2. Record the same five fields in the run's `attempts[]` entry of AGENT-STATE, so a retry reads them without parsing comments.
+3. One comment per run; no new file, label or second log.
+**Acceptance Criteria**:
+- A pipeline run on a trivial issue posts one 🤖 Implementation comment with all five lines populated; `Procedure:` shows ✗ when the agent never ran pytest.
+- `tests/orchestrator/` covers the procedure derivation from a recorded stream fixture — one test per field, no more.
+- `uv run pytest` passes; existing comment consumers (review signal history, retry) still find the comment.
+END_ISSUE
+
+ISSUE: Split implement into a Validation Contract step that must go RED before any code
+ESTIMATE: 8
+PRIORITY: P3
+**Goal**: Correctness is defined before implementation: the acceptance criteria become failing tests first, written independently of the code, and the orchestrator proves they fail before it lets the agent implement.
+**Description**: The implement skill prescribes Red-Green-Refactor, but the stage runs one Claude session that writes tests and code together, so nothing enforces that tests came first or ever failed. A Validation Contract makes the spec executable: one test per acceptance criterion, written from the issue body alone, confirmed RED by the orchestrator (non-zero pytest exit on the new tests), then a second session implements until GREEN. This is prompt chaining with a programmatic gate between the steps — one of Anthropic's canonical patterns — and the spec-driven heart of BMAD without its ceremony. Keep tests lean: the contract is one test per criterion plus what the implement skill's lean rules require for a new branch — not coverage for its own sake — and the suite's wall-clock must not grow beyond the new tests' own runtime. Depends on #294 (merge it first).
+**Requirements**:
+1. `Invoke-Develop` becomes two chained sessions: Contract (tests only, from the acceptance criteria; the orchestrator fails a run that wrote outside `tests/`) and Develop (implement until GREEN; tests may be refined, never deleted).
+2. Between them the orchestrator runs the new tests and requires a non-zero exit; a contract that passes before implementation is posted as 🤖⚠️ Contract Vacuous and the run fails fast.
+3. The implementation comment gains one line, `Contract: N tests RED → GREEN` (folded into the implementation record if that merged first).
+4. Plan prompt rule: every acceptance criterion is a testable statement — an observable input and result — so a contract can be derived from it; refine flags criteria that are not.
+5. `implement` skill: the RED phase states that in the pipeline RED is the contract step. No other skill text changes.
+**Acceptance Criteria**:
+- A pipeline run shows two sessions in the issue comments; the suite run between them exits non-zero on exactly the new tests.
+- A contract that passes before implementation fails the run with the vacuous-contract signal.
+- Suite wall-clock on `main` grows by no more than the new tests' own runtime; every new test traces to a criterion.
+- `uv run pytest` passes.
+END_ISSUE
+
+ISSUE: Decide and implement failure kinds for self-healing retries
+ESTIMATE: 8
+PRIORITY: P3
+**Goal**: A failed run heals itself when the failure is mechanical, retries with the right diagnosis when it is not, and the owner can see which kinds of failure recur — all from the issue carrier, with no new log.
+**Description**: Research conclusion to confirm: the agent's logs already exist as the issue's signal comments and `attempts[]` (ADR-011); a second log medium was rejected (`emitEvent`, `.out-of-scope.md`). What the carrier lacks is the *kind* of each failure. Today `attempts[]` records the stage, so retry re-runs the stage with the diagnosis skill regardless of cause, and the hourly reconcile only knows "stuck". With a kind, recovery becomes routing — deterministic, no agent: a lint or format failure in CI → `ruff format`, commit, push, no engine call; a push rejected under lease → rebase and push; a usage limit → pause (exists); tests failing or review rejected → implement with diagnosis (exists); the same kind three times → `agent:failed` with the kind named. The orchestrator stays a workflow, not an agent, because the next step is predictable from the kind. Decisions for the owner (refine will ask): the kind vocabulary; whether a `task health` digest (histogram of kinds over recent issues via REST search) is wanted now or only once a recurrence is observed; whether `Format-ErrorBlock` carries the kind as its first line. Depends on the implementation record issue.
+**Requirements**:
+1. Every 🤖❌ / 🤖⚠️ signal and every `attempts[]` entry carries `kind: <one of the agreed vocabulary>`; `Format-ErrorBlock` is the single place that sets it.
+2. `retry` and `reconcile` route on the kind; mechanical kinds (format, lease) heal without an engine call and are recorded as an attempt.
+3. A kind that repeats three times lands on `agent:failed` with the kind in the comment.
+4. Only if the owner decides so: `task health` prints the kind histogram for the last N shipped or failed issues.
+**Acceptance Criteria**:
+- `tests/orchestrator/test_reconcile.py` and a retry test cover one mechanical kind healed without an engine call and one non-mechanical kind routed to implement.
+- A forced format failure in CI on a feature branch heals at the next hourly reconcile without an engine call.
+- `uv run pytest` passes; no new carrier, file or label.
+END_ISSUE
+
+ISSUE: Record where Anthropic's five agentic patterns live in the pipeline (ADR-016)
+ESTIMATE: 3
+PRIORITY: P4
+**Goal**: Anyone extending the pipeline sees which canonical pattern each stage uses, which patterns are deliberately not used, and what would justify changing that — so no agent is added for the sake of being an agent.
+**Description**: The pipeline already is the patterns: prompt chaining (refine → architect → plan → implement → review → ship with programmatic gates between stages), routing (`Get-PhaseModel` picks the model by estimate; `project_type` picks the domain skill), orchestrator–workers (`Invoke-Orchestration` conducts; plan decomposes an epic into children), evaluator–optimizer (the review ↔ implement loop bounded by `MaxRetries`). Parallelization is used only in CI (`checks.yml` jobs) and deliberately not at implement (one concurrency group: one PAT budget, one usage budget, one branch at a time) nor at review (voting costs tokens for little gain at this scale). "Orchestrator as agent" gets the same answer: the orchestrator is a workflow because every next step is predictable; the agents are the stage sessions (grill, implement, review). Write this down once as a template-mechanism ADR with a revisit trigger per row (for example: a failure kind deterministic routing cannot handle; independent children waiting on the implement queue), and link it from `template/adr/README.md`. Name the spec-driven elements too: the issue body is the story file; acceptance criteria are the executable spec (Validation Contract); the implementation record is the Dev Agent Record.
+**Requirements**:
+1. `template/adr/ADR-016-agentic-patterns.md` in MADR form: one row per pattern — where it lives, status (used / deliberately not), revisit trigger. Under two pages.
+2. A row in `template/adr/README.md`.
+3. No `CONTEXT.md` change unless another document needs a new glossary term.
+**Acceptance Criteria**:
+- The ADR names all five patterns and the orchestrator-as-agent decision, each with a revisit trigger.
+- `pwsh .github/checks/check-doc-paths.ps1` passes.
+END_ISSUE

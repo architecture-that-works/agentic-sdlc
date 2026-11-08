@@ -36,10 +36,10 @@ refine → architect → plan → implement → review → ship
 | Skill | Trigger | Primary output |
 |-------|---------|----------------|
 | `refine` | New feature — before any code | `CONTEXT.md` updates, Agent Brief |
-| `architect` | Dependency or blast-radius analysis | Architecture Impact section in issue body |
+| `architect` | Dependency or blast-radius analysis; standalone repo audit | Architecture Impact section in issue body; audit findings as ISSUES.md blocks |
 | `plan` | Agent Brief → implementation decomposition | Implementation Plan in issue body |
 | `implement` | Writing or changing code against acceptance criteria | Passing `uv run pytest`, minimal implementation |
-| `review` | Code review and auto-fix loop | Review verdict; PR ready for merge |
+| `review` | Code review and fix loop | Review verdict; PR ready for merge |
 | `ship` | Pre-merge security checks, squash merge, knowledge base update | Merged PR, updated `CONTEXT.md` |
 
 **Do not skip stages.** An `implement` session without a prior `plan` has no PRD to trace tests to. A `review` without a prior `implement` has no green suite to check.
