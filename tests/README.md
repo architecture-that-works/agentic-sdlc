@@ -31,7 +31,6 @@ src/config.py             → tests/test_config.py   (if config logic exists)
 src/utils/m_log.py        → tests/utils/test_m_log.py
 src/utils/m_error_formatter.py → tests/utils/test_m_error_formatter.py
 src/tools/commit.py       → tests/tools/test_commit.py
-src/tools/codebase_map.py → tests/tools/test_codebase_map.py
 src/tools/setup.py        → tests/tools/test_setup.py
 ```
 
@@ -130,7 +129,7 @@ Avoid copy-pasting similar test functions — parametrize instead.
 |------|----------------|
 | `tests/test_main.py` | HTTP handler and entry point behaviour |
 | `tests/utils/test_m_*.py` | Generic utility module tests |
-| `tests/tools/test_*.py` | Developer tool tests (`commit`, `codebase_map`, `setup`) |
+| `tests/tools/test_*.py` | Developer tool tests (`commit`, `setup`) |
 | `tests/orchestrator/` | Orchestrator module tests — mirrors `.github/orchestrator/` |
 | `tests/checks/` | Validator tests — mirrors `.github/checks/` |
 | tests/test_copier_template.py | Template generation and structure tests — template-only; copier excludes it from generated projects |
