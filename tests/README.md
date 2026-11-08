@@ -187,11 +187,19 @@ disabled: evals are plain pytest, with no Confident AI login.
    rules (say what is *intended* too, or the judge marks the design down);
    `AnswerRelevancyMetric` / `FaithfulnessMetric` for grounded answers;
    `ToolCorrectnessMetric` for agents (deterministic from the tool trace). Pass
-   `model=judge` to every LLM-judged metric.
+   `model=judge` to every LLM-judged metric. For every step that could penalise
+   formatting or borderline-but-valid choices, add an explicit guard: "Do not deduct for
+   leading or trailing whitespace — treat the output as if it were stripped" and "Do not
+   deduct for a borderline-but-valid choice; only a clear violation should deduct." The
+   judge's stated reasoning and the threshold it enforces must agree — if the judge's own
+   words call a deduction "minor" but the threshold fails the case, tighten the rubric
+   wording or lower the threshold.
 4. **Score with the `evaluate` fixture** — `evaluate(LLMTestCase(...), [metrics])` measures,
    records and asserts; a failure lists each metric's score, threshold and reason.
 5. **Set thresholds from real runs** — start at DeepEval's 0.5, run a few times, then raise
-   to just below the observed scores (0.7 for the shipped examples).
+   to just below the observed scores. If the judge consistently scores compliant outputs
+   at ~0.60, set the threshold at 0.6, not 0.7 — a threshold set above the judge's
+   empirical scoring floor for valid outputs is a flake, not a gate.
 6. **Prove the gate has teeth** — add a canary that degrades the prompt and asserts the
    metric fails (`test_a_degraded_prompt_fails_the_eval`).
 7. **Gate it in CI** — add the component's path to `MODEL_FACING` in the `eval-scope` job of

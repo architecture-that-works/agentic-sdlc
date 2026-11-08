@@ -66,7 +66,9 @@ class ClaudeJudge(DeepEvalBaseLLM):
                 timeout=JUDGE_TIMEOUT_SECONDS,
                 check=False,
             )
-        except FileNotFoundError, subprocess.TimeoutExpired:
+        except FileNotFoundError:
+            return None
+        except subprocess.TimeoutExpired:
             return None
         answer = result.stdout.strip()
         return answer if result.returncode == 0 and answer else None
