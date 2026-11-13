@@ -406,3 +406,47 @@ def test_script_detects_raw_issue_lines() -> None:
     assert r"(?m)^ISSUE:\s*" in content, (
         r"sync.ps1 must use '(?m)^ISSUE:\s*' to detect raw ISSUE: lines for the pre-flight guard"
     )
+
+
+def test_guard_exits_1_and_names_unfenced_title() -> None:
+    """The guard exits 1 and prints the unfenced title to stdout."""
+    result = _ps(
+        _UNFENCED_DETECT_SNIPPET
+        + r"""
+$ParseContent   = "ISSUE: Unfenced Title`n**Goal**: Missing fence"
+$FencedTitles   = @()
+$UnfencedTitles = Detect-UnfencedTitles $ParseContent $FencedTitles
+if ($UnfencedTitles.Count -gt 0) {
+    Write-Host "Unparsed ISSUE block(s):"
+    foreach ($t in $UnfencedTitles) { Write-Host "   • $t" }
+    exit 1
+}
+exit 0
+"""
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "Unfenced Title" in result.stdout
+
+
+def test_guard_exits_1_in_dryrun_mode() -> None:
+    """The guard fires before any DryRun summary — DryRun does not suppress the exit 1."""
+    result = _ps(
+        _UNFENCED_DETECT_SNIPPET
+        + r"""
+$DryRun         = $true
+$ParseContent   = "ISSUE: Unfenced Title`n**Goal**: Missing fence"
+$FencedTitles   = @()
+$UnfencedTitles = Detect-UnfencedTitles $ParseContent $FencedTitles
+if ($UnfencedTitles.Count -gt 0) {
+    Write-Host "Unparsed ISSUE block(s):"
+    foreach ($t in $UnfencedTitles) { Write-Host "   • $t" }
+    exit 1
+}
+# Guard fires before this point; DryRun summary must never be reached
+if ($DryRun) { Write-Host "Dry run complete. No changes made." }
+exit 0
+"""
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "Unfenced Title" in result.stdout
+    assert "Dry run complete" not in result.stdout
