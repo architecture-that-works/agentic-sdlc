@@ -97,7 +97,7 @@ function Invoke-Orchestration {
         if ($From -eq 'comment') {
             $liveLabels   = @(Get-IssueLabel -IssueNumber $IssueNumber)
             $currentLabel = @($liveLabels | Where-Object { $PipelineStates.Contains($_) }) | Select-Object -First 1
-            $onComment    = if ($currentLabel -and $PipelineStates.ContainsKey($currentLabel)) {
+            $onComment    = if ($currentLabel -and $PipelineStates.Contains($currentLabel)) {
                 $PipelineStates[$currentLabel].OnComment
             } else {
                 'refine'
@@ -124,6 +124,7 @@ function Invoke-Orchestration {
                         return $false
                     }
                     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
+                    $reviseForce = $true
                     $From = 'implement'
                     # fall through to the implement block below
                 }
@@ -241,7 +242,6 @@ function Invoke-Orchestration {
 
         # ── backlog → implementing ────────────────────────────────────────────
         Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
-        $commitBefore = git rev-parse HEAD 2>$null
 
         $stashOut = git stash 2>&1
         $stashed  = $stashOut -notmatch 'No local changes'
@@ -259,7 +259,7 @@ function Invoke-Orchestration {
         while ($true) {
             $currentStage = 'implement'
             try {
-                $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:($Force -or $retrying)
+                $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:($Force -or $retrying -or $reviseForce)
 
                 if ($null -eq $implementResult) {
                     # No code changes: either a question-answer (revision path with

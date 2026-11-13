@@ -543,3 +543,137 @@ $acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2)
     assert out["log"] == ["resume"]
     # Resume owns the transition; the warden does not also re-enter it.
     assert out["acted"] == 0
+
+
+# ── AllowedFrom regression guards ────────────────────────────────────────────
+
+
+def test_review_rejection_to_implementing_is_allowed() -> None:
+    """Review.ps1 calls Set-AgentState 'agent:implementing' while the issue carries
+    agent:reviewing (set a few lines earlier). Without agent:reviewing in AllowedFrom
+    every review rejection immediately lands the issue on agent:failed."""
+    out = _run(
+        r"""
+[pscustomobject]@{
+    allowed = @($PipelineStates['agent:implementing'].AllowedFrom)
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert "agent:reviewing" in out["allowed"]
+
+
+def test_owner_set_human_approval_survives_refine_completion() -> None:
+    """When an owner adds human:approval before refine finishes, Set-AgentState
+    agent:backlog must (a) not throw and (b) preserve approval_required=true."""
+    script = (
+        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        "& (Get-Module Orchestrator) {\n"
+        "function script:Write-Log { param($Message, $Color) }\n"
+        "$script:saved = $null\n"
+        "function script:Get-IssueState { param($IssueNumber)\n"
+        "    [pscustomobject]@{ readiness = [pscustomobject]@{\n"
+        "        refined = [pscustomobject]@{ done = $true };\n"
+        "        architected = [pscustomobject]@{ done = $true };\n"
+        "        planned = [pscustomobject]@{ done = $true } };\n"
+        "        open_questions = @() } }\n"
+        "function script:Get-IssueLabel { param($IssueNumber) @('human:approval') }\n"
+        "function script:Set-IssueLabel { param($Number, $Add, $Remove) }\n"
+        "function script:Move-ToLane { param($IssueNumber, $OptionId, $LaneName) }\n"
+        "function script:Get-LaneOptionId { param($LaneName) '' }\n"
+        "function script:Set-PlanningState { param($IssueNumber, $State) $script:saved = $State }\n"
+        "try {\n"
+        "    Set-AgentState -IssueNumber 1 -Label 'agent:backlog'\n"
+        "    [pscustomobject]@{ ok = $true; approval_required = [bool]$script:saved.approval_required }"
+        " | ConvertTo-Json -Compress\n"
+        "    exit 0\n"
+        '} catch { Write-Output "{`"ok`":false,`"err`":`"$($_.Exception.Message)`"}"; exit 1 }\n'
+        "}\n"
+    )
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"Expected no throw when transitioning human:approval → agent:backlog.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
+    assert lines, f"No JSON output:\n{result.stdout}\n{result.stderr}"
+    out = json.loads(lines[-1])
+    assert out["ok"], f"Set-AgentState threw: {out.get('err')}"
+    assert out["approval_required"], (
+        "approval_required must be preserved in the carrier"
+    )
+
+
+def test_pause_from_human_held_states_is_allowed() -> None:
+    """Usage-limit pause fires from whatever label the issue carries at engine-check
+    time — including human:decision, human:approval, and agent:failed. All three must
+    appear in agent:paused.AllowedFrom so a transient quota exhaustion is not scored
+    as a hard failure."""
+    out = _run(
+        r"""
+[pscustomobject]@{
+    allowed = @($PipelineStates['agent:paused'].AllowedFrom)
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert "human:decision" in out["allowed"]
+    assert "human:approval" in out["allowed"]
+    assert "agent:failed" in out["allowed"]
+
+
+def test_revise_route_passes_force_to_implement() -> None:
+    """When -From comment routes to revise, Invoke-Implement must receive -Force so
+    the agent re-reads the existing code rather than short-circuiting at the open PR."""
+    script = (
+        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        "& (Get-Module Orchestrator) {\n"
+        "function script:Write-Log { param($Message, $Color) }\n"
+        "function script:Assert-EngineReady { }\n"
+        "function script:Acquire-OrchestratorLock { param($IssueNumber) $true }\n"
+        "function script:Release-OrchestratorLock { }\n"
+        "function script:Test-EngineUsageLimit { $null }\n"
+        "function script:Add-FailedAttempt { param($IssueNumber, $Stage, $Reason, $Attempt, $Max) }\n"
+        "function script:Format-ErrorBlock { param($Raw) '' }\n"
+        "function script:Set-AgentFailedState { param($IssueNumber, $FailedAt, $Reason) }\n"
+        "function script:Add-Comment { param($Number, $Body) }\n"
+        "function script:Set-AgentState { param($IssueNumber, $Label) }\n"
+        "function script:Get-BranchName { param($Number, $Title) 'feature/42-test' }\n"
+        "function script:Get-IssueLabel { param($IssueNumber) @('human:approval') }\n"
+        "function script:Get-IssueState { param($IssueNumber)\n"
+        "    [pscustomobject]@{ attempt_count = 0; attempts = @() } }\n"
+        "function script:Reset-AttemptCount { param($IssueNumber) }\n"
+        "$script:forceCapture = $null\n"
+        "function script:Invoke-Implement { param($IssueNumber, [switch]$Force)\n"
+        "    $script:forceCapture = $Force.IsPresent; throw 'done' }\n"
+        "function script:git { $global:LASTEXITCODE = 0 }\n"
+        "function script:gh { $global:LASTEXITCODE = 0\n"
+        "    $a = $args -join ' '\n"
+        "    if ($a -like '*issue view*') {\n"
+        '        return \'{"title":"T","labels":[{"name":"human:approval"}],"state":"OPEN"}\' }\n'
+        "    if ($a -like '*pr list*') { return '[{\"number\":1}]' }\n"
+        "    return '' }\n"
+        "try { Invoke-Orchestration -IssueNumber 42 -From comment -MaxRetries 1 } catch { }\n"
+        "[pscustomobject]@{ force = $script:forceCapture } | ConvertTo-Json -Compress\n"
+        "}\n"
+    )
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
+    assert lines, f"No JSON output:\n{result.stdout}\n{result.stderr}"
+    out = json.loads(lines[-1])
+    assert out["force"] is True, (
+        "Expected Invoke-Implement to be called with -Force on the revise path.\n"
+        f"Got force={out.get('force')}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )

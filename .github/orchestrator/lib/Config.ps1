@@ -170,14 +170,14 @@ $PipelineStates = [ordered]@{
         LaneName    = 'Backlog'
         Holder      = 'agent'
         Recovery    = 'implement'
-        AllowedFrom = @($null, 'human:decision', 'agent:failed', 'agent:implementing', 'agent:reviewing', 'agent:paused')
+        AllowedFrom = @($null, 'human:approval', 'human:decision', 'agent:failed', 'agent:implementing', 'agent:reviewing', 'agent:paused')
         OnComment   = ''
     }
     'agent:implementing' = @{
         LaneName    = 'Implementing'
         Holder      = 'agent'
         Recovery    = 'restart'
-        AllowedFrom = @('agent:backlog', 'agent:implementing', 'human:approval')
+        AllowedFrom = @('agent:backlog', 'agent:implementing', 'agent:reviewing', 'human:approval')
         OnComment   = 'ack'
     }
     'agent:reviewing' = @{
@@ -191,7 +191,7 @@ $PipelineStates = [ordered]@{
         LaneName    = 'Backlog'
         Holder      = 'agent'
         Recovery    = 'resume'
-        AllowedFrom = @($null, 'agent:backlog', 'agent:implementing', 'agent:reviewing')
+        AllowedFrom = @($null, 'agent:backlog', 'agent:implementing', 'agent:reviewing', 'human:decision', 'human:approval', 'agent:failed')
         OnComment   = 'ack'
     }
     'agent:shipped' = @{
