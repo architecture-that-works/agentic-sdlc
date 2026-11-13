@@ -34,7 +34,7 @@ def _scaffold(root: Path) -> None:
     (root / ".github" / "checks").mkdir(parents=True)
     (root / ".github" / "orchestrator" / "lib").mkdir(parents=True)
     (root / ".agents" / "skills" / "demo").mkdir(parents=True)
-    (root / "template" / "adr").mkdir(parents=True)
+    (root / ".template" / "adr").mkdir(parents=True)
     (root / "tests").mkdir()
 
     shutil.copy(SCRIPT, root / ".github" / "checks" / SCRIPT.name)
@@ -47,7 +47,7 @@ def _scaffold(root: Path) -> None:
     (root / ".agents" / "skills" / "demo" / "SKILL.md").write_text(
         "# Demo\n", encoding="utf-8"
     )
-    (root / "template" / "adr" / "README.md").write_text(
+    (root / ".template" / "adr" / "README.md").write_text(
         "# ADR Index\n", encoding="utf-8"
     )
 
@@ -55,7 +55,7 @@ def _scaffold(root: Path) -> None:
 def test_resolving_name_passes(tmp_path: Path) -> None:
     """A backtick-quoted function name that exists in the orchestrator passes."""
     _scaffold(tmp_path)
-    (tmp_path / "template" / "adr" / "README.md").write_text(
+    (tmp_path / ".template" / "adr" / "README.md").write_text(
         "Uses `Get-FakeContext` to hydrate the run context.\n", encoding="utf-8"
     )
     result = _run(tmp_path)
@@ -65,7 +65,7 @@ def test_resolving_name_passes(tmp_path: Path) -> None:
 def test_nonexistent_name_fails(tmp_path: Path) -> None:
     """A backtick-quoted function name that does not exist in the orchestrator fails."""
     _scaffold(tmp_path)
-    (tmp_path / "template" / "adr" / "README.md").write_text(
+    (tmp_path / ".template" / "adr" / "README.md").write_text(
         "Uses `Get-BogusFunction` to hydrate the run context.\n", encoding="utf-8"
     )
     result = _run(tmp_path)
@@ -77,7 +77,7 @@ def test_non_verb_noun_token_is_ignored(tmp_path: Path) -> None:
     """Tokens that do not match the Verb-Noun shape are silently skipped."""
     _scaffold(tmp_path)
     # Spans with spaces, parameter flags, and lowercase tokens all fail the shape filter.
-    (tmp_path / "template" / "adr" / "README.md").write_text(
+    (tmp_path / ".template" / "adr" / "README.md").write_text(
         "Conducted via `Invoke-Orchestration -From refine`; media type `text/event-stream`.\n",
         encoding="utf-8",
     )

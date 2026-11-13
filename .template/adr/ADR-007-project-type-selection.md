@@ -29,39 +29,15 @@ This selection determines:
 
 The base scaffold (config, logging, test harness, CI, Orchestrator Workflow) is identical for all project types. Specialised directory stubs are planned for a future iteration.
 
-### Domain ADR mapping
+### Domain tool choices
 
-{% if project_type == 'agent' -%}
-| ADR | Title | Relevance |
-|-----|-------|-----------|
-| ADR-006 | Agent Observability Tooling | Trace tooling for Plan-Act-Observe loops |
-| ADR-003 | Observability Stack Selection | OTel spans per loop iteration |
-
-Invoke the `agentic-engineering` domain skill during the `tdd` REFACTOR phase.
-{% elif project_type == 'ml' -%}
-| ADR | Title | Relevance |
-|-----|-------|-----------|
-| ADR-001 | Data Science Tooling Selection | Notebook format, EDA library, ML framework |
-| ADR-002 | Experiment Tracking and AI Model Delivery Maturity | Experiment tracking and CT pipeline |
-| ADR-003 | Observability Stack Selection | OTel telemetry across pipeline steps |
-| ADR-005 | Pipeline Orchestration | Medallion pipeline scheduling and assets |
-
-Invoke the `data-engineering` domain skill during the `tdd` REFACTOR phase.
-{% else -%}
-| ADR | Title | Relevance |
-|-----|-------|-----------|
-| ADR-003 | Observability Stack Selection | OTel + OpenLineage telemetry |
-| ADR-004 | IAM Provider Selection | Self-hosted identity management |
-
-Invoke the `application-engineering` domain skill during the `tdd` REFACTOR phase.
-{% endif %}
+Domain tool choices beyond the skill's stack are the project's own ADRs.
 
 ### Confirmation
 
 * Confirm `CONTEXT.md` header shows `Project Type: {{ project_type }}`
 * Confirm `AGENTS.md` identity table shows `Project Type: {{ project_type }}`
-* Confirm the domain skill listed above is invoked during the `tdd` REFACTOR phase
-* Confirm domain ADRs listed above are reviewed and updated for this project before implementation begins
+* Confirm the domain skill matching the `project_type` is invoked during the `tdd` REFACTOR phase
 
 ## Pros and Cons of the Options
 

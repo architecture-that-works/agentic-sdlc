@@ -133,7 +133,7 @@ jobs:
     env:
       # The judge and the agents under test use the Claude CLI with the same
       # subscription token as the pipeline (afk.yml). Results go over OTLP instead
-      # of the JSONL artifact when the endpoint variable is set (ADR-003 egress).
+      # of the JSONL artifact when the endpoint variable is set.
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
       OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}

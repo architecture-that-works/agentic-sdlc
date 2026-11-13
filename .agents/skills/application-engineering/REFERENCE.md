@@ -145,7 +145,7 @@ This makes Claude swappable without touching business logic. Tests inject a `Fak
 
 ### OTel Instrumentation at the Request Boundary
 
-Instrument at the service layer, not the router. Emit one span per Claude call. Follow ADR-003 — no proprietary cloud SDK in instrumentation paths.
+Instrument at the service layer, not the router. Emit one span per Claude call. OpenTelemetry is the vendor-neutral standard — no proprietary cloud SDK in instrumentation paths.
 
 ```python
 from opentelemetry import trace
@@ -250,7 +250,7 @@ Never catch `anthropic.AuthenticationError` in retry logic — it is not transie
 | Managed identity | Azure Managed Identity / GCP Service Account — no key in code |
 
 For self-hosted IAM selection, consult your architecture-decision store, or write one from `docs/adr/ADR-000-template-architecture-decision.md` if none exists yet.
-Never put secrets in environment variables — fetch from secrets manager at runtime via managed identity (`SECURITY.md`, ADR-008).
+Never put secrets in environment variables — fetch from secrets manager at runtime via managed identity (`SECURITY.md`).
 
 ### API Versioning
 

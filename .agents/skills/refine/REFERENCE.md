@@ -20,7 +20,7 @@ Before opening any file:
 1. Read `CONTEXT.md` fully — establish current glossary, boundaries, constraints, and
    out-of-scope declarations.
 2. Read `AGENTS.md` — confirm standing instructions and skill invocation order.
-3. Read `ADR_STRUCTURE.md` — identify ADRs matching the current `project_type`.
+3. List `docs/adr/` and read the ADRs whose titles match the task.
 4. Identify which bounded context the new feature touches — write it down explicitly before
    asking any question.
 
@@ -174,8 +174,7 @@ Concepts explicitly deferred or rejected. Prevents re-proposal in planning sessi
 - Bad, because <reason>
 ```
 
-Store in `docs/adr/ADR-NNN-kebab-title.md`. Add an index entry to
-`docs/adr/ADR_STRUCTURE.md`.
+Store in `docs/adr/ADR-NNN-kebab-title.md`.
 
 ---
 

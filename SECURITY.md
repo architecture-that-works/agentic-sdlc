@@ -21,7 +21,7 @@ issue for a suspected vulnerability.
 
 `.env` is git-ignored and must never be committed. In production, secrets are read at runtime
 through workload identity (Azure) or the attached service account (GCP) — no secret value is
-stored in the repository or in host environment variables (ADR-008).
+stored in the repository or in host environment variables.
 
 Give every token an expiry, rotate it before it lapses, and rotate immediately on any suspected
 exposure. After rotating, update it everywhere in the table and confirm the next AFK run (or AI

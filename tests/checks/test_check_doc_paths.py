@@ -32,7 +32,7 @@ def _run(root: Path) -> subprocess.CompletedProcess[str]:
 
 
 def _scaffold(root: Path, agents_md: str) -> None:
-    """Minimal tree the guard walks: AGENTS.md, CONTEXT.md, the ADR index, a skill."""
+    """Minimal tree the guard walks: AGENTS.md, CONTEXT.md, a skill."""
     (root / ".github" / "checks").mkdir(parents=True)
     (root / "docs" / "adr").mkdir(parents=True)
     (root / ".agents" / "skills" / "demo").mkdir(parents=True)
@@ -41,16 +41,13 @@ def _scaffold(root: Path, agents_md: str) -> None:
     shutil.copy(SCRIPT, root / ".github" / "checks" / SCRIPT.name)
     (root / "AGENTS.md").write_text(agents_md, encoding="utf-8")
     (root / "CONTEXT.md").write_text("# CONTEXT\n", encoding="utf-8")
-    (root / "docs" / "adr" / "ADR_STRUCTURE.md").write_text(
-        "# ADRs\n", encoding="utf-8"
-    )
     (root / ".agents" / "skills" / "demo" / "SKILL.md").write_text(
         "# Demo\n", encoding="utf-8"
     )
 
 
 def test_passes_when_every_cited_path_exists(tmp_path: Path) -> None:
-    _scaffold(tmp_path, "See `src/` and [the index](docs/adr/ADR_STRUCTURE.md).\n")
+    _scaffold(tmp_path, "See `src/` and [the skill](.agents/skills/demo/SKILL.md).\n")
     result = _run(tmp_path)
     assert result.returncode == 0, result.stdout + result.stderr
 

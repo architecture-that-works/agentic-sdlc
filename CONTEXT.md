@@ -45,8 +45,7 @@ __PROJECT_DESCRIPTION__
 | `src/tools/` | Developer CLI utilities (`commit-msg`) | Application business logic |
 | `.agents/skills/` | AI workflow constraints and patterns | Runtime code |
 | `.github/orchestrator/` | The orchestrator module: all six stages and every lane transition | Application features; the commands that drive it (`.github/tasks/`); the validators (`.github/checks/`) |
-| `docs/adr/` | This project's own Architecture Decision Records (MADR); starts empty | Live documentation |
-| `template/adr/` | Decisions about the orchestrator/pipeline mechanism itself, not this project's application | This project's own ADRs (`docs/adr/`) |
+| `docs/adr/` | This project's own Architecture Decision Records (MADR); ADR-000 is the blank form; this project's ADRs start at ADR-001 | Live documentation |
 
 ## Module Map
 
@@ -63,8 +62,7 @@ Navigation index for agents — how to use it is the Context Protocol in `AGENTS
 | orchestrator (commands) | `.github/tasks/` | `.github/tasks/` | One runnable per `Taskfile.yml` target: `refine.ps1` (Backlog gate), `hitl.ps1` (local), `afk.ps1` (cloud drain), `retry.ps1` (re-enters one issue), `reconcile.ps1` (re-enters every state nothing is working on), `setup.ps1`, `sync.ps1`, `protect.ps1`. Each owns its `param()` and `Import-Module`s the orchestrator. `stale-prs.ps1` (weekly `agent:reviewing` PR-age sweep, `stale-prs.yml`) is the exception — standalone, `gh` + PowerShell only, no orchestrator import |
 | checks | `.github/checks/` | `.github/checks/` | `check-module-map.ps1`, `check-script-paths.ps1`, `check-doc-paths.ps1`, `check-doc-functions.ps1`, `check-module-api.ps1`, `verify-settings.ps1` — all run by `checks.yml` |
 | skills | `.agents/skills/` | `.agents/skills/` | one directory per skill, each with `SKILL.md` |
-| ADRs (this project) | `docs/adr/` | `docs/adr/` | `ADR_STRUCTURE.md` (master index) |
-| ADRs (the template mechanism) | `template/adr/` | `template/adr/` | `README.md` (master index) |
+| ADRs (this project) | `docs/adr/` | `docs/adr/` | ADR-000 is the blank form; this project's ADRs start at ADR-001 |
 | CI | `.github/workflows/` | (cross-cutting) | `checks.yml` (lint/typecheck/test/audit/guards), `afk.yml` (the pipeline, driven by issue events; hourly reconcile of states nothing is working on, incl. usage-limit resume; `stage` dispatch for overrides), `build.yml`, `deploy.yml`, `branch-protection.yml`, `stale-prs.yml` (weekly `agent:reviewing` PR-age sweep) |
 | `<domain>` | `src/<domain>/` | declared on first feature | declared on first feature |
 
@@ -82,13 +80,11 @@ For each kind of work, read these files before opening anything else. If an unex
 | `src/utils/` change | `src/utils/m_*.py`, matching `tests/utils/test_*.py` |
 | `src/tools/` change | `src/tools/*.py`, matching `tests/tools/test_*.py` |
 | eval change | `tests/evals/conftest.py` (the `evaluate` fixture), `tests/evals/claude_judge.py`, `tests/evals/eval_results.py`, the target's `tests/evals/test_*_eval.py` + `goldens/*.jsonl`, `tests/README.md` § Evals |
-| ADR addition (this project's application) | `docs/adr/ADR_STRUCTURE.md`, `ADR-000` template |
-| ADR addition (the orchestrator/pipeline mechanism) | `template/adr/README.md` |
+| ADR addition (this project's application) | `docs/adr/ADR-000-template-architecture-decision.md` (the blank form) |
 | CI workflow change | `.github/workflows/*.yml`, `Taskfile.yml`, `pyproject.toml` |
 | skill change | `.agents/skills/<name>/SKILL.md`, `.agents/skills/<name>/REFERENCE.md`, `.agents/skills/<name>/EXAMPLES.md`, `AGENTS.md` skill index |
 | new `src/<domain>/` | `CONTEXT.md` Module Map (extend first), `AGENTS.md` Rules, then proceed |
 | dependency / config | `pyproject.toml`, `uv.lock`, `.devcontainer/`, `Dockerfile` |
-| template / Copier change | `pyproject.toml.jinja2`, plus copier.yml and tests/test_copier_template.py — both template-only, copier excludes them from generated projects |
 
 ## Architectural Constraints
 

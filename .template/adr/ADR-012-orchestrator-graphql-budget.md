@@ -12,7 +12,7 @@ Accepted
 
 ## Context and Problem Statement
 
-The AFK orchestrator (`orchestrator.yml` + `.github/scripts/kanban/*`) authenticates with `GH_TOKEN`, a personal classic PAT (see ADR-008, SECURITY.md). Nearly every `gh issue/pr/project/repo` call it makes hits GitHub's **GraphQL** API, which is rate-limited to **5000 points/hour per user** and throttles *independently* from the REST API (also 5000/hr, but near-idle in this workflow).
+The AFK orchestrator (`orchestrator.yml` + `.github/scripts/kanban/*`) authenticates with `GH_TOKEN`, a personal classic PAT (see SECURITY.md). Nearly every `gh issue/pr/project/repo` call it makes hits GitHub's **GraphQL** API, which is rate-limited to **5000 points/hour per user** and throttles *independently* from the REST API (also 5000/hr, but near-idle in this workflow).
 
 Because the cloud orchestrator and the developer's local `gh` session authenticate as the **same user** (`ysuurme`), they share one GraphQL budget and compete for it. On **2026-06-27** a 5-issue backlog drain plus interactive use drove GraphQL to `0/5000` and blocked `task runner` mid-drain. Two independent levers can address this:
 

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).parent.parent
+REPO_ROOT = Path(__file__).parent.parent.parent
 TESTS_DIR = REPO_ROOT / "tests"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 PYPROJECT_JINJA = REPO_ROOT / "pyproject.toml.jinja2"

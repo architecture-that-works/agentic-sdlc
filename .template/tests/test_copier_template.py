@@ -1,12 +1,14 @@
 """Smoke tests: verify copier generates a working project for each project_type."""
 
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
 import copier
+import pytest
 
-TEMPLATE_ROOT = Path(__file__).parent.parent
+TEMPLATE_ROOT = Path(__file__).parent.parent.parent
 
 
 def test_generated_project_passes_tests(tmp_path: Path) -> None:
@@ -97,6 +99,44 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
         f"AGENTS.md must not contain Jinja2 syntax for project_type={project_type!r}"
     )
 
+    # Template-only directories must not travel.
+    for stale in (".template", "template", "adr-staging"):
+        assert not (tmp_path / stale).exists(), (
+            f"Generated project must not contain {stale!r} directory"
+        )
+
+    # docs/adr/ contains exactly ADR-000, the blank form.
+    adr_entries = sorted(p.name for p in (tmp_path / "docs" / "adr").iterdir())
+    assert adr_entries == ["ADR-000-template-architecture-decision.md"], (
+        f"docs/adr/ must contain exactly the blank ADR-000; got {adr_entries}"
+    )
+
+    # Copier answers file exists and records the template commit.
+    answers = tmp_path / ".copier-answers.yml"
+    assert answers.exists(), "Generated project missing .copier-answers.yml"
+    answers_text = answers.read_text()
+    assert "_commit" in answers_text, (
+        ".copier-answers.yml must record _commit so `copier update` can run"
+    )
+
+    # ISSUES.md ships without any pending blocks.
+    issues_md = (tmp_path / "ISSUES.md").read_text()
+    assert "<!-- ISSUES -->" in issues_md, (
+        "Generated ISSUES.md must contain the ISSUES sentinel"
+    )
+    _, _, below = issues_md.partition("<!-- ISSUES -->")
+    for line in below.splitlines():
+        assert not line.startswith("ISSUE:"), (
+            f"Generated ISSUES.md must have no ISSUE: lines below the sentinel; found {line!r}"
+        )
+
+    # .out-of-scope.md ships without any rejection entries.
+    oos_md = (tmp_path / ".out-of-scope.md").read_text()
+    for line in oos_md.splitlines():
+        assert not line.startswith("## "), (
+            f"Generated .out-of-scope.md must have no '## ' entries; found {line!r}"
+        )
+
     result = subprocess.run(
         ["uv", "run", "pytest", "--tb=short", "-q"],
         cwd=tmp_path,
@@ -109,6 +149,33 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("pwsh not available — cannot run generated-project checks")
+    # Some checks (check-module-map.ps1, check-script-paths.ps1) interrogate git —
+    # initialise and stage so they see the generated project as a repo.
+    for argv in (
+        ["git", "init", "-q", "-b", "main"],
+        ["git", "config", "user.email", "ci@example.com"],
+        ["git", "config", "user.name", "ci"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-qm", "initial"],
+    ):
+        subprocess.run(argv, cwd=tmp_path, check=True, capture_output=True, text=True)
+    for check in sorted((tmp_path / ".github" / "checks").glob("*.ps1")):
+        check_result = subprocess.run(
+            [pwsh, "-NoProfile", "-File", str(check)],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert check_result.returncode == 0, (
+            f"{check.name} failed inside generated project:\n"
+            f"stdout:\n{check_result.stdout}\n"
+            f"stderr:\n{check_result.stderr}"
+        )
 
 
 def test_pre_commit_config_inherited_via_copier(tmp_path: Path) -> None:
