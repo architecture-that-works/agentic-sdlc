@@ -224,9 +224,9 @@ jobs:
               --json number --jq 'sort_by(.number) | .[0].number // empty' 2>$null
           } else {
             $hasLabel = gh issue view $issue --repo $env:GITHUB_REPOSITORY `
-              --json labels --jq '[.labels[].name] | contains(["agent:backlog"])' 2>$null
+              --json labels --jq '[.labels[].name] | (contains(["agent:backlog"]) or contains(["agent:implementing"]))' 2>$null
             if ($hasLabel -ne 'true') {
-              Write-Output "Issue #$issue no longer has agent:backlog — picking oldest remaining."
+              Write-Output "Issue #$issue no longer has agent:backlog or agent:implementing — picking oldest remaining."
               $issue = gh issue list --repo $env:GITHUB_REPOSITORY `
                 --label 'agent:backlog' --state open `
                 --json number --jq 'sort_by(.number) | .[0].number // empty' 2>$null

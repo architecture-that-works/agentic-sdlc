@@ -382,6 +382,7 @@ function Invoke-Implement {
 
     Write-Log "▶ Implement — issue #$IssueNumber on $branch" -Color Cyan
 
+    $headBefore = git rev-parse HEAD 2>$null
     try {
         Invoke-Develop       -Number $IssueNumber -Branch $branch
         $prUrl = Invoke-CommitAndPR -Number $IssueNumber -Title $meta.title -Branch $branch
@@ -392,6 +393,15 @@ function Invoke-Implement {
             # (Invoke-Orchestration) will mark this as merged and close the issue.
             Write-Log "✅ Implement complete — issue already satisfied; no PR needed." -Color Green
             return $null
+        }
+
+        if ($Force) {
+            $newCommits = [int](git rev-list --count "${headBefore}..HEAD" 2>$null)
+            if ($newCommits -eq 0) {
+                # Force run (revision cycle) produced no new commits — owner asked a question.
+                Write-Log "✅ Implement complete — question answered, no new commits." -Color Green
+                return $null
+            }
         }
 
         Write-Log "✅ Implement complete — PR at $prUrl" -Color Green

@@ -124,9 +124,14 @@ function Invoke-Orchestration {
                         return $false
                     }
                     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
-                    $reviseForce = $true
-                    $From = 'implement'
-                    # fall through to the implement block below
+                    # Dispatch to the implement job so all implement runs stay in one queue.
+                    gh workflow run afk.yml `
+                        --repo $ctx.Repo `
+                        --ref $ctx.DefaultBranch `
+                        --field stage=implement `
+                        --field issue_number=$IssueNumber 2>&1 | Out-Null
+                    Add-Comment -Number $IssueNumber -Body "· revision dispatched — implement pipeline will pick up the owner's change request"
+                    return $true
                 }
                 'ack' {
                     Add-Comment -Number $IssueNumber -Body "· comment noted"
@@ -255,11 +260,18 @@ function Invoke-Orchestration {
         $state    = Get-IssueState -IssueNumber $IssueNumber
         $attempt  = if ($state -and $state.PSObject.Properties['attempt_count']) { [int]$state.attempt_count } else { 0 }
         $retrying = $attempt -gt 0 -or @($state.attempts | Where-Object { $_ }).Count -gt 0
+        # Revision cycle: approval_required preserved from ship hold, fresh attempt, not retrying.
+        # Force implement so the LLM re-reads the owner's change request rather than short-circuiting.
+        $isRevise = $state -and
+                    $state.PSObject.Properties['approval_required'] -and
+                    $state.approval_required -and
+                    $attempt -eq 0 -and
+                    -not $retrying
 
         while ($true) {
             $currentStage = 'implement'
             try {
-                $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:($Force -or $retrying -or $reviseForce)
+                $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:($Force -or $retrying -or $isRevise)
 
                 if ($null -eq $implementResult) {
                     # No code changes: either a question-answer (revision path with
@@ -268,10 +280,10 @@ function Invoke-Orchestration {
                     if ($state -and $state.PSObject.Properties['approval_required'] -and $state.approval_required) {
                         # Owner asked a question — the agent answered it without new commits.
                         # Post the answer (last 🤖 signal comment) and return to human:approval.
-                        $latestSignal = gh issue view $IssueNumber --repo $ctx.Repo --json comments `
-                            --jq '[.comments[] | select(.body | startswith("🤖"))] | last | .body' 2>&1 | Out-String
-                        $answerBody = if ($LASTEXITCODE -eq 0 -and $latestSignal.Trim() -and $latestSignal.Trim() -ne 'null') {
-                            $latestSignal.Trim()
+                        $latestImpl = gh issue view $IssueNumber --repo $ctx.Repo --json comments `
+                            --jq '[.comments[] | select(.body | startswith("🤖 Implementation"))] | last | .body' 2>&1 | Out-String
+                        $answerBody = if ($LASTEXITCODE -eq 0 -and $latestImpl.Trim() -and $latestImpl.Trim() -ne 'null') {
+                            $latestImpl.Trim()
                         } else {
                             '(The agent analysed the request but produced no code changes.)'
                         }

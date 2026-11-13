@@ -171,7 +171,7 @@ $PipelineStates = [ordered]@{
         Holder      = 'agent'
         Recovery    = 'implement'
         AllowedFrom = @($null, 'human:approval', 'human:decision', 'agent:failed', 'agent:implementing', 'agent:reviewing', 'agent:paused')
-        OnComment   = ''
+        OnComment   = 'ack'
     }
     'agent:implementing' = @{
         LaneName    = 'Implementing'

@@ -627,9 +627,107 @@ def test_pause_from_human_held_states_is_allowed() -> None:
     assert "agent:failed" in out["allowed"]
 
 
-def test_revise_route_passes_force_to_implement() -> None:
-    """When -From comment routes to revise, Invoke-Implement must receive -Force so
-    the agent re-reads the existing code rather than short-circuiting at the open PR."""
+def test_revise_route_dispatches_implement_job() -> None:
+    """When -From comment routes to revise (human:approval + open PR), the
+    router must dispatch the implement job via gh workflow run, not run inline."""
+    script = (
+        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        "& (Get-Module Orchestrator) {\n"
+        "function script:Write-Log { param($Message, $Color) }\n"
+        "function script:Assert-EngineReady { }\n"
+        "function script:Acquire-OrchestratorLock { param($IssueNumber) $true }\n"
+        "function script:Release-OrchestratorLock { }\n"
+        "$script:stateSet = $null\n"
+        "function script:Set-AgentState { param($IssueNumber, $Label) $script:stateSet = $Label }\n"
+        "$script:workflowDispatched = $false\n"
+        "function script:Add-Comment { param($Number, $Body) }\n"
+        "function script:Get-BranchName { param($Number, $Title) 'feature/42-test' }\n"
+        "function script:Get-IssueLabel { param($IssueNumber) @('human:approval') }\n"
+        "function script:git { $global:LASTEXITCODE = 0 }\n"
+        "function script:gh { $global:LASTEXITCODE = 0\n"
+        "    $a = $args -join ' '\n"
+        "    if ($a -like '*issue view*') {\n"
+        '        return \'{"title":"T","labels":[{"name":"human:approval"}],"state":"OPEN"}\' }\n'
+        "    if ($a -like '*pr list*') { return '[{\"number\":1}]' }\n"
+        "    if ($a -like '*workflow run*') { $script:workflowDispatched = $true }\n"
+        "    return '' }\n"
+        "$null = Invoke-Orchestration -IssueNumber 42 -From comment -MaxRetries 1\n"
+        "[pscustomobject]@{ stateSet = $script:stateSet; dispatched = $script:workflowDispatched } | ConvertTo-Json -Compress\n"
+        "}\n"
+    )
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
+    assert lines, f"No JSON output:\n{result.stdout}\n{result.stderr}"
+    out = json.loads(lines[-1])
+    assert out["stateSet"] == "agent:implementing", (
+        f"Expected Set-AgentState('agent:implementing') but got '{out.get('stateSet')}'"
+    )
+    assert out["dispatched"], (
+        "Expected gh workflow run to be dispatched for the revise route.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+def test_revise_route_skipped_when_no_open_pr() -> None:
+    """When -From comment routes to revise but there is no open PR, the router
+    must skip (comment noted, no revision) and NOT set agent:implementing."""
+    script = (
+        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        "& (Get-Module Orchestrator) {\n"
+        "function script:Write-Log { param($Message, $Color) }\n"
+        "function script:Assert-EngineReady { }\n"
+        "function script:Acquire-OrchestratorLock { param($IssueNumber) $true }\n"
+        "function script:Release-OrchestratorLock { }\n"
+        "$script:stateSet = $null\n"
+        "function script:Set-AgentState { param($IssueNumber, $Label) $script:stateSet = $Label }\n"
+        "$script:workflowDispatched = $false\n"
+        "$script:noPrComment = $false\n"
+        "function script:Add-Comment { param($Number, $Body)\n"
+        "    if ($Body -like '*no open PR*') { $script:noPrComment = $true } }\n"
+        "function script:Get-BranchName { param($Number, $Title) 'feature/42-test' }\n"
+        "function script:Get-IssueLabel { param($IssueNumber) @('human:approval') }\n"
+        "function script:git { $global:LASTEXITCODE = 0 }\n"
+        "function script:gh { $global:LASTEXITCODE = 0\n"
+        "    $a = $args -join ' '\n"
+        "    if ($a -like '*issue view*') {\n"
+        '        return \'{"title":"T","labels":[{"name":"human:approval"}],"state":"OPEN"}\' }\n'
+        "    if ($a -like '*pr list*') { return '[]' }\n"
+        "    if ($a -like '*workflow run*') { $script:workflowDispatched = $true }\n"
+        "    return '' }\n"
+        "$null = Invoke-Orchestration -IssueNumber 42 -From comment -MaxRetries 1\n"
+        "[pscustomobject]@{ stateSet = $script:stateSet; dispatched = $script:workflowDispatched; noPrComment = $script:noPrComment } | ConvertTo-Json -Compress\n"
+        "}\n"
+    )
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
+    assert lines, f"No JSON output:\n{result.stdout}\n{result.stderr}"
+    out = json.loads(lines[-1])
+    assert out["stateSet"] is None, (
+        f"Set-AgentState must NOT be called when no open PR. Got: '{out.get('stateSet')}'"
+    )
+    assert not out["dispatched"], (
+        "gh workflow run must NOT be dispatched when no open PR."
+    )
+    assert out["noPrComment"], "Expected '· no open PR found' comment when no open PR."
+
+
+def test_implement_path_uses_force_when_approval_required() -> None:
+    """When the implement block runs for an issue with approval_required=true
+    and no prior failed attempts, Invoke-Implement must receive -Force (revise path)."""
     script = (
         "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
         "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
@@ -645,11 +743,9 @@ def test_revise_route_passes_force_to_implement() -> None:
         "function script:Set-AgentFailedState { param($IssueNumber, $FailedAt, $Reason) }\n"
         "function script:Add-Comment { param($Number, $Body) }\n"
         "function script:Set-AgentState { param($IssueNumber, $Label) }\n"
-        "function script:Get-BranchName { param($Number, $Title) 'feature/42-test' }\n"
-        "function script:Get-IssueLabel { param($IssueNumber) @('human:approval') }\n"
         "function script:Get-IssueState { param($IssueNumber)\n"
-        "    [pscustomobject]@{ attempt_count = 0; attempts = @() } }\n"
-        "function script:Reset-AttemptCount { param($IssueNumber) }\n"
+        "    [pscustomobject]@{ attempt_count = 0; attempts = @();\n"
+        "        approval_required = $true } }\n"
         "$script:forceCapture = $null\n"
         "function script:Invoke-Implement { param($IssueNumber, [switch]$Force)\n"
         "    $script:forceCapture = $Force.IsPresent; throw 'done' }\n"
@@ -657,10 +753,9 @@ def test_revise_route_passes_force_to_implement() -> None:
         "function script:gh { $global:LASTEXITCODE = 0\n"
         "    $a = $args -join ' '\n"
         "    if ($a -like '*issue view*') {\n"
-        '        return \'{"title":"T","labels":[{"name":"human:approval"}],"state":"OPEN"}\' }\n'
-        "    if ($a -like '*pr list*') { return '[{\"number\":1}]' }\n"
+        '        return \'{"title":"T","labels":[{"name":"agent:implementing"}],"state":"OPEN"}\' }\n'
         "    return '' }\n"
-        "try { Invoke-Orchestration -IssueNumber 42 -From comment -MaxRetries 1 } catch { }\n"
+        "try { Invoke-Orchestration -IssueNumber 42 -MaxRetries 1 } catch { }\n"
         "[pscustomobject]@{ force = $script:forceCapture } | ConvertTo-Json -Compress\n"
         "}\n"
     )
@@ -674,6 +769,6 @@ def test_revise_route_passes_force_to_implement() -> None:
     assert lines, f"No JSON output:\n{result.stdout}\n{result.stderr}"
     out = json.loads(lines[-1])
     assert out["force"] is True, (
-        "Expected Invoke-Implement to be called with -Force on the revise path.\n"
+        "Expected Invoke-Implement to be called with -Force when approval_required=true.\n"
         f"Got force={out.get('force')}\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
