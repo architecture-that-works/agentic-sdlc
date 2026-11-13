@@ -87,78 +87,19 @@ Default new issues to **P3** (new work) or **P4** (improvement). Escalation to P
 
 <!-- ISSUES -->
 
-```
-ISSUE: Post a dense implementation record for every implement run
-ESTIMATE: 5
-PRIORITY: P4
-**Goal**: The owner and the reviewer see in one issue comment what an implement run did, what it left undone, which commands ran with which exit code, what it discovered, and whether it followed the procedure.
-**Description**: The 🤖 Implementation comment holds the agent's last bullets and a file list; the orchestrator's own commands (pytest, ruff format, git) and their exit codes live only in the runner log, and nobody records whether the agent read AGENTS.md, CONTEXT.md and a skill, or ran the suite before stopping. The stream the orchestrator already parses (tool_use blocks for Read/Write/Edit/Bash) is enough to derive a procedure line without a second medium — the issue stays the only carrier (ADR-011; an `emitEvent` log is in `.out-of-scope.md`). This record is the base the self-healing issue builds on: a failure kind is only useful once the run is legible. Spec-driven analogue: BMAD's Dev Agent Record, kept inside our story file — the issue. Depends on #294 (merge it first): it introduces the `Left undone:` / `Issues discovered:` bullets this record extends.
-**Requirements**:
-1. Extend the 🤖 Implementation comment with five dense lines after the file list: `Implemented:` (the agent's bullets), `Left undone:` and `Issues discovered:` (the agent's closing bullets, per the implement skill), `Commands:` (every command the orchestrator itself ran in the stage — pytest, ruff, git — as `name → exit code`), `Procedure:` (derived from the stream: AGENTS.md read, CONTEXT.md read, a skill read, pytest run — each ✓ or ✗).
-2. Record the same five fields in the run's `attempts[]` entry of AGENT-STATE (decision Q3-d on #294), so a retry reads them without parsing comments.
-3. One comment per run; no new file, label or second log.
-**Acceptance Criteria**:
-- A pipeline run on a trivial issue posts one 🤖 Implementation comment with all five lines populated; `Procedure:` shows ✗ when the agent never ran pytest.
-- `tests/orchestrator/` covers the procedure derivation from a recorded stream fixture — one test per field, no more.
-- `uv run pytest` passes; existing comment consumers (review signal history, retry) still find the comment.
-END_ISSUE
-```
+**Held chain — sync one block at a time, in this order, each only when its condition holds** (the
+implement queue ignores "Depends on"; a plain `task sync` would release all three at once):
 
-```
-ISSUE: Evals for the review and implement skills
-ESTIMATE: 5
-PRIORITY: P4
-**Goal**: A change to the review or implement skill is judged against fixed goldens before it ships, the way the refine grill and the commit message already are.
-**Description**: Decision Q3 (a, b) on #294. The two skills now carry a method — three-part findings with a concrete case and a verdict line naming what blocks; a `Left undone:` / `Issues discovered:` closing note — and nothing measures whether a model following them produces that shape. Evals judge a component against goldens (`CONTEXT.md` glossary); add one per skill under `tests/evals/`, opt-in like the others, judged by Claude through the existing `evaluate` fixture. Few goldens, no new framework.
-**Requirements**:
-1. `tests/evals/test_review_eval.py` with `goldens/review.jsonl`: one clean diff (expected APPROVED, no findings) and one with a planted bug (expected REJECTED naming it; three parts; a concrete case; no severity tag).
-2. `tests/evals/test_implement_eval.py` with `goldens/implement.jsonl`: a task whose expected output ends with `Left undone:` and `Issues discovered:` lines.
-3. Gated by the existing `eval` CI job when `.agents/skills/review/` or `.agents/skills/implement/` change.
-**Acceptance Criteria**:
-- `uv run pytest -m eval` passes on `main`; the planted-bug golden fails when the review skill's § Report section is removed.
-- Suite wall-clock outside `-m eval` is unchanged.
-END_ISSUE
-```
-
-```
-ISSUE: CI check that every shortcut: comment names its follow-up
-ESTIMATE: 2
-PRIORITY: P4
-**Goal**: A `shortcut:` comment without a follow-up cannot reach `main`.
-**Description**: Decision Q3 (c) on #294. The contract is `# shortcut: <reason> — to be fixed in <follow-up-slug>` (implement REFERENCE § Shortcut Comments) and review lists such lines under `Not checked:`. The one thing a reviewer cannot be trusted to catch every time is a shortcut with no follow-up named — a linter can. Add `check-shortcuts.ps1` to `.github/checks/`, run by `checks.yml`, over `src/` and `.github/` (skipping itself).
-**Requirements**:
-1. `.github/checks/check-shortcuts.ps1`: non-zero exit and the offending lines when a `shortcut:` comment lacks `to be fixed in <slug>`.
-2. A `checks.yml` step and `tests/checks/test_check_shortcuts.py` with one passing and one failing fixture.
-**Acceptance Criteria**:
-- A commit with `# shortcut: linear scan` and no follow-up fails CI; the same line with ` — to be fixed in orders-index` passes.
-- `uv run pytest` passes.
-END_ISSUE
-```
-
-```
-ISSUE: Resume paused issues on the next pipeline run, not only on the hourly schedule
-ESTIMATE: 2
-PRIORITY: P2
-**Goal**: Once the Claude usage limit lifts, a paused issue resumes on the first pipeline run that starts — the queue never waits on a schedule GitHub may skip.
-**Description**: Sync this block only after #304 merges — both change the start of `Invoke-Orchestration` in `.github/orchestrator/Orchestrator.psm1`. Observed 2026-11-13: #298 paused at review at 11:52 (`agent:paused`, resume after 13:10 UTC); the implement drain stopped ("the hourly resume job restarts the queue"), so #299 waited behind it. Only the hourly `reconcile` job in `afk.yml` calls `Resume-PausedIssues` (through `Invoke-Reconciliation`), and GitHub ran none of its 10:17–13:17 schedules — the last scheduled run was at 09:40. Both issues stood still until the owner's session ran `task reconcile` by hand at 13:24, although refine, comment and PR-close runs had started in between. `Resume-PausedIssues` is already time-gated (`paused_until`) and probes the engine only when a pause is due, so calling it from every run costs one REST call when nothing is paused.
-**Requirements**:
-1. `Invoke-Orchestration` calls `Resume-PausedIssues` once at the start of every run (refine, comment, implement — AFK and HITL), before its own stage work. A failure inside it is logged as a warning and never fails the run that called it.
-2. `Resume-PausedIssues` lists `agent:paused` issues through REST (`gh api "repos/$KanbanRepo/issues?labels=agent:paused&state=open"`), not `gh issue list` — every run now pays for this call, and the orchestrator is GraphQL-bound (TADR on the GitHub API budget, today ADR-012).
-3. The pause comment in `Suspend-ForUsageLimit` (`lib/GitHub.ps1`) and the drain message in `afk.yml` say the pause resumes on the next pipeline run or the hourly check, and that `task reconcile` resumes it now.
-4. The hourly `reconcile` job stays as the fallback for a quiet repo.
-**Acceptance Criteria**:
-- `tests/orchestrator/`: a run of `Invoke-Orchestration` calls `Resume-PausedIssues` before its stage; a `Resume-PausedIssues` that throws does not stop the run; with no paused issue no engine probe happens.
-- Live: with an issue paused past its `paused_until`, opening or commenting on any other issue resumes it without a scheduled run.
-- `uv run pytest`, `ruff check`, `ruff format --check` and all checks pass.
-END_ISSUE
-```
+1. Orchestrator naming — after #298, #304, #306 and #309 merge.
+2. TADR rewrite — after #298 and block 1 merge.
+3. TADR set completion — after block 2 merges; then tag `v0.2.0`.
 
 ```
 ISSUE: Name the orchestrator's files after the stages and skills they serve
 ESTIMATE: 5
 PRIORITY: P3
 **Goal**: Each stage has one obvious place for its logic, its instructions and its tests, all carrying the stage's name — one location to change a stage.
-**Description**: Sync this block only after #304, #298 and the "Resume paused issues on the next pipeline run, not only on the hourly schedule" issue have all merged — #304 and the resume issue change `.github/orchestrator/`, which this one renames, and #298 rewrites the `CONTEXT.md` Module Map, which this one restructures. Owner on #294 (2026-11-13), verbatim: "Why is there a .github/orchestrator/lib/Grill.ps1, I want the orchestrator to follow the exact naming conventions as the agreed stages and naming of skills so it is extremely clear what is configured where and how stages relate to each other. Goal is to have 1 clear location for updates/adjustments. Do not mix naming, clearly reference ps1 and skills and .md files, what logic should live where." Today refine's questioning lives under a second name in three places: `.github/orchestrator/lib/Grill.ps1`, `.agents/skills/refine/scripts/grill.ps1` and `tests/orchestrator/test_grill.py`, next to `stages/Refine.ps1` and `tests/orchestrator/test_refine.py`. Each skill also carries a `scripts/` folder (`blast-radius.ps1`, `run-tests.ps1`, `decompose.ps1`, `pre-review.ps1`, `preflight.ps1`, …) whose relation to the stage files is not written down. The six stages, their skills and their library files share one name by decision (pipeline taxonomy, ADR-015); this closes the gaps. The resulting rule is recorded in the TADR for the orchestrator module when the TADR set is written.
+**Description**: Sync this block only after #298, #304, #306 and #309 have all merged — #304, #306 and #309 change `.github/orchestrator/`, which this one renames, and #298 rewrites the `CONTEXT.md` Module Map, which this one restructures. Owner on #294 (2026-11-13), verbatim: "Why is there a .github/orchestrator/lib/Grill.ps1, I want the orchestrator to follow the exact naming conventions as the agreed stages and naming of skills so it is extremely clear what is configured where and how stages relate to each other. Goal is to have 1 clear location for updates/adjustments. Do not mix naming, clearly reference ps1 and skills and .md files, what logic should live where." Today refine's questioning lives under a second name in three places: `.github/orchestrator/lib/Grill.ps1`, `.agents/skills/refine/scripts/grill.ps1` and `tests/orchestrator/test_grill.py`, next to `stages/Refine.ps1` and `tests/orchestrator/test_refine.py`. Each skill also carries a `scripts/` folder (`blast-radius.ps1`, `run-tests.ps1`, `decompose.ps1`, `pre-review.ps1`, `preflight.ps1`, …) whose relation to the stage files is not written down. The six stages, their skills and their library files share one name by decision (pipeline taxonomy, ADR-015); this closes the gaps. The resulting rule is recorded in the TADR for the orchestrator module when the TADR set is written.
 **Requirements**:
 1. Inventory every file in `.github/orchestrator/`, `.github/tasks/` and `.agents/skills/*/scripts/` with the stage it serves (or "cross-stage"), and post it as the plan.
 2. Write down where logic lives: stage logic in `.github/orchestrator/stages/<Stage>.ps1`; the agent's instructions in `.agents/skills/<stage>/SKILL.md` (with `REFERENCE.md` / `EXAMPLES.md`); `lib/` holds only cross-stage code; the stage's tests in `tests/orchestrator/test_<stage>.py`. Decide what a skill's `scripts/` folder is for, or remove the folders whose logic duplicates a stage file.
