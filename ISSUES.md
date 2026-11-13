@@ -136,11 +136,33 @@ END_ISSUE
 ```
 
 ```
+ISSUE: Show agent:refining while refine, architect and plan run
+ESTIMATE: 3
+PRIORITY: P3
+**Goal**: At a glance on the board, an issue being refined shows an agent is working on it instead of looking stale.
+**Description**: Sync this block only after #297 merges — both change `$PipelineStates`, `afk.yml` and the `CONTEXT.md` glossary. Owner, 2026-11-13: "when a new issue is put on the backlog and the refine starts there is no label on the issue hence at a glance it looks stale, since the agent is refining add label agent:refining for refine/architect/plan so it is clear that an agent is working on the issue." Today refine, architect and plan run on an issue with no pipeline label until refine grants `agent:backlog` or asks via `human:decision` — the pipeline taxonomy deliberately gave only three of the six stages a label (ADR-015). This amends that: the alignment gate gets one label too. `$PipelineStates` is the one table, so the state itself is one row.
+**Requirements**:
+1. Add `'agent:refining' = @{ LaneName = 'Backlog'; Holder = 'agent'; Recovery = 'restart' }` to `$PipelineStates` in `.github/orchestrator/lib/Config.ps1`.
+2. The conductor sets `agent:refining` through `Set-AgentState` when refine starts (issue opened, owner comment, backfill, retry into refine) and replaces it with `agent:backlog` or `human:decision` when plan or refine ends, as today; a failure ends at `agent:failed` as today.
+3. `.github/workflows/afk.yml`: an owner comment on an issue at `agent:refining` still starts refine — it queues behind the running one in the per-issue concurrency group, so no answer is lost. Update the trigger table in the header comment.
+4. Recovery: a stalled `agent:refining` is re-entered from refine by the hourly warden (`Recovery = 'restart'`); check `Restart-Issue` in `lib/Reconcile.ps1` resolves an un-planned carrier to refine.
+5. `.github/tasks/setup.ps1`: add the label row (description: "Refine, architect and plan are running"). `CONTEXT.md`: the Stage glossary row says four stages carry a label; the `agent:` row lists it.
+**Acceptance Criteria**:
+- `tests/test_kanban_state.py` / `tests/orchestrator/test_setup_labels.py`: the row exists with Backlog lane, agent holder, restart recovery, and setup creates the label.
+- `tests/workflows/test_afk.py`: an owner comment on an `agent:refining` issue starts refine; a 🤖/· comment does not.
+- `tests/orchestrator/test_reconcile.py`: a stalled `agent:refining` issue is restarted at refine.
+- Live: a newly opened issue shows `agent:refining` within a minute and ends at `agent:backlog` or `human:decision`.
+- `uv run pytest`, `ruff check`, `ruff format --check` and all checks pass.
+- Owner follow-up after merge: run `task setup` once so the label exists on this repo.
+END_ISSUE
+```
+
+```
 ISSUE: Name the orchestrator's files after the stages and skills they serve
 ESTIMATE: 5
 PRIORITY: P3
 **Goal**: Each stage has one obvious place for its logic, its instructions and its tests, all carrying the stage's name — one location to change a stage.
-**Description**: Sync this block only after #297 merges — both change `.github/orchestrator/`. Owner on #294 (2026-11-13), verbatim: "Why is there a .github/orchestrator/lib/Grill.ps1, I want the orchestrator to follow the exact naming conventions as the agreed stages and naming of skills so it is extremely clear what is configured where and how stages relate to each other. Goal is to have 1 clear location for updates/adjustments. Do not mix naming, clearly reference ps1 and skills and .md files, what logic should live where." Today refine's questioning lives under a second name in three places: `.github/orchestrator/lib/Grill.ps1`, `.agents/skills/refine/scripts/grill.ps1` and `tests/orchestrator/test_grill.py`, next to `stages/Refine.ps1` and `tests/orchestrator/test_refine.py`. Each skill also carries a `scripts/` folder (`blast-radius.ps1`, `run-tests.ps1`, `decompose.ps1`, `pre-review.ps1`, `preflight.ps1`, …) whose relation to the stage files is not written down. The six stages, their skills and their library files share one name by decision (pipeline taxonomy, ADR-015); this closes the gaps. The resulting rule is recorded in the TADR for the orchestrator module when the TADR set is written.
+**Description**: Sync this block only after the "Show agent:refining while refine, architect and plan run" issue merges — all three issues in that chain change `.github/orchestrator/`. Owner on #294 (2026-11-13), verbatim: "Why is there a .github/orchestrator/lib/Grill.ps1, I want the orchestrator to follow the exact naming conventions as the agreed stages and naming of skills so it is extremely clear what is configured where and how stages relate to each other. Goal is to have 1 clear location for updates/adjustments. Do not mix naming, clearly reference ps1 and skills and .md files, what logic should live where." Today refine's questioning lives under a second name in three places: `.github/orchestrator/lib/Grill.ps1`, `.agents/skills/refine/scripts/grill.ps1` and `tests/orchestrator/test_grill.py`, next to `stages/Refine.ps1` and `tests/orchestrator/test_refine.py`. Each skill also carries a `scripts/` folder (`blast-radius.ps1`, `run-tests.ps1`, `decompose.ps1`, `pre-review.ps1`, `preflight.ps1`, …) whose relation to the stage files is not written down. The six stages, their skills and their library files share one name by decision (pipeline taxonomy, ADR-015); this closes the gaps. The resulting rule is recorded in the TADR for the orchestrator module when the TADR set is written.
 **Requirements**:
 1. Inventory every file in `.github/orchestrator/`, `.github/tasks/` and `.agents/skills/*/scripts/` with the stage it serves (or "cross-stage"), and post it as the plan.
 2. Write down where logic lives: stage logic in `.github/orchestrator/stages/<Stage>.ps1`; the agent's instructions in `.agents/skills/<stage>/SKILL.md` (with `REFERENCE.md` / `EXAMPLES.md`); `lib/` holds only cross-stage code; the stage's tests in `tests/orchestrator/test_<stage>.py`. Decide what a skill's `scripts/` folder is for, or remove the folders whose logic duplicates a stage file.
