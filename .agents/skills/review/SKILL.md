@@ -7,7 +7,7 @@ description: Use when validating a pull request, running the fix loop on review 
 
 ## Overview
 
-Prevents defects, architectural drift and bloat from reaching `main`. Review a change like the senior developer who will be paged when it breaks: read the connected code, not only the diff; report only findings with a concrete case; propose the smallest fix. Order of importance: correct, safe, holds under load, tested, fast, lean. Lean still matters — every extra line must be read, tested and fixed later. Implement and review share one standard — the rules in `implement` § Green and § Refactor. Review catches what breaks them or the correctness bar; it never undoes a choice made by them.
+Prevents defects, architectural drift and bloat from reaching `main`. Review a change like the senior developer who will be paged when it breaks: read the connected code, not only the diff; report only findings with a concrete case; propose the smallest fix. Order of importance: correct, safe, holds under load, tested, fast, lean. Lean still matters — every extra line must be read, tested and fixed later. Implement and review share one standard — `.agents/skills/implement/REFERENCE.md` § Coding Principles. Review catches what breaks them or the correctness bar; it never undoes a choice made by them.
 
 **Primary artifact:** A verdict a busy human understands in one read, with numbered findings that each carry their own fix — all resolved or escalated before `ship`.
 
@@ -61,7 +61,7 @@ fixed in one round, a clean approval, escalation after three rejections).
 3. **Scale** — fine for one user, wrong for many: check-then-write races, work repeated by every process, lists that only grow, a query per item, O(n²) on big input.
 4. **Missing test** — risky new logic (a branch, a parser, money, security, data writes, a bug fix) with no test that fails when it breaks. One good test, not coverage.
 5. **Speed** — big slowdowns are problems; small wins are suggestions.
-6. **Lean** — code that breaks `implement`'s rules (§ Green ladder, § Refactor): dead code, a helper the repo already has (name the path), stdlib doing the same, an abstraction with one implementation, near-copies that must change together, a function doing several unrelated jobs. Simpler code chosen by those rules is not lean debt.
+6. **Lean** — code that breaks the shared coding principles (`.agents/skills/implement/REFERENCE.md` § Coding Principles): dead code, a helper the repo already has (name the path), stdlib doing the same, an abstraction with one implementation, near-copies that must change together, a function doing several unrelated jobs. Simpler code chosen by those rules is not lean debt.
 
 Plus the governance checks — `CONTEXT.md` constraints, internal mocks, Module Map rows, secrets, test traceability. The severity of each is in REFERENCE § Finding categories.
 
