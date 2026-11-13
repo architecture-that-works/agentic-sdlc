@@ -150,18 +150,78 @@ $KanbanStopWords = @(
 #                      restart   — re-enter from the carrier's stage (Restart-Issue)
 #                      resume    — the time-gated usage-limit path (Resume-PausedIssues)
 #                      none      — never re-entered
+#   AllowedFrom      the set of pipeline labels (or $null for "no pipeline label")
+#                    that may transition INTO this state. Set-AgentState throws when
+#                    the current label is absent from this list — strict enforcement
+#                    so callers never reach an invalid transition silently. Add an
+#                    entry here (not in the caller) to permit a new path.
+#   OnComment        routing action for the central comment router
+#                    (Invoke-Orchestration -From comment):
+#                      refine  — judge the owner's reply against open questions
+#                      retry   — restart the failed stage (Restart-Issue)
+#                      revise  — revision cycle on the existing branch + PR
+#                      ack     — post "· comment noted", no further action
+#                      ''      — skip (terminal or in-flight states)
 #
 # Adding a state means adding one row. Nothing else in the module may switch on a
 # label; a second mapping is how #252, #266 and #275 each shipped the same bug.
 $PipelineStates = [ordered]@{
-    'agent:backlog'      = @{ LaneName = 'Backlog';      Holder = 'agent'; Recovery = 'implement' }
-    'agent:implementing' = @{ LaneName = 'Implementing'; Holder = 'agent'; Recovery = 'restart'   }
-    'agent:reviewing'    = @{ LaneName = 'Review';       Holder = 'agent'; Recovery = 'restart'   }
-    'agent:paused'       = @{ LaneName = 'Backlog';      Holder = 'agent'; Recovery = 'resume'    }
-    'agent:shipped'      = @{ LaneName = 'Shipped';      Holder = 'none';  Recovery = 'none'      }
-    'agent:failed'       = @{ LaneName = 'Backlog';      Holder = 'human'; Recovery = 'none'      }
-    'human:decision'     = @{ LaneName = 'Backlog';      Holder = 'human'; Recovery = 'none'      }
-    'human:approval'     = @{ LaneName = 'Review';       Holder = 'human'; Recovery = 'none'      }
+    'agent:backlog' = @{
+        LaneName    = 'Backlog'
+        Holder      = 'agent'
+        Recovery    = 'implement'
+        AllowedFrom = @($null, 'human:decision', 'agent:failed', 'agent:implementing', 'agent:reviewing', 'agent:paused')
+        OnComment   = ''
+    }
+    'agent:implementing' = @{
+        LaneName    = 'Implementing'
+        Holder      = 'agent'
+        Recovery    = 'restart'
+        AllowedFrom = @('agent:backlog', 'agent:implementing', 'human:approval')
+        OnComment   = 'ack'
+    }
+    'agent:reviewing' = @{
+        LaneName    = 'Review'
+        Holder      = 'agent'
+        Recovery    = 'restart'
+        AllowedFrom = @('agent:implementing')
+        OnComment   = 'ack'
+    }
+    'agent:paused' = @{
+        LaneName    = 'Backlog'
+        Holder      = 'agent'
+        Recovery    = 'resume'
+        AllowedFrom = @($null, 'agent:backlog', 'agent:implementing', 'agent:reviewing')
+        OnComment   = 'ack'
+    }
+    'agent:shipped' = @{
+        LaneName    = 'Shipped'
+        Holder      = 'none'
+        Recovery    = 'none'
+        AllowedFrom = @('agent:implementing', 'agent:reviewing', 'human:approval', 'agent:failed')
+        OnComment   = ''
+    }
+    'agent:failed' = @{
+        LaneName    = 'Backlog'
+        Holder      = 'human'
+        Recovery    = 'none'
+        AllowedFrom = @($null, 'human:decision', 'agent:backlog', 'agent:implementing', 'agent:reviewing', 'human:approval', 'agent:paused')
+        OnComment   = 'retry'
+    }
+    'human:decision' = @{
+        LaneName    = 'Backlog'
+        Holder      = 'human'
+        Recovery    = 'none'
+        AllowedFrom = @($null, 'human:decision', 'agent:failed')
+        OnComment   = 'refine'
+    }
+    'human:approval' = @{
+        LaneName    = 'Review'
+        Holder      = 'human'
+        Recovery    = 'none'
+        AllowedFrom = @('agent:implementing', 'agent:reviewing')
+        OnComment   = 'revise'
+    }
 }
 
 # Resolve the repo slug WITHOUT a GraphQL call. `gh repo view` hits the GraphQL

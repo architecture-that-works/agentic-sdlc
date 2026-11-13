@@ -446,6 +446,88 @@ $acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2 -WhatIf)
     assert out["log"] == ["busy?"]  # surveyed, nothing changed
 
 
+# ── AllowedFrom transition enforcement ───────────────────────────────────────
+
+
+def test_human_approval_to_implementing_is_allowed() -> None:
+    """The revision path requires human:approval → agent:implementing."""
+    out = _run(
+        r"""
+[pscustomobject]@{
+    allowed = @($PipelineStates['agent:implementing'].AllowedFrom)
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert "human:approval" in out["allowed"]
+
+
+def test_human_approval_oncomment_is_revise() -> None:
+    """A comment on human:approval must route to 'revise', not to refine or retry."""
+    out = _run(
+        r"""
+[pscustomobject]@{
+    oncomment = $PipelineStates['human:approval'].OnComment
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert out["oncomment"] == "revise"
+
+
+def test_every_state_has_allowedfrom_and_oncomment() -> None:
+    """Every $PipelineStates row must have AllowedFrom and OnComment — the central
+    router and the transition gate both depend on them."""
+    out = _run(
+        r"""
+$missing = @()
+foreach ($key in $PipelineStates.Keys) {
+    $row = $PipelineStates[$key]
+    if (-not $row.ContainsKey('AllowedFrom')) { $missing += "$key:AllowedFrom" }
+    if (-not $row.ContainsKey('OnComment'))   { $missing += "$key:OnComment" }
+}
+[pscustomobject]@{ missing = @($missing) } | ConvertTo-Json -Compress
+"""
+    )
+    assert out["missing"] == [], (
+        f"States missing AllowedFrom/OnComment: {out['missing']}"
+    )
+
+
+def test_set_agent_state_throws_on_disallowed_transition() -> None:
+    """Set-AgentState must throw when the from-label is absent from AllowedFrom."""
+    script = (
+        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        "& (Get-Module Orchestrator) {\n"
+        "function script:Write-Log { param($Message, $Color) }\n"
+        "function script:Get-IssueState { param($IssueNumber) $null }\n"
+        # issue is at human:decision; trying to skip to agent:shipped is not allowed
+        "function script:Get-IssueLabel { param($IssueNumber) @('human:decision') }\n"
+        "function script:Set-IssueLabel { param($Number, $Add, $Remove) }\n"
+        "function script:Move-ToLane { param($IssueNumber, $OptionId, $LaneName) }\n"
+        "try { Set-AgentState -IssueNumber 1 -Label 'agent:shipped'; exit 0 }\n"
+        "catch { Write-Output $_.Exception.Message; exit 1 }\n"
+        "}\n"
+    )
+    import subprocess
+
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1, (
+        f"Expected Set-AgentState to throw on disallowed transition but got exit 0.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert (
+        "not allowed" in result.stdout.lower() or "not allowed" in result.stderr.lower()
+    ), (
+        f"Expected 'not allowed' error message.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
 def test_paused_issues_are_left_to_the_usage_limit_path() -> None:
     """agent:paused carries its own reset time in the carrier, so only
     Resume-PausedIssues knows whether it is due. The warden decides it should run."""

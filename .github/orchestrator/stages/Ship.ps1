@@ -455,8 +455,8 @@ function Invoke-Ship {
             } else { 'this issue is labelled ``human:approval``.' }
 
             Add-Comment -Number $IssueNumber -Body ("🤖⏸ Held for human approval`n`nPR #$PRNumber is green and self-reviewed, but " +
-                "$why`n`n**Merge PR #$PRNumber to accept.** To reject, close the PR and comment on this issue with what should " +
-                "change — the agent reads the issue, not PR review comments. Nothing reaches the default branch until you merge.")
+                "$why`n`n**Comment on this issue to change the PR; close the PR to reject it.** Merge PR #$PRNumber to accept. " +
+                "The agent reads the issue, not PR review comments. Nothing reaches the default branch until you merge.")
             Write-Log "⏸ Issue #$IssueNumber held for human approval — $($governance.Count) governance, $($proposed.Count) proposed file(s)." -Color Yellow
             return $false
         }

@@ -679,6 +679,16 @@ function Set-AgentState {
         Where-Object { $PipelineStates.Contains($_) })
     $replace = @($current | Where-Object { $_ -ne $Label })
 
+    # AllowedFrom enforcement — strict transition gate so invalid paths surface
+    # immediately rather than silently reaching the wrong state (ADR-015).
+    # Extend AllowedFrom in Config.ps1 to permit a new valid path.
+    if ($spec -and $spec.ContainsKey('AllowedFrom') -and $null -ne $spec.AllowedFrom -and @($spec.AllowedFrom).Count -gt 0) {
+        $currentLabel = if ($current.Count -gt 0) { $current[0] } else { $null }
+        if (-not (@($spec.AllowedFrom) -contains $currentLabel)) {
+            throw "Set-AgentState: transition from '$currentLabel' to '$Label' is not allowed — extend AllowedFrom in Config.ps1 to permit it."
+        }
+    }
+
     if ($replace -contains 'human:approval' -and $Label -ne 'agent:shipped') {
         $state = Get-IssueState -IssueNumber $IssueNumber
         if ($state) {
