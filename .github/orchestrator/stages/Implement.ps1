@@ -321,7 +321,7 @@ Closes #$Number
 # ── Orchestrator entry point ──────────────────────────────────────────────────
 
 function Invoke-Implement {
-    param([int]$IssueNumber = 0, [switch]$Force)
+    param([int]$IssueNumber = 0, [switch]$Force, [switch]$Revise)
 
     if ($IssueNumber -eq 0) { $IssueNumber = Get-CurrentIssueNumber }
     if ($IssueNumber -eq 0) {
@@ -395,10 +395,13 @@ function Invoke-Implement {
             return $null
         }
 
-        if ($Force) {
+        if ($Revise) {
+            # Only a revision reads "no new commits" as an answered question. A retry also
+            # runs with -Force and may find nothing left to commit (the owner fixed it by
+            # hand); it must go on to review with the existing PR, not close the issue.
             $newCommits = [int](git rev-list --count "${headBefore}..HEAD" 2>$null)
             if ($newCommits -eq 0) {
-                # Force run (revision cycle) produced no new commits — owner asked a question.
+                # The revision produced no new commits — the owner asked a question.
                 Write-Log "✅ Implement complete — question answered, no new commits." -Color Green
                 return $null
             }

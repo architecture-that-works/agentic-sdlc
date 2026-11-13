@@ -725,9 +725,20 @@ def test_revise_route_skipped_when_no_open_pr() -> None:
     assert out["noPrComment"], "Expected '· no open PR found' comment when no open PR."
 
 
-def test_implement_path_uses_force_when_approval_required() -> None:
-    """When the implement block runs for an issue with approval_required=true
-    and no prior failed attempts, Invoke-Implement must receive -Force (revise path)."""
+@pytest.mark.parametrize(
+    ("approval", "attempts", "revise"),
+    [
+        ("$true", "@()", True),  # revision: a no-commit run is an answered question
+        ("$false", "@('review')", False),  # retry: a no-commit run goes on to review
+    ],
+    ids=["revision", "retry"],
+)
+def test_implement_path_flags_only_a_revision_as_revise(
+    approval: str, attempts: str, revise: bool
+) -> None:
+    """Both a revision and a retry re-run implement with -Force. Only the revision
+    gets -Revise: a retry after the owner fixed the branch by hand has nothing to
+    commit, and reading that as "question answered" would close the issue unmerged."""
     script = (
         "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
         "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
@@ -744,11 +755,12 @@ def test_implement_path_uses_force_when_approval_required() -> None:
         "function script:Add-Comment { param($Number, $Body) }\n"
         "function script:Set-AgentState { param($IssueNumber, $Label) }\n"
         "function script:Get-IssueState { param($IssueNumber)\n"
-        "    [pscustomobject]@{ attempt_count = 0; attempts = @();\n"
-        "        approval_required = $true } }\n"
-        "$script:forceCapture = $null\n"
-        "function script:Invoke-Implement { param($IssueNumber, [switch]$Force)\n"
-        "    $script:forceCapture = $Force.IsPresent; throw 'done' }\n"
+        f"    [pscustomobject]@{{ attempt_count = 0; attempts = {attempts};\n"
+        f"        approval_required = {approval} }} }}\n"
+        "$script:forceCapture = $null; $script:reviseCapture = $null\n"
+        "function script:Invoke-Implement { param($IssueNumber, [switch]$Force, [switch]$Revise)\n"
+        "    $script:forceCapture = $Force.IsPresent\n"
+        "    $script:reviseCapture = $Revise.IsPresent; throw 'done' }\n"
         "function script:git { $global:LASTEXITCODE = 0 }\n"
         "function script:gh { $global:LASTEXITCODE = 0\n"
         "    $a = $args -join ' '\n"
@@ -756,7 +768,8 @@ def test_implement_path_uses_force_when_approval_required() -> None:
         '        return \'{"title":"T","labels":[{"name":"agent:implementing"}],"state":"OPEN"}\' }\n'
         "    return '' }\n"
         "try { Invoke-Orchestration -IssueNumber 42 -MaxRetries 1 } catch { }\n"
-        "[pscustomobject]@{ force = $script:forceCapture } | ConvertTo-Json -Compress\n"
+        "[pscustomobject]@{ force = $script:forceCapture; revise = $script:reviseCapture }"
+        " | ConvertTo-Json -Compress\n"
         "}\n"
     )
     result = subprocess.run(
@@ -768,7 +781,6 @@ def test_implement_path_uses_force_when_approval_required() -> None:
     lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
     assert lines, f"No JSON output:\n{result.stdout}\n{result.stderr}"
     out = json.loads(lines[-1])
-    assert out["force"] is True, (
-        "Expected Invoke-Implement to be called with -Force when approval_required=true.\n"
-        f"Got force={out.get('force')}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    assert out == {"force": True, "revise": revise}, (
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )

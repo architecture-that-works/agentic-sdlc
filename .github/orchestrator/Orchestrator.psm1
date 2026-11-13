@@ -271,7 +271,8 @@ function Invoke-Orchestration {
         while ($true) {
             $currentStage = 'implement'
             try {
-                $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:($Force -or $retrying -or $isRevise)
+                $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:($Force -or $retrying -or $isRevise) `
+                    -Revise:($isRevise -and -not $retrying)
 
                 if ($null -eq $implementResult) {
                     # No code changes: either a question-answer (revision path with

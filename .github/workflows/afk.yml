@@ -106,7 +106,8 @@ jobs:
        !contains(github.event.issue.labels.*.name, 'agent:backlog'))
     runs-on: ${{ vars.KANBAN_RUNNER_PROFILE == 'self-hosted' && fromJSON('["self-hosted","gha-project"]') || 'ubuntu-latest' }}
     concurrency:
-      # Per issue: two quick comments on one issue queue instead of racing.
+      # Per issue, shared with the comment job: an owner comment that arrives while
+      # refine runs queues behind it instead of refining the same issue in parallel.
       group: refine-${{ github.event.issue.number || inputs.issue_number }}
       cancel-in-progress: false
     env:
@@ -158,8 +159,9 @@ jobs:
       !startsWith(github.event.comment.body, '·')
     runs-on: ${{ vars.KANBAN_RUNNER_PROFILE == 'self-hosted' && fromJSON('["self-hosted","gha-project"]') || 'ubuntu-latest' }}
     concurrency:
-      # Per-issue: serial comments on one issue; independent issues can run in parallel.
-      group: comment-${{ github.event.issue.number }}
+      # The refine job's group: a comment routed to refine never runs beside the
+      # refine its issue opened with. Independent issues still run in parallel.
+      group: refine-${{ github.event.issue.number }}
       cancel-in-progress: false
     env:
       KANBAN_ISSUE: ${{ github.event.issue.number }}
