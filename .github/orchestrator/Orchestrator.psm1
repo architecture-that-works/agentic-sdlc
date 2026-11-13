@@ -66,6 +66,17 @@ function Invoke-Orchestration {
     $ctx = Get-OrchestratorContext               # run context: repo, default branch, retries
     if ($MaxRetries -lt 0) { $MaxRetries = $ctx.MaxRetries }
 
+    # Trusted authors only (#312) — before the engine is touched. Covers what the
+    # workflow's own author check cannot: the refine backfill and an owner comment on
+    # an outsider's issue.
+    if (-not (Test-TrustedAuthor -IssueNumber $IssueNumber)) {
+        Write-Log "  ⛔ Issue #$IssueNumber was opened by an outside contributor — not processed." -Color Yellow
+        if ($From -eq 'comment') {
+            Add-Comment -Number $IssueNumber -Body '· not processed — opened by an outside contributor; open your own issue to adopt it'
+        }
+        return $false
+    }
+
     # Fail-fast engine validation. A spent usage allowance pauses the issue instead of
     # failing it; the hourly resume job picks it up again.
     try {

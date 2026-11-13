@@ -90,6 +90,12 @@ $OrchestratorConfig = @{
         'pyproject.toml', 'uv.lock'
     )
 
+    # Trusted authors: the pipeline acts only on issues opened by these GitHub author
+    # associations (#312). It runs with the owner's tokens, so a public repo's stranger
+    # must never reach refine or implement — not through the workflow trigger, the
+    # backfill, nor an owner comment on their issue. afk.yml's jobs check the same list.
+    TrustedAuthors = @('OWNER', 'MEMBER', 'COLLABORATOR')
+
     # Orchestrator behaviour
     MaxRetries = 3    # failed attempts per round (implement, review, CI, refine) before agent:failed
 
