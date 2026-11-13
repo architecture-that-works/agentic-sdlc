@@ -10,6 +10,7 @@ agent:shipped. gh and git are in-memory fakes at module script scope.
 """
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -396,3 +397,80 @@ def test_issue_shipped_is_true_only_for_agent_shipped() -> None:
     assert shipped(["agent:failed"]) is False
     assert shipped(["agent:reviewing"]) is False
     assert shipped([]) is False
+
+
+# ── Local CI (#314): when GitHub Actions cannot run, ship runs checks.yml's jobs
+# itself and always leaves the merge to the owner. ──
+
+_LOCAL_CI = r"""
+$env:KANBAN_LOCAL_CI = '1'
+$script:ChecksPolled = $false
+function script:gh { $global:LASTEXITCODE = 0
+    switch ($args[1]) {
+        'view'   { 'feature/1-x' }
+        'checks' { $script:ChecksPolled = $true; '[{"name":"test","bucket":"fail"}]' }
+        'diff'   { $script:Diff }
+        'merge'  { $script:Log.Add('merged') }
+    } }
+"""
+
+
+def _local_ship(tmp_path: Path, jobs: str) -> dict:
+    return _run(
+        _SHIP
+        + _LOCAL_CI
+        + "function script:Invoke-LocalCI { "
+        + jobs
+        + " }\n"
+        + r"""
+$script:Diff = @('src/x.py', 'tests/test_x.py')
+try { $r = Invoke-Ship -IssueNumber 1 -PRNumber 9 } catch { $r = "threw: $_" }
+[pscustomobject]@{ r = "$r"; log = @($script:Log); polled = $script:ChecksPolled } | ConvertTo-Json -Compress
+""",
+        tmp_path,
+    )
+
+
+def test_local_ci_pass_holds_even_a_writable_only_pr(tmp_path: Path) -> None:
+    out = _local_ship(
+        tmp_path,
+        "[pscustomobject]@{ Name = 'lint'; ExitCode = 0; Tail = '' };"
+        " [pscustomobject]@{ Name = 'test'; ExitCode = 0; Tail = '' }",
+    )
+    assert out["r"] == "False"
+    assert "merged" not in out["log"]
+    assert "state:human:approval" in out["log"]
+    assert "comment:🤖✅ Local CI passed" in out["log"]
+    assert out["polled"] is False
+
+
+def test_local_ci_failure_posts_ci_failed_and_throws(tmp_path: Path) -> None:
+    out = _local_ship(
+        tmp_path,
+        "[pscustomobject]@{ Name = 'lint'; ExitCode = 0; Tail = '' };"
+        " [pscustomobject]@{ Name = 'test'; ExitCode = 1; Tail = '1 failed' }",
+    )
+    assert out["r"].startswith("threw: CI checks failed for PR #9: test")
+    assert "comment:🤖❌ CI Failed" in out["log"]
+    assert "state:human:approval" not in out["log"]
+    assert out["polled"] is False
+
+
+def test_local_ci_runs_every_uv_command_checks_yml_runs() -> None:
+    """The local job list mirrors checks.yml; a command added there must be added here."""
+    workflow = (
+        Path(__file__).parents[2] / ".github" / "workflows" / "checks.yml"
+    ).read_text(encoding="utf-8")
+    ci = set()
+    for job in ("lint", "typecheck", "test", "audit"):
+        body = re.search(
+            rf"^  {job}:\n(.*?)(?=^  [\w-]+:\n|\Z)", workflow, re.MULTILINE | re.DOTALL
+        )
+        assert body, job
+        ci |= {c.strip() for c in re.findall(r"run:\s*(uv run .+)", body.group(1))}
+    out = _run(
+        "[pscustomobject]@{ jobs = @($LocalCiJobs.Values | ForEach-Object { $_ -join ' ' }) }"
+        " | ConvertTo-Json -Compress"
+    )
+    assert ci, "no uv run commands found in checks.yml"
+    assert ci <= set(out["jobs"]), ci - set(out["jobs"])
