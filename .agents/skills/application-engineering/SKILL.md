@@ -52,7 +52,7 @@ See [REFERENCE.md](REFERENCE.md) for full code schemas (port/adapter, OTel instr
 
 ## tdd REFACTOR Phase Patterns
 
-When the GREEN phase is complete, extend the REFACTOR phase with these application-engineering patterns:
+Shared coding principles apply first — see `.agents/skills/implement/REFERENCE.md` § Coding Principles. Then extend with these application-engineering patterns:
 
 - **Router → Service → Port:** Business logic must not live in the router. Move any logic from routers into the service layer. Claude must be accessed only through an abstract `AICompletionPort`.
 - **Deep service modules:** The service's public interface should be minimal — one method per use case. Move validation, retry, and OTel span creation behind this interface.

@@ -54,7 +54,7 @@ See [REFERENCE.md](REFERENCE.md) for full code schemas (Plan-Act-Observe loop, t
 
 ## tdd REFACTOR Phase Patterns
 
-When the GREEN phase is complete, extend the REFACTOR phase with these agentic-engineering patterns:
+Shared coding principles apply first — see `.agents/skills/implement/REFERENCE.md` § Coding Principles. Then extend with these agentic-engineering patterns:
 
 - **`execute_tool` never raises:** If any tool implementation can raise an exception, wrap it. The agent loop must always receive a string result — errors are observations, not crashes.
 - **Provider-agnostic executor isolation:** The `execute_tool` function must not import from `anthropic` or any other provider SDK. If it does, extract the provider coupling to the loop level.

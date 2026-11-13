@@ -5,6 +5,24 @@ and quick start. See [EXAMPLES.md](EXAMPLES.md) for worked Red-Green-Refactor se
 
 ---
 
+## Coding Principles
+
+The single shared standard that `review` and the domain skills enforce. Skills cite this section
+by path (`.agents/skills/implement/REFERENCE.md` § Coding Principles); rules are not duplicated.
+
+1. **Prefer simple over clever.** The most readable solution wins. Between two correct
+   implementations, the simpler one is right. A one-liner that needs decoding is not simple.
+2. **No speculative abstractions.** Build exactly what a failing test requires. Extract to a helper
+   only once the pattern appears three times (Rule of Three — `CONTEXT.md`). A helper with one
+   caller and no domain name is inlined.
+3. **Mark deliberate shortcuts explicitly.** A simplification the current issue defers gets a
+   one-line comment on the line it limits, naming the follow-up:
+   `# shortcut: <reason> — to be fixed in <follow-up-slug>`. REFACTOR never removes a shortcut
+   silently — removing one means doing its follow-up in its own issue. See
+   [§ Shortcut Comments](#shortcut-comments) for the full contract and restrictions.
+
+---
+
 ## Red Phase — Full Decision Tree
 
 ### Pre-conditions
@@ -76,10 +94,34 @@ re-run the full test suite; repeat from the top.
    name, a data structure type, an algorithm parameter)? Replace with a stable abstraction.
 4. **Responsibility count:** Does this module own more than one domain concept? If yes, split.
 5. **Naming clarity:** Do all public identifiers name the domain concept, not the mechanism?
+6. **Unasked-for code:** Options, wrappers, type conversions, config knobs and "for later"
+   branches that no acceptance criterion needs. Delete.
+7. **Moved code:** Any error handling or validation the move dropped. Restore it.
+8. **Comments:** Any comment that says what the code does. Delete it, or rewrite it as the
+   one-line why.
 
 **Domain extension:** After this checklist, load the domain skill (`application-engineering`,
 `data-engineering`, or `agentic-engineering`) for language- and stack-specific REFACTOR
 patterns. Do not apply domain patterns before the checklist above completes.
+
+---
+
+## Shortcut Comments
+
+A shortcut is a deliberate simplification the issue does not need resolved now — a linear scan
+that is fine for the current data, a single-process lock, one input format handled. It is written
+as one comment on the line it limits, naming the follow-up:
+
+```python
+# shortcut: linear scan — to be fixed in orders-index-lookup
+```
+
+Two parts, in order: `shortcut:` and the reason, then `to be fixed in` and the slug of the
+follow-up (an ISSUES.md block or an open issue). REFACTOR never removes a shortcut silently —
+removing one means doing the follow-up, in its own issue. `review` lists lines bearing the
+comment under `Not checked:` instead of raising them as findings; an unmarked simplification is
+a finding. A shortcut is never allowed on validation at a trust boundary, error handling that
+prevents data loss, or security.
 
 ---
 

@@ -1,229 +1,126 @@
 # Review — Examples
 
 Worked end-to-end review sessions demonstrating the `review` skill. See [SKILL.md](SKILL.md)
-for the quick-start and [REFERENCE.md](REFERENCE.md) for the full finding taxonomy,
-auto-fix protocol, and drift-risk heuristics.
+for the method and the output shape, and [REFERENCE.md](REFERENCE.md) for the finding
+categories, the verdict rule and the fix loop.
 
 ---
 
-## Example 1: PR with a BLOCK Finding (Internal Mock)
+## Example 1: Blocking Findings Fixed in One Round
 
-**Context:** PR #42 adds `Order.total()` with tax calculation. The `implement` cycle completed
-but the reviewer finds a test that mocks an internal collaborator.
+**Context:** PR #42 adds `Order.total()` with tax calculation. The issue's acceptance
+criteria: "total includes tax", "an empty order totals 0.0".
 
-### Step 1 — Run the review
-
-```bash
-gh pr diff 42 | claude --system "You are a Senior Architect. Review this diff for:
-(1) violations of boundaries in CONTEXT.md, (2) shallow modules, (3) internal mocking
-in tests, (4) missing acceptance criteria coverage.
-List findings with severity: BLOCK | WARN | INFO."
-```
-
-Claude response:
-
-```
-FINDINGS
-
-[BLOCK] Internal mock in test_order_total_includes_tax
-  tests/test_orders.py, line 8: TaxCalculator is mocked via patch('src.orders.TaxCalculator').
-  TaxCalculator is an internal collaborator — mock only at system boundaries.
-
-[WARN] Order.items is a public field exposing the internal list representation.
-  Consider a read-only property or private field.
-
-[INFO] No docstring on Order.total() — low priority.
-```
-
-### Step 2 — Auto-fix loop: BLOCK finding
-
-**Iteration 1 — Generator:**
-
-Generator removes the internal mock and rewrites the test to call `Order.total()` directly:
-
-```python
-# Before (mocked internal collaborator)
-def test_order_total_includes_tax():
-    with patch("src.orders.TaxCalculator") as mock_calc:
-        mock_calc.return_value.calculate.return_value = 1.00
-        order = Order(items=[Item("widget", 10.00)], tax_rate=0.1)
-        assert order.total() == 11.00
-
-
-# After (through public interface)
-def test_order_total_includes_tax():
-    order = Order(items=[Item("widget", 10.00)], tax_rate=0.1)
-    assert order.total() == 11.00
-```
+### Round 1 — Understand, look, check
 
 ```bash
-uv run pytest -x
-# → PASSED
+gh pr diff 42                                  # the diff
+grep -rn "Order(" src/ tests/                  # callers: src/checkout.py:31, tests/test_orders.py
+sed -n 20,45p src/checkout.py                  # the one production caller
 ```
 
-**Evaluator re-review:**
+The signal history holds `🤖✅ Tests Passing — 3 passed` and `Left undone: none`. The test for
+the empty order mocks `TaxCalculator`, an internal class. `checkout.py` passes `items=None`
+when the cart is empty.
+
+### Round 1 — Report (posted to the issue)
 
 ```
-Is this finding resolved? Finding: Internal mock of TaxCalculator in test_order_total_includes_tax.
-Answer RESOLVED or UNRESOLVED with one sentence of justification.
+REJECTED — fix 1, 2 and 3
 
-→ RESOLVED — the test now calls Order.total() directly through the public interface
-  without patching any internal collaborator.
+What this change does: Adds an Order class with total(), which sums item prices and applies
+a tax rate. checkout.py calls it to show the price before confirmation.
+
+1. **Empty cart crashes checkout** (`src/orders/__init__.py:L14`)
+   - **Defect:** total() sums self._items, which checkout.py:31 sets to None for an empty cart.
+   - **Case:** An empty cart → sum(None) raises TypeError; the "empty order totals 0.0"
+     criterion is not met.
+   - **Fix:** `items: list = field(default_factory=list)`; keep sum() as is. One line.
+
+2. **Test proves nothing** (`tests/test_orders.py:L8-12`)
+   - **Defect:** test_order_total_with_no_items patches src.orders.TaxCalculator, an internal
+     collaborator (implement mocking rule, CONTEXT.md).
+   - **Case:** With the mock in place the test passes whether or not total() handles an empty
+     order, so finding 1 ships green.
+   - **Fix:** Drop the patch; call Order(items=[], tax_rate=0.1).total() and assert 0.0.
+
+3. **items is a public field** (`src/orders/__init__.py:L11`)
+   - **Defect:** The dataclass exposes the item list.
+   - **Case:** checkout.py appends to it after total() was shown → the displayed total is stale.
+   - **Fix:** Rename to `_items`; the constructor keeps the `items` keyword. Two lines.
+
+Not checked: rounding of fractional tax rates — no criterion asks for it.
 ```
 
-BLOCK finding resolved in iteration 1.
+Findings 1 and 2 are BLOCK and 3 is an unwaived WARN by the reviewer's rule, so the verdict
+names all three; no tag is printed. The pipeline posts this as `🤖❌ Review Rejected` and sets
+`agent:implementing`.
 
-### Step 3 — Auto-fix loop: WARN finding
+### Round 2 — `implement` fixes all three; review re-reads the current diff
 
-Generator makes `items` private:
-
-```python
-@dataclass
-class Order:
-    _items: list
-    tax_rate: float
-
-    def __init__(self, items: list, tax_rate: float) -> None:
-        self._items = items
-        self.tax_rate = tax_rate
-
-    def total(self) -> float:
-        return sum(i.price for i in self._items) * (1 + self.tax_rate)
 ```
+APPROVED
 
-```bash
-uv run pytest -x
-# → PASSED
-```
+What this change does: Adds an Order class with total(); an empty order totals 0.0; the
+item list is private.
 
-Evaluator: RESOLVED — `_items` is now private; callers cannot mutate the internal list.
-
-### Step 4 — Final verification
-
-```bash
-# Re-read all findings against the current diff
-gh pr diff 42 | claude --system "Confirm all findings from the initial review are resolved.
-Findings: (1) internal mock BLOCK, (2) public items field WARN, (3) missing docstring INFO."
-# → All BLOCK and WARN findings resolved. INFO noted.
-```
-
-Post summary comment:
-
-```bash
-gh pr comment 42 --body "## Review Complete
-
-All findings resolved.
-
-| Finding | Severity | Status |
-|---------|----------|--------|
-| Internal mock of TaxCalculator | BLOCK | Fixed (iteration 1) |
-| Order.items public field | WARN | Fixed (iteration 1) |
-| Missing docstring on total() | INFO | Noted — no action required |
-
-PR is clean. Ready for \`ship\`."
+Looks good. Checked: both callers, the three tests through the public interface, the
+signal history (5 passed).
 ```
 
 ---
 
-## Example 2: PR Approved Without BLOCK or WARN Findings
+## Example 2: Clean Approval
 
-**Context:** PR #55 refactors `src/config.py` to add a new `Settings` field.
-Review runs cleanly — no structural issues found.
-
-### Step 1 — Run the review
-
-```bash
-gh pr diff 55 | claude --system "You are a Senior Architect. Review this diff for:
-(1) violations of boundaries in CONTEXT.md, (2) shallow modules, (3) internal mocking
-in tests, (4) missing acceptance criteria coverage.
-List findings with severity: BLOCK | WARN | INFO."
-```
-
-Claude response:
+**Context:** PR #55 adds a `DEFAULT_TIMEOUT` field to `Settings` with its test.
 
 ```
-FINDINGS
+APPROVED
 
-No BLOCK or WARN findings.
+What this change does: Adds DEFAULT_TIMEOUT (30 s) to Settings, read from .env like every
+other field, with one test for the default and one for the override.
 
-[INFO] New field DEFAULT_TIMEOUT could benefit from a comment explaining why 30s
-was chosen — low priority, not blocking.
+1. **Why 30 seconds** (`src/config.py:L22`)
+   - **Defect:** Nothing says where the 30 s default came from.
+   - **Case:** The next reader "tunes" it without knowing the upstream API itself times out
+     at 30 s.
+   - **Fix:** One comment: `# 30 s: the upstream API's own timeout — never wait longer than it does`.
+
+Looks good. Checked: the one caller of Settings, extra="ignore" still set, the two tests.
 ```
 
-### Step 2 — INFO finding handling
-
-INFO findings do not gate merge. Post as a note and proceed immediately to `ship`.
-
-```bash
-gh pr comment 55 --body "## Review Complete
-
-No BLOCK or WARN findings.
-
-[INFO] DEFAULT_TIMEOUT — a comment explaining the 30s choice would help future
-readers. Not blocking.
-
-PR is clean. Ready for \`ship\`."
-```
-
-No auto-fix loop required. No HITL escalation.
+A suggestion like this never changes the verdict; the verdict line names only what must be
+fixed. The pipeline proceeds to `ship`.
 
 ---
 
-## Example 3: Escalation After 3 Iterations
+## Example 3: Escalation After Three Rejections
 
-**Context:** PR #61 has a bounded context bleed: an HTTP handler is writing to
-`src/utils/`, which is a generic module that must not contain project logic.
+**Context:** PR #61 moves response formatting into `src/utils/m_response.py`, which now
+imports from `src/domain/` — a bounded-context bleed (`src/utils/` is generic, CONTEXT.md).
 
-### Step 1 — BLOCK finding identified
+| Round | Finding 1 | Why it stands |
+|---|---|---|
+| 1 | REJECTED | `src/utils/m_response.py` imports `src/domain/`; three callers depend on the util |
+| 2 | REJECTED | Import moved, but the validation is now duplicated in `src/utils/` and `src/domain/` |
+| 3 | REJECTED | Duplication extracted into a shared helper both contexts import — a God Object candidate per the blast-radius report |
 
-```
-[BLOCK] Bounded context bleed: src/utils/m_response.py now imports from src/domain/,
-violating "src/utils/ stays generic" (CONTEXT.md Architectural Constraints).
-```
-
-### Step 2 — Iteration 1 fails
-
-Generator moves the domain import to `src/domain/response.py`. Tests fail: three
-other modules import from `src/utils/m_response.py` and now break.
+Each rejection is one attempt in the issue's `attempts[]`. After the third the orchestrator
+sets `agent:failed`; nobody sets a label by hand. The reviewer posts the escalation and stops:
 
 ```bash
-uv run pytest -x
-# → FAILED: ImportError in 3 test files
-```
+gh pr comment 61 --body "$(cat << 'EOF'
+## Review Escalation
 
-Evaluator: UNRESOLVED — tests still fail after the move. Iteration 2.
-
-### Step 3 — Iteration 2 fails
-
-Generator updates the three broken imports. Tests pass but the Evaluator finds the
-logic is now split across two modules with duplicated validation.
-
-Evaluator: UNRESOLVED — duplicate validation logic across src/utils and src/domain.
-Iteration 3.
-
-### Step 4 — Iteration 3 fails
-
-Generator extracts the duplicated logic into a shared helper. The architecture blast-radius
-report flags the new shared helper as a potential God Object. Tests pass but the structural
-problem remains contested.
-
-Evaluator: UNRESOLVED — bounded context bleed converted to a potential God Object; this
-requires a human architectural decision.
-
-### Step 5 — Escalate
-
-```bash
-gh pr comment 61 --body "## Review Escalation
-
-**Finding:** Bounded context bleed — src/utils/ importing from src/domain/
-**Root cause hypothesis:** The correct home for the shared logic is not mechanically
-determinable without a refine session (two valid bounded context designs exist).
-**Iterations attempted:** 3
+**Finding:** 1 — bounded-context bleed, src/utils/ imports src/domain/
+**Root cause hypothesis:** two valid homes for the shared validation exist; choosing one is
+a boundary decision, not a mechanical fix.
+**Rounds attempted:** 3
 **Status:** UNRESOLVED — merge blocked
 
-**Action required:** Human review needed before this PR can proceed."
-
-gh issue edit 54 --add-label "human:approval"
+**Action required:** a human decides; answer in the issue.
+EOF
+)"
 ```
 
-Stop. Do not attempt iteration 4.
+The owner answers in the issue; `refine` records the decision; the retry implements it.

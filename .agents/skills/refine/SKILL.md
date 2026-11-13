@@ -55,6 +55,8 @@ Run relentlessly. Walk every branch of the decision tree. Resolve dependencies b
 
 **Rule 4 — Interface before implementation.** The Agent Brief is written in terms of contracts and schemas. It must never reference file paths or line numbers — those are volatile.
 
+**Rule 5 — Smallest complete scope.** The Agent Brief specifies the smallest version that does the core job. Every feature, option or flexibility the issue did not ask for is named in Out of Scope in one line — it is not built, and `plan` does not re-propose it. A vague issue gets the smallest version, not the most complete one.
+
 **Pragmatic Programmer checks during grilling:**
 - Dig for real requirements, not stated desires (PP-51)
 - Think like a user, not a builder (PP-52)
@@ -127,7 +129,7 @@ Store ADRs in `docs/adr/`. Reference by number in `CONTEXT.md` Architectural Con
 ## AFK Invocation Pattern (self-grill subagent)
 
 The interactive grill-me protocol has an AFK analog: a subagent spawned by the
-kanban orchestrator's `Invoke-Refine` phase. The subagent enforces Rules 1-4
+kanban orchestrator's `Invoke-Refine` phase. The subagent enforces Rules 1-5
 above without a human in the loop and emits a structured `GrillResult`
 (`src/utils/m_planning.py::GrillResult`) bundling the Agent Brief, open and
 decided questions, and proposed glossary diffs.
@@ -184,3 +186,6 @@ File paths are volatile. The brief must reference interfaces, schemas, and contr
 
 **Starting a grill session mid-Transition Zone.**
 Alignment requires precise reasoning. A session started at 150k tokens will drift before it reaches agreement. Compact first.
+
+**A brief that builds the most complete version.**
+A vague issue invites a full-featured brief, and every downstream stage inflates with it. Specify the core job; everything else is one line in Out of Scope.

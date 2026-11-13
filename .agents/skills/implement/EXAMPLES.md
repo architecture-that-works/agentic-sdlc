@@ -222,3 +222,62 @@ uv run pytest tests/test_orders.py
 ### Step 3 — REFACTOR
 
 No duplication introduced. Interface width unchanged. REFACTOR checklist passes clean.
+
+---
+
+## Example 4: Bug Fix Traced Through Its Callers
+
+**Context:** Bug report: the report job crashes with `TypeError` on an empty CSV cell. The
+`diagnosis` root-cause statement: `normalise_score` in `src/scores.py` assumes an `int`; two
+callers pass the raw cell, which is `None` when empty.
+
+### Step 0 — The reach of the change
+
+```bash
+grep -rn "normalise_score" src/ tests/
+# → src/scores.py:12      def normalise_score(value: int) -> float:
+# → src/report.py:40      row["score"] = normalise_score(cell)
+# → src/export.py:77      scores = [normalise_score(c) for c in cells]
+# → tests/test_scores.py  (3 tests, all with ints)
+```
+
+Two callers, one shared function. The fix lives in `normalise_score`; a guard in `report.py`
+alone would leave `export.py` broken.
+
+### Step 1 — RED
+
+```python
+def test_normalise_score_treats_empty_cell_as_zero():
+    assert normalise_score(None) == 0.0
+```
+
+```bash
+uv run pytest -x tests/test_scores.py::test_normalise_score_treats_empty_cell_as_zero
+# → FAILED: TypeError: unsupported operand type(s) for /: 'NoneType' and 'int'
+# Confirmed RED — the bug is reproduced.
+```
+
+### Step 2 — GREEN: one line, in the shared function
+
+```python
+def normalise_score(value: int | None) -> float:
+    return 0.0 if value is None else value / 10
+```
+
+Both callers are fixed by the one change. Neither caller is touched.
+
+### Step 3 — REFACTOR: nothing to add, one shortcut to mark
+
+One legacy export still hands over strings for non-empty cells. That is a known gap, not this
+issue's scope — it gets its own follow-up:
+
+```python
+    # shortcut: numeric cells only — to be fixed in legacy-export-str-cells
+```
+
+### Closing note
+
+```
+- Left undone: str cells from the legacy export — shortcut, follow-up legacy-export-str-cells.
+- Issues discovered: none; both callers are covered by the new test and the existing three.
+```

@@ -135,14 +135,68 @@ src.domain.service → src.utils.m_http → src.domain.service
    or extract the shared concern into a new module that neither layer imports transitively.
    ```
 
-3. Opens a GitHub Issue labelled `human:approval`:
+3. Writes the fix as an ISSUES.md block — no label; `refine` raises the boundary decision to
+   the owner as `human:decision` when it finds one:
 
-   ```bash
-   gh issue create \
-     --title "fix(arch): break circular dependency between utils and domain" \
-     --label "human:approval" \
-     --body "Circular dependency: src.domain.service → src.utils.m_http → src.domain.service.
-   Requires a boundary decision before the fix can be implemented mechanically."
+   ```
+   ISSUE: Break the circular dependency between utils and domain
+   ESTIMATE: 3
+   PRIORITY: P2
+   **Goal**: src/utils/ is generic again and imports nothing from src/domain/.
+   **Description**: src.domain.service → src.utils.m_http → src.domain.service. Two valid
+   homes for the shared concern exist — a boundary decision.
+   **Requirements**:
+   1. Move the dependency out of src/utils/m_http.py, or extract the shared concern into a
+      module neither layer imports transitively.
+   **Acceptance Criteria**:
+   - No import cycle; `uv run pytest` passes.
+   END_ISSUE
    ```
 
 The PR is not merged until the circular dependency issue is closed.
+
+---
+
+## Example 3: Repo Audit — One Finding, One Issue
+
+**Context:** Asked to "find bloat" in a service repo. Map first: the README says one worker
+process per deployment, a nightly job, no concurrent writers — that is the load assumed. Entry
+points from the Module Map; the nightly job read fully because it writes data.
+
+The audit reports eleven findings, most important first. One of them:
+
+```
+4. **Nightly job re-reads every file every night** (`src/jobs/ingest.py:L40-61`)
+   - **Defect:** The job parses every inbox file into the database; nothing marks a file as done.
+   - **Case:** After 200 nights it parses 200 nights of files and the run takes 40 minutes; it
+     outgrows its nightly window within a year.
+   - **Fix:** Skip files already recorded: one query for the set of ingested names, one
+     `if name in done: continue`. Four lines.
+```
+
+Written as the block `task sync` turns into the issue:
+
+```
+ISSUE: Skip already-ingested files in the nightly ingest job
+ESTIMATE: 3
+PRIORITY: P3
+**Goal**: The nightly job's runtime is proportional to new files, not to history.
+**Description**: src/jobs/ingest.py:L40-61 parses every inbox file each night; nothing marks a
+file as done, so the run grows by one night's files every night (40 minutes after 200 nights).
+**Requirements**:
+1. Query the set of ingested file names once; skip names already present.
+2. One test: a file ingested yesterday is not parsed again tonight.
+**Acceptance Criteria**:
+- Running the job twice on the same inbox parses each file once.
+- `uv run pytest` passes.
+END_ISSUE
+```
+
+The three small suggestions stay in the report. It ends:
+
+```
+Verdict: fix 1 first — a check-then-write race in the upload handler.
+Lean: -140 lines, -1 dependency possible.
+Not checked: the legacy export module — no caller found anywhere in the tree; listed for
+deletion as finding 9.
+```

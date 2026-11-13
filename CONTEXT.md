@@ -34,6 +34,7 @@ __PROJECT_DESCRIPTION__
 | Signal comment | Issue comment starting with the robot emoji; posted by the orchestrator for agent decisions and outcomes (review results, failures, CI). Retrieved by agents by that prefix to reconstruct issue history | Not orchestrator log noise |
 | Noise comment | Issue comment starting with a middle dot; orchestrator log entry (state transitions, stage starts). Never retrieved by agents | — |
 | Owner comment | Any other comment by someone with write access — answers, context, guidance. Triggers the pipeline and is passed to every agent prompt | The pipeline posts with the owner's PAT, so the 🤖/· prefix is the only thing telling its comments apart; `Add-Comment` enforces it |
+| Shortcut | A deliberate simplification `implement` marks on the line it limits — `# shortcut: <reason> — to be fixed in <follow-up-slug>` — naming the follow-up that resolves it. `review` lists such lines under `Not checked:` instead of raising findings; REFACTOR never removes one silently | Not a TODO and not a label: the gap is recorded in code, the follow-up is an issue |
 
 ## Bounded Contexts
 

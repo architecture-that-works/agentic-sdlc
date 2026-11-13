@@ -66,7 +66,10 @@ INSTRUCTIONS:
 5. After implementation run ``uv run pytest`` to verify the test suite passes.
 6. If tests fail, diagnose and fix the root cause before stopping.
 7. Do NOT commit any changes — only implement.
-8. End your response with a concise bullet-point summary of every file you changed.
+8. End your response with bullets — the orchestrator posts them to the issue: one per file you
+   changed, then ``- Left undone:`` (what you skipped or did not check) and ``- Issues discovered:``
+   (what the owner must know — a risk, a bug outside scope, a stale document). Write ``none``
+   rather than omitting either.
 "@
 
     $sp       = Get-IssueEstimate -IssueNumber $Number

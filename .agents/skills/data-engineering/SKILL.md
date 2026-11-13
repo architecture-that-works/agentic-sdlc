@@ -51,7 +51,7 @@ See [REFERENCE.md](REFERENCE.md) for full Medallion tier definitions, Polars and
 
 ## tdd REFACTOR Phase Patterns
 
-When the GREEN phase is complete, extend the REFACTOR phase with these data-engineering patterns:
+Shared coding principles apply first — see `.agents/skills/implement/REFERENCE.md` § Coding Principles. Then extend with these data-engineering patterns:
 
 - **Medallion boundary enforcement:** Each tier function must read only from the tier below and write only to its own tier. If Bronze logic appears in Silver, extract it back to Bronze.
 - **Polars over Pandas:** If Pandas appears in pipeline code after GREEN, replace with Polars equivalents. Exception: boundary conversion for downstream libraries that strictly require `pd.DataFrame`.
