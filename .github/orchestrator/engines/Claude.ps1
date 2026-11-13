@@ -46,6 +46,7 @@ function Invoke-ClaudeStreaming {
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         $allText   = [System.Text.StringBuilder]::new()
         $toolCalls = [System.Collections.Generic.List[string]]::new()
+        $state     = @{ MaxTurnsReached = $false }
 
         $Prompt | claude --model $Model --allowedTools $AllowedTools --max-turns $MaxTurns --output-format stream-json --verbose 2>&1 |
         ForEach-Object {
@@ -80,11 +81,16 @@ function Invoke-ClaudeStreaming {
                     }
                 }
 
-                if ($ev.type -eq 'result') { Write-Host '' }
+                if ($ev.type -eq 'result') {
+                    if ($ev.subtype -eq 'error_max_turns') { $state.MaxTurnsReached = $true }
+                    Write-Host ''
+                }
             } catch {
                 if ($raw.Trim()) { Write-Host $raw -ForegroundColor DarkGray }
             }
         }
+
+        if ($state.MaxTurnsReached) { throw "$Label ran out of turns ($MaxTurns)" }
 
         if ($LASTEXITCODE -eq 0) {
             $summary = if ($allText.Length -gt 0) { ($allText.ToString() -split "`n")[0].Trim() } else { '(no text output)' }
