@@ -212,17 +212,28 @@ function Invoke-CommitAndPR {
         git add -- $p 2>&1 | Out-Null
     }
 
-    # Guard: inspect every staged path against a denylist and silently unstage any match.
-    # docs/adr/ is exempt — ADR filenames legitimately contain words like "secret" or
-    # "credential" (e.g. ADR-008-secrets-management.md) and must never be dropped.
-    $denyPatterns = @('.env', '*.key', '*.pem', '*.pfx', '*secret*', '*credential*')
-    foreach ($file in @(git diff --staged --name-only 2>&1)) {
-        if ($file -like 'docs/adr/*') { continue }
-        $leaf = Split-Path $file -Leaf
-        if ($denyPatterns | Where-Object { $leaf -like $_ }) {
+    # Guard: inspect staged additions/modifications (deletions excluded) against a denylist;
+    # unstage any match and report each dropped path in a 🤖 signal comment.
+    # .md files are never dropped by name pattern — a document named after secrets is not a secret.
+    # Extension-based patterns (.env, *.key, *.pem, *.pfx) remain unconditional for all extensions.
+    $denyPatterns  = @('.env', '*.key', '*.pem', '*.pfx')
+    $namePatterns  = @('*secret*', '*credential*')
+    $unstagedPaths = @()
+    $stagedAddMod  = @((git diff --staged --name-only --diff-filter=d -z 2>&1) -split [char]0 | Where-Object { $_ })
+    foreach ($file in $stagedAddMod) {
+        $leaf    = Split-Path $file -Leaf
+        $blocked = $false
+        if ($denyPatterns | Where-Object { $leaf -like $_ }) { $blocked = $true }
+        elseif ($leaf -notlike '*.md' -and ($namePatterns | Where-Object { $leaf -like $_ })) { $blocked = $true }
+        if ($blocked) {
             git reset HEAD -- $file 2>&1 | Out-Null
             Write-Log "  WARNING: sensitive file unstaged from index: $file" -Color Red
+            $unstagedPaths += $file
         }
+    }
+    if ($unstagedPaths.Count -gt 0) {
+        $lines = $unstagedPaths | ForEach-Object { "Unstaged by the secrets denylist: $_" }
+        Add-Comment -Number $Number -Body ("🤖 Secrets Denylist`n`n" + ($lines -join "`n"))
     }
 
     if (git diff --cached --name-only 2>&1) {
