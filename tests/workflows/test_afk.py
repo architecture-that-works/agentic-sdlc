@@ -59,11 +59,12 @@ def test_every_new_issue_is_refined():
 
 
 def test_owner_comment_re_refines_or_retries():
-    """A comment from someone with write access drives refine (or a retry when the
-    issue is agent:failed); the pipeline's own 🤖/· comments and outsiders never do."""
+    """A comment from someone with write access is now handled by the central comment
+    router job, not the refine job. The router calls Invoke-Orchestration -From comment
+    which dispatches to refine, retry, revise, or ack based on the live pipeline label."""
     text = WORKFLOW.read_text(encoding="utf-8")
     assert re.search(r"issue_comment:\s*\n\s*types: \[created\]", text)
-    refine = _job("refine")
+    comment = _job("comment")
     for guard in (
         "github.event_name == 'issue_comment'",
         "!github.event.issue.pull_request",
@@ -71,11 +72,10 @@ def test_owner_comment_re_refines_or_retries():
         "github.event.comment.author_association",
         "!startsWith(github.event.comment.body, '🤖')",
         "!startsWith(github.event.comment.body, '·')",
-        "contains(github.event.issue.labels.*.name, 'agent:failed')",
     ):
-        assert guard in refine, guard
-    assert "tasks/retry.ps1" in refine, (
-        "a comment on agent:failed resumes the failed stage"
+        assert guard in comment, guard
+    assert "Invoke-Orchestration -From comment" in comment, (
+        "comment job must call the central router"
     )
 
 
@@ -115,7 +115,40 @@ def test_any_feature_pr_close_reconciles_the_issue():
 
 
 def test_a_comment_on_a_held_issue_does_not_trigger_refine():
-    """#225: a held issue carries only human:approval (no agent:* label), so the
-    'no agent: label' comment trigger alone would send it back to refine."""
+    """The refine job no longer handles issue_comment events at all — the central
+    comment router job is the sole issue_comment consumer. A comment on a
+    human:approval issue triggers the router, which dispatches to 'revise' via
+    Invoke-Orchestration -From comment, never to refine directly."""
     refine = _job("refine")
-    assert "!contains(github.event.issue.labels.*.name, 'human:approval')" in refine
+    assert "github.event_name == 'issue_comment'" not in refine, (
+        "refine job if: must not condition on issue_comment — the comment job handles all comments"
+    )
+
+
+def test_comment_job_routes_owner_comment():
+    """The comment job is the sole issue_comment consumer and calls the central router."""
+    comment = _job("comment")
+    assert "github.event_name == 'issue_comment'" in comment
+    assert "Invoke-Orchestration -From comment" in comment
+    assert '["OWNER","MEMBER","COLLABORATOR"]' in comment
+    assert "github.event.comment.author_association" in comment
+    assert "!startsWith(github.event.comment.body, '🤖')" in comment
+    assert "!startsWith(github.event.comment.body, '·')" in comment
+    assert "KANBAN_ISSUE" in comment
+
+
+def test_refine_job_has_no_issue_comment_trigger():
+    """After moving all comment routing to the comment job, the refine job must
+    not trigger on issue_comment — that path is gone (#297)."""
+    refine = _job("refine")
+    assert "github.event_name == 'issue_comment'" not in refine, (
+        "refine job if: must not use issue_comment — the comment job is the sole consumer"
+    )
+
+
+def test_pipeline_comment_skipped_in_comment_job():
+    """The 🤖/· prefix filter prevents the pipeline from reacting to its own
+    comments and must be present in the comment job's if: condition."""
+    comment = _job("comment")
+    assert "startsWith(github.event.comment.body, '🤖')" in comment
+    assert "startsWith(github.event.comment.body, '·')" in comment

@@ -61,7 +61,7 @@ $ErrorActionPreference = 'Stop'
 # PowerShell resolve commands without loading the module (ADR-015).
 
 function Invoke-Orchestration {
-    param([int]$IssueNumber, [ValidateSet('refine','implement')] [string]$From = 'implement', [int]$MaxRetries = -1, [switch]$Force)
+    param([int]$IssueNumber, [ValidateSet('refine','implement','comment')] [string]$From = 'implement', [int]$MaxRetries = -1, [switch]$Force)
 
     $ctx = Get-OrchestratorContext               # run context: repo, default branch, retries
     if ($MaxRetries -lt 0) { $MaxRetries = $ctx.MaxRetries }
@@ -90,6 +90,59 @@ function Invoke-Orchestration {
 
     try {
         $meta = gh issue view $IssueNumber --repo $ctx.Repo --json title,labels,state | ConvertFrom-Json
+
+        # ── comment router — central dispatch for every owner comment ─────────
+        # Reads the live pipeline label and routes via OnComment in $PipelineStates.
+        # Runs before refine/implement so the comment job in afk.yml has one entry point.
+        if ($From -eq 'comment') {
+            $liveLabels   = @(Get-IssueLabel -IssueNumber $IssueNumber)
+            $currentLabel = @($liveLabels | Where-Object { $PipelineStates.Contains($_) }) | Select-Object -First 1
+            $onComment    = if ($currentLabel -and $PipelineStates.Contains($currentLabel)) {
+                $PipelineStates[$currentLabel].OnComment
+            } else {
+                'refine'
+            }
+            Write-Log "  Comment router: label='$currentLabel' → OnComment='$onComment'" -Color DarkGray
+
+            switch ($onComment) {
+                'refine' {
+                    $From = 'refine'
+                    # fall through to the refine block below
+                }
+                'retry' {
+                    $stage = Restart-Issue -IssueNumber $IssueNumber -Reason 'owner comment'
+                    if (-not $stage) {
+                        Add-Comment -Number $IssueNumber -Body "🤖⚠️ Could not restart issue #$IssueNumber — see the warning above."
+                    }
+                    return $stage
+                }
+                'revise' {
+                    $branch = Get-BranchName -Number $IssueNumber -Title $meta.title
+                    $prList = gh pr list --head $branch --repo $ctx.Repo --json number --limit 1 2>$null | ConvertFrom-Json
+                    if ($null -eq $prList -or $prList.Count -eq 0) {
+                        Add-Comment -Number $IssueNumber -Body "· no open PR found for this issue — comment noted, but no revision started"
+                        return $false
+                    }
+                    Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
+                    # Dispatch to the implement job so all implement runs stay in one queue.
+                    gh workflow run afk.yml `
+                        --repo $ctx.Repo `
+                        --ref $ctx.DefaultBranch `
+                        --field stage=implement `
+                        --field issue_number=$IssueNumber 2>&1 | Out-Null
+                    Add-Comment -Number $IssueNumber -Body "· revision dispatched — implement pipeline will pick up the owner's change request"
+                    return $true
+                }
+                'ack' {
+                    Add-Comment -Number $IssueNumber -Body "· comment noted"
+                    return $true
+                }
+                default {
+                    Write-Log "  Comment on #$IssueNumber in state '$currentLabel' — skipped (OnComment='')." -Color DarkGray
+                    return $true
+                }
+            }
+        }
 
         if ($From -eq 'refine') {
             Write-Log "━━━ Orchestrator (Refine): issue #$IssueNumber — $($meta.title)" -Color Cyan
@@ -207,16 +260,41 @@ function Invoke-Orchestration {
         $state    = Get-IssueState -IssueNumber $IssueNumber
         $attempt  = if ($state -and $state.PSObject.Properties['attempt_count']) { [int]$state.attempt_count } else { 0 }
         $retrying = $attempt -gt 0 -or @($state.attempts | Where-Object { $_ }).Count -gt 0
+        # Revision cycle: approval_required preserved from ship hold, fresh attempt, not retrying.
+        # Force implement so the LLM re-reads the owner's change request rather than short-circuiting.
+        $isRevise = $state -and
+                    $state.PSObject.Properties['approval_required'] -and
+                    $state.approval_required -and
+                    $attempt -eq 0 -and
+                    -not $retrying
 
         while ($true) {
             $currentStage = 'implement'
             try {
-                $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:($Force -or $retrying)
+                $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:($Force -or $retrying -or $isRevise) `
+                    -Revise:($isRevise -and -not $retrying)
 
                 if ($null -eq $implementResult) {
-                    # Implement signalled "already satisfied" — the branch has no commits
-                    # ahead of the default branch (typical for tracker issues whose work
-                    # landed through child PRs). Mark shipped and close; no review or ship.
+                    # No code changes: either a question-answer (revision path with
+                    # approval_required) or a tracker issue whose work already landed.
+                    $state = Get-IssueState -IssueNumber $IssueNumber
+                    if ($state -and $state.PSObject.Properties['approval_required'] -and $state.approval_required) {
+                        # Owner asked a question — the agent answered it without new commits.
+                        # Post the answer (last 🤖 signal comment) and return to human:approval.
+                        $latestImpl = gh issue view $IssueNumber --repo $ctx.Repo --json comments `
+                            --jq '[.comments[] | select(.body | startswith("🤖 Implementation"))] | last | .body' 2>&1 | Out-String
+                        $answerBody = if ($LASTEXITCODE -eq 0 -and $latestImpl.Trim() -and $latestImpl.Trim() -ne 'null') {
+                            $latestImpl.Trim()
+                        } else {
+                            '(The agent analysed the request but produced no code changes.)'
+                        }
+                        Add-Comment -Number $IssueNumber -Body "🤖 Question answered — no code changes needed.`n`n$answerBody"
+                        Set-AgentState -IssueNumber $IssueNumber -Label 'human:approval'
+                        Write-Log "⏸ Issue #$IssueNumber — no commits; answered question and returned to human:approval." -Color Yellow
+                        Reset-AttemptCount -IssueNumber $IssueNumber
+                        return $false
+                    }
+                    # Normal tracker-issue case: branch already up-to-date, ship immediately.
                     Reset-AttemptCount -IssueNumber $IssueNumber
                     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:shipped'
                     gh issue close $IssueNumber --repo $ctx.Repo --reason completed 2>&1 | Out-Null

@@ -446,6 +446,88 @@ $acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2 -WhatIf)
     assert out["log"] == ["busy?"]  # surveyed, nothing changed
 
 
+# ── AllowedFrom transition enforcement ───────────────────────────────────────
+
+
+def test_human_approval_to_implementing_is_allowed() -> None:
+    """The revision path requires human:approval → agent:implementing."""
+    out = _run(
+        r"""
+[pscustomobject]@{
+    allowed = @($PipelineStates['agent:implementing'].AllowedFrom)
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert "human:approval" in out["allowed"]
+
+
+def test_human_approval_oncomment_is_revise() -> None:
+    """A comment on human:approval must route to 'revise', not to refine or retry."""
+    out = _run(
+        r"""
+[pscustomobject]@{
+    oncomment = $PipelineStates['human:approval'].OnComment
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert out["oncomment"] == "revise"
+
+
+def test_every_state_has_allowedfrom_and_oncomment() -> None:
+    """Every $PipelineStates row must have AllowedFrom and OnComment — the central
+    router and the transition gate both depend on them."""
+    out = _run(
+        r"""
+$missing = @()
+foreach ($key in $PipelineStates.Keys) {
+    $row = $PipelineStates[$key]
+    if (-not $row.ContainsKey('AllowedFrom')) { $missing += "$key:AllowedFrom" }
+    if (-not $row.ContainsKey('OnComment'))   { $missing += "$key:OnComment" }
+}
+[pscustomobject]@{ missing = @($missing) } | ConvertTo-Json -Compress
+"""
+    )
+    assert out["missing"] == [], (
+        f"States missing AllowedFrom/OnComment: {out['missing']}"
+    )
+
+
+def test_set_agent_state_throws_on_disallowed_transition() -> None:
+    """Set-AgentState must throw when the from-label is absent from AllowedFrom."""
+    script = (
+        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        "& (Get-Module Orchestrator) {\n"
+        "function script:Write-Log { param($Message, $Color) }\n"
+        "function script:Get-IssueState { param($IssueNumber) $null }\n"
+        # issue is at human:decision; trying to skip to agent:shipped is not allowed
+        "function script:Get-IssueLabel { param($IssueNumber) @('human:decision') }\n"
+        "function script:Set-IssueLabel { param($Number, $Add, $Remove) }\n"
+        "function script:Move-ToLane { param($IssueNumber, $OptionId, $LaneName) }\n"
+        "try { Set-AgentState -IssueNumber 1 -Label 'agent:shipped'; exit 0 }\n"
+        "catch { Write-Output $_.Exception.Message; exit 1 }\n"
+        "}\n"
+    )
+    import subprocess
+
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1, (
+        f"Expected Set-AgentState to throw on disallowed transition but got exit 0.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert (
+        "not allowed" in result.stdout.lower() or "not allowed" in result.stderr.lower()
+    ), (
+        f"Expected 'not allowed' error message.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
 def test_paused_issues_are_left_to_the_usage_limit_path() -> None:
     """agent:paused carries its own reset time in the carrier, so only
     Resume-PausedIssues knows whether it is due. The warden decides it should run."""
@@ -461,3 +543,244 @@ $acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2)
     assert out["log"] == ["resume"]
     # Resume owns the transition; the warden does not also re-enter it.
     assert out["acted"] == 0
+
+
+# ── AllowedFrom regression guards ────────────────────────────────────────────
+
+
+def test_review_rejection_to_implementing_is_allowed() -> None:
+    """Review.ps1 calls Set-AgentState 'agent:implementing' while the issue carries
+    agent:reviewing (set a few lines earlier). Without agent:reviewing in AllowedFrom
+    every review rejection immediately lands the issue on agent:failed."""
+    out = _run(
+        r"""
+[pscustomobject]@{
+    allowed = @($PipelineStates['agent:implementing'].AllowedFrom)
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert "agent:reviewing" in out["allowed"]
+
+
+def test_owner_set_human_approval_survives_refine_completion() -> None:
+    """When an owner adds human:approval before refine finishes, Set-AgentState
+    agent:backlog must (a) not throw and (b) preserve approval_required=true."""
+    script = (
+        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        "& (Get-Module Orchestrator) {\n"
+        "function script:Write-Log { param($Message, $Color) }\n"
+        "$script:saved = $null\n"
+        "function script:Get-IssueState { param($IssueNumber)\n"
+        "    [pscustomobject]@{ readiness = [pscustomobject]@{\n"
+        "        refined = [pscustomobject]@{ done = $true };\n"
+        "        architected = [pscustomobject]@{ done = $true };\n"
+        "        planned = [pscustomobject]@{ done = $true } };\n"
+        "        open_questions = @() } }\n"
+        "function script:Get-IssueLabel { param($IssueNumber) @('human:approval') }\n"
+        "function script:Set-IssueLabel { param($Number, $Add, $Remove) }\n"
+        "function script:Move-ToLane { param($IssueNumber, $OptionId, $LaneName) }\n"
+        "function script:Get-LaneOptionId { param($LaneName) '' }\n"
+        "function script:Set-PlanningState { param($IssueNumber, $State) $script:saved = $State }\n"
+        "try {\n"
+        "    Set-AgentState -IssueNumber 1 -Label 'agent:backlog'\n"
+        "    [pscustomobject]@{ ok = $true; approval_required = [bool]$script:saved.approval_required }"
+        " | ConvertTo-Json -Compress\n"
+        "    exit 0\n"
+        '} catch { Write-Output "{`"ok`":false,`"err`":`"$($_.Exception.Message)`"}"; exit 1 }\n'
+        "}\n"
+    )
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"Expected no throw when transitioning human:approval → agent:backlog.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
+    assert lines, f"No JSON output:\n{result.stdout}\n{result.stderr}"
+    out = json.loads(lines[-1])
+    assert out["ok"], f"Set-AgentState threw: {out.get('err')}"
+    assert out["approval_required"], (
+        "approval_required must be preserved in the carrier"
+    )
+
+
+def test_pause_from_human_held_states_is_allowed() -> None:
+    """Usage-limit pause fires from whatever label the issue carries at engine-check
+    time — including human:decision, human:approval, and agent:failed. All three must
+    appear in agent:paused.AllowedFrom so a transient quota exhaustion is not scored
+    as a hard failure."""
+    out = _run(
+        r"""
+[pscustomobject]@{
+    allowed = @($PipelineStates['agent:paused'].AllowedFrom)
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert "human:decision" in out["allowed"]
+    assert "human:approval" in out["allowed"]
+    assert "agent:failed" in out["allowed"]
+
+
+def test_revise_route_dispatches_implement_job() -> None:
+    """When -From comment routes to revise (human:approval + open PR), the
+    router must dispatch the implement job via gh workflow run, not run inline."""
+    script = (
+        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        "& (Get-Module Orchestrator) {\n"
+        "function script:Write-Log { param($Message, $Color) }\n"
+        "function script:Assert-EngineReady { }\n"
+        "function script:Acquire-OrchestratorLock { param($IssueNumber) $true }\n"
+        "function script:Release-OrchestratorLock { }\n"
+        "$script:stateSet = $null\n"
+        "function script:Set-AgentState { param($IssueNumber, $Label) $script:stateSet = $Label }\n"
+        "$script:workflowDispatched = $false\n"
+        "function script:Add-Comment { param($Number, $Body) }\n"
+        "function script:Get-BranchName { param($Number, $Title) 'feature/42-test' }\n"
+        "function script:Get-IssueLabel { param($IssueNumber) @('human:approval') }\n"
+        "function script:git { $global:LASTEXITCODE = 0 }\n"
+        "function script:gh { $global:LASTEXITCODE = 0\n"
+        "    $a = $args -join ' '\n"
+        "    if ($a -like '*issue view*') {\n"
+        '        return \'{"title":"T","labels":[{"name":"human:approval"}],"state":"OPEN"}\' }\n'
+        "    if ($a -like '*pr list*') { return '[{\"number\":1}]' }\n"
+        "    if ($a -like '*workflow run*') { $script:workflowDispatched = $true }\n"
+        "    return '' }\n"
+        "$null = Invoke-Orchestration -IssueNumber 42 -From comment -MaxRetries 1\n"
+        "[pscustomobject]@{ stateSet = $script:stateSet; dispatched = $script:workflowDispatched } | ConvertTo-Json -Compress\n"
+        "}\n"
+    )
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
+    assert lines, f"No JSON output:\n{result.stdout}\n{result.stderr}"
+    out = json.loads(lines[-1])
+    assert out["stateSet"] == "agent:implementing", (
+        f"Expected Set-AgentState('agent:implementing') but got '{out.get('stateSet')}'"
+    )
+    assert out["dispatched"], (
+        "Expected gh workflow run to be dispatched for the revise route.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+def test_revise_route_skipped_when_no_open_pr() -> None:
+    """When -From comment routes to revise but there is no open PR, the router
+    must skip (comment noted, no revision) and NOT set agent:implementing."""
+    script = (
+        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        "& (Get-Module Orchestrator) {\n"
+        "function script:Write-Log { param($Message, $Color) }\n"
+        "function script:Assert-EngineReady { }\n"
+        "function script:Acquire-OrchestratorLock { param($IssueNumber) $true }\n"
+        "function script:Release-OrchestratorLock { }\n"
+        "$script:stateSet = $null\n"
+        "function script:Set-AgentState { param($IssueNumber, $Label) $script:stateSet = $Label }\n"
+        "$script:workflowDispatched = $false\n"
+        "$script:noPrComment = $false\n"
+        "function script:Add-Comment { param($Number, $Body)\n"
+        "    if ($Body -like '*no open PR*') { $script:noPrComment = $true } }\n"
+        "function script:Get-BranchName { param($Number, $Title) 'feature/42-test' }\n"
+        "function script:Get-IssueLabel { param($IssueNumber) @('human:approval') }\n"
+        "function script:git { $global:LASTEXITCODE = 0 }\n"
+        "function script:gh { $global:LASTEXITCODE = 0\n"
+        "    $a = $args -join ' '\n"
+        "    if ($a -like '*issue view*') {\n"
+        '        return \'{"title":"T","labels":[{"name":"human:approval"}],"state":"OPEN"}\' }\n'
+        "    if ($a -like '*pr list*') { return '[]' }\n"
+        "    if ($a -like '*workflow run*') { $script:workflowDispatched = $true }\n"
+        "    return '' }\n"
+        "$null = Invoke-Orchestration -IssueNumber 42 -From comment -MaxRetries 1\n"
+        "[pscustomobject]@{ stateSet = $script:stateSet; dispatched = $script:workflowDispatched; noPrComment = $script:noPrComment } | ConvertTo-Json -Compress\n"
+        "}\n"
+    )
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
+    assert lines, f"No JSON output:\n{result.stdout}\n{result.stderr}"
+    out = json.loads(lines[-1])
+    assert out["stateSet"] is None, (
+        f"Set-AgentState must NOT be called when no open PR. Got: '{out.get('stateSet')}'"
+    )
+    assert not out["dispatched"], (
+        "gh workflow run must NOT be dispatched when no open PR."
+    )
+    assert out["noPrComment"], "Expected '· no open PR found' comment when no open PR."
+
+
+@pytest.mark.parametrize(
+    ("approval", "attempts", "revise"),
+    [
+        ("$true", "@()", True),  # revision: a no-commit run is an answered question
+        ("$false", "@('review')", False),  # retry: a no-commit run goes on to review
+    ],
+    ids=["revision", "retry"],
+)
+def test_implement_path_flags_only_a_revision_as_revise(
+    approval: str, attempts: str, revise: bool
+) -> None:
+    """Both a revision and a retry re-run implement with -Force. Only the revision
+    gets -Revise: a retry after the owner fixed the branch by hand has nothing to
+    commit, and reading that as "question answered" would close the issue unmerged."""
+    script = (
+        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        "& (Get-Module Orchestrator) {\n"
+        "function script:Write-Log { param($Message, $Color) }\n"
+        "function script:Assert-EngineReady { }\n"
+        "function script:Acquire-OrchestratorLock { param($IssueNumber) $true }\n"
+        "function script:Release-OrchestratorLock { }\n"
+        "function script:Test-EngineUsageLimit { $null }\n"
+        "function script:Add-FailedAttempt { param($IssueNumber, $Stage, $Reason, $Attempt, $Max) }\n"
+        "function script:Format-ErrorBlock { param($Raw) '' }\n"
+        "function script:Set-AgentFailedState { param($IssueNumber, $FailedAt, $Reason) }\n"
+        "function script:Add-Comment { param($Number, $Body) }\n"
+        "function script:Set-AgentState { param($IssueNumber, $Label) }\n"
+        "function script:Get-IssueState { param($IssueNumber)\n"
+        f"    [pscustomobject]@{{ attempt_count = 0; attempts = {attempts};\n"
+        f"        approval_required = {approval} }} }}\n"
+        "$script:forceCapture = $null; $script:reviseCapture = $null\n"
+        "function script:Invoke-Implement { param($IssueNumber, [switch]$Force, [switch]$Revise)\n"
+        "    $script:forceCapture = $Force.IsPresent\n"
+        "    $script:reviseCapture = $Revise.IsPresent; throw 'done' }\n"
+        "function script:git { $global:LASTEXITCODE = 0 }\n"
+        "function script:gh { $global:LASTEXITCODE = 0\n"
+        "    $a = $args -join ' '\n"
+        "    if ($a -like '*issue view*') {\n"
+        '        return \'{"title":"T","labels":[{"name":"agent:implementing"}],"state":"OPEN"}\' }\n'
+        "    return '' }\n"
+        "try { Invoke-Orchestration -IssueNumber 42 -MaxRetries 1 } catch { }\n"
+        "[pscustomobject]@{ force = $script:forceCapture; revise = $script:reviseCapture }"
+        " | ConvertTo-Json -Compress\n"
+        "}\n"
+    )
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
+    assert lines, f"No JSON output:\n{result.stdout}\n{result.stderr}"
+    out = json.loads(lines[-1])
+    assert out == {"force": True, "revise": revise}, (
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )

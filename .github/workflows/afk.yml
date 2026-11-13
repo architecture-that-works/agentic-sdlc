@@ -8,9 +8,15 @@ name: AFK
 #
 #   issue opened                                → refine (refine → architect → plan)
 #   agent:backlog label added                   → implement → review → ship
-#   comment by the owner or a collaborator      → refine: judge the reply against the open
-#     (not a 🤖/· pipeline comment)                questions, or refine an un-refined issue;
-#                                                  on an agent:failed issue → retry that stage
+#   owner comment on open issue                 → central router reads the live pipeline
+#     (not a 🤖/· pipeline comment,               label and dispatches:
+#      write-access author)                        human:decision → refine (judge the reply)
+#                                                  agent:failed   → retry the failed stage
+#                                                  human:approval + open PR → revision cycle
+#                                                    (implement → review → ship on existing
+#                                                     branch; no new PR)
+#                                                  agent-held states → '· comment noted' ack
+#                                                  no label → refine an un-refined issue
 #   any feature/{n}-* PR closes                 → reconciles the issue regardless of who
 #                                                  merged it: merged → agent:shipped +
 #                                                  CONTEXT.md update; closed unmerged →
@@ -90,29 +96,22 @@ jobs:
   # ── Refine (refine → architect → plan → grant agent:backlog) ─────────────────
   refine:
     name: Refine issue
-    # Comments: only people with write access, never the pipeline's own (it posts with
-    # the owner's PAT, recognisable only by its 🤖/· prefix), never on PRs, and only
-    # while the issue waits on a human: no agent:* label, or agent:failed. Never on a
-    # human:approval hold — that PR waits for a merge, not an answer (#225).
+    # Runs on: new issues (opened), and manual dispatch. All owner comments —
+    # including those on agent:failed and human:approval issues — are now handled
+    # by the central comment router job below, so this job never triggers on
+    # issue_comment events.
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.stage == 'refine') ||
       (github.event_name == 'issues' && github.event.action == 'opened' &&
-       !contains(github.event.issue.labels.*.name, 'agent:backlog')) ||
-      (github.event_name == 'issue_comment' && !github.event.issue.pull_request &&
-       github.event.issue.state == 'open' &&
-       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
-       !startsWith(github.event.comment.body, '🤖') && !startsWith(github.event.comment.body, '·') &&
-       !contains(github.event.issue.labels.*.name, 'human:approval') &&
-       (!contains(join(github.event.issue.labels.*.name, ','), 'agent:') ||
-        contains(github.event.issue.labels.*.name, 'agent:failed')))
+       !contains(github.event.issue.labels.*.name, 'agent:backlog'))
     runs-on: ${{ vars.KANBAN_RUNNER_PROFILE == 'self-hosted' && fromJSON('["self-hosted","gha-project"]') || 'ubuntu-latest' }}
     concurrency:
-      # Per issue: two quick comments on one issue queue instead of racing.
+      # Per issue, shared with the comment job: an owner comment that arrives while
+      # refine runs queues behind it instead of refining the same issue in parallel.
       group: refine-${{ github.event.issue.number || inputs.issue_number }}
       cancel-in-progress: false
     env:
       KANBAN_ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
-      ISSUE_LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -131,12 +130,6 @@ jobs:
       - name: Refine (refine → architect → plan → grant agent:backlog when ready)
         shell: pwsh
         run: |
-          if ($env:GITHUB_EVENT_NAME -eq 'issue_comment' -and ",$env:ISSUE_LABELS," -like '*,agent:failed,*') {
-            # The owner commented on a failed issue: resume from the stage that failed.
-            # The comment reaches the agent as owner guidance.
-            pwsh -NoProfile -File "$env:GITHUB_WORKSPACE/.github/tasks/retry.ps1" -Issue ([int]$env:KANBAN_ISSUE)
-            exit $LASTEXITCODE
-          }
           if ([int]$env:KANBAN_ISSUE -gt 0) {
             Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
             $null = Invoke-Orchestration -From refine -IssueNumber ([int]$env:KANBAN_ISSUE)
@@ -145,6 +138,53 @@ jobs:
             pwsh -NoProfile -File "$env:GITHUB_WORKSPACE/.github/tasks/refine.ps1" -Issue 0
             exit $LASTEXITCODE
           }
+
+  # ── Comment (central router) — owner comment on any open issue ───────────────
+  # The sole issue_comment consumer. Filters: open issue (not a PR), write-access
+  # author, not a pipeline signal (🤖) or noise (·) comment. Reads the live pipeline
+  # label and dispatches via OnComment in $PipelineStates:
+  #   human:decision → refine (judge the reply against open questions)
+  #   agent:failed   → retry the failed stage
+  #   human:approval + open PR → revision cycle (implement → review → ship)
+  #   agent-held states → '· comment noted' ack
+  #   no label → treat as refine (un-refined issue)
+  comment:
+    name: Route owner comment
+    if: >-
+      github.event_name == 'issue_comment' &&
+      !github.event.issue.pull_request &&
+      github.event.issue.state == 'open' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+      !startsWith(github.event.comment.body, '🤖') &&
+      !startsWith(github.event.comment.body, '·')
+    runs-on: ${{ vars.KANBAN_RUNNER_PROFILE == 'self-hosted' && fromJSON('["self-hosted","gha-project"]') || 'ubuntu-latest' }}
+    concurrency:
+      # The refine job's group: a comment routed to refine never runs beside the
+      # refine its issue opened with. Independent issues still run in parallel.
+      group: refine-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    env:
+      KANBAN_ISSUE: ${{ github.event.issue.number }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Install tooling (hosted runner)
+        if: vars.KANBAN_RUNNER_PROFILE != 'self-hosted'
+        shell: bash
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          sudo npm install -g @anthropic-ai/claude-code
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Route comment
+        shell: pwsh
+        run: |
+          Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
+          $null = Invoke-Orchestration -From comment -IssueNumber ([int]$env:KANBAN_ISSUE)
 
   # ── Implement (full pipeline: implement → review loop → ship) ────────────────
   implement:
@@ -186,9 +226,9 @@ jobs:
               --json number --jq 'sort_by(.number) | .[0].number // empty' 2>$null
           } else {
             $hasLabel = gh issue view $issue --repo $env:GITHUB_REPOSITORY `
-              --json labels --jq '[.labels[].name] | contains(["agent:backlog"])' 2>$null
+              --json labels --jq '[.labels[].name] | (contains(["agent:backlog"]) or contains(["agent:implementing"]))' 2>$null
             if ($hasLabel -ne 'true') {
-              Write-Output "Issue #$issue no longer has agent:backlog — picking oldest remaining."
+              Write-Output "Issue #$issue no longer has agent:backlog or agent:implementing — picking oldest remaining."
               $issue = gh issue list --repo $env:GITHUB_REPOSITORY `
                 --label 'agent:backlog' --state open `
                 --json number --jq 'sort_by(.number) | .[0].number // empty' 2>$null

@@ -332,7 +332,7 @@ Closes #$Number
 # ── Orchestrator entry point ──────────────────────────────────────────────────
 
 function Invoke-Implement {
-    param([int]$IssueNumber = 0, [switch]$Force)
+    param([int]$IssueNumber = 0, [switch]$Force, [switch]$Revise)
 
     if ($IssueNumber -eq 0) { $IssueNumber = Get-CurrentIssueNumber }
     if ($IssueNumber -eq 0) {
@@ -393,6 +393,7 @@ function Invoke-Implement {
 
     Write-Log "▶ Implement — issue #$IssueNumber on $branch" -Color Cyan
 
+    $headBefore = git rev-parse HEAD 2>$null
     try {
         Invoke-Develop       -Number $IssueNumber -Branch $branch
         $prUrl = Invoke-CommitAndPR -Number $IssueNumber -Title $meta.title -Branch $branch
@@ -403,6 +404,18 @@ function Invoke-Implement {
             # (Invoke-Orchestration) will mark this as merged and close the issue.
             Write-Log "✅ Implement complete — issue already satisfied; no PR needed." -Color Green
             return $null
+        }
+
+        if ($Revise) {
+            # Only a revision reads "no new commits" as an answered question. A retry also
+            # runs with -Force and may find nothing left to commit (the owner fixed it by
+            # hand); it must go on to review with the existing PR, not close the issue.
+            $newCommits = [int](git rev-list --count "${headBefore}..HEAD" 2>$null)
+            if ($newCommits -eq 0) {
+                # The revision produced no new commits — the owner asked a question.
+                Write-Log "✅ Implement complete — question answered, no new commits." -Color Green
+                return $null
+            }
         }
 
         Write-Log "✅ Implement complete — PR at $prUrl" -Color Green
