@@ -22,7 +22,7 @@ Agent estimates context fill: ~18k tokens. Smart Zone — proceed.
 Agent reads (in order):
 1. `CONTEXT.md` — identifies `project_type: application`, no SSE in bounded contexts.
 2. `AGENTS.md` — confirms skill sequence: refine → architecture → plan → tdd.
-3. `docs/adr/ADR_STRUCTURE.md` — loads ADR-003 (API patterns), ADR-007 (project type).
+3. List `docs/adr/` — loads any ADR whose title matches the task.
 4. `src/main.py` — finds `HTTPHandler` serving `GET /hello` only.
 5. `src/config.py` — finds `Settings`; no streaming config yet.
 
@@ -59,8 +59,8 @@ src/streaming/ | Owns: SSE response lifecycle, Claude streaming adapter |
 
 ### Step 3 — ADR trigger
 
-The `http.server` stdlib does not support SSE natively. "Standard Library First" (ADR-003)
-is under pressure. Agent writes `docs/adr/ADR-010-sse-stdlib-workaround.md`:
+The `http.server` stdlib does not support SSE natively. The "Standard Library First"
+constraint in `CONTEXT.md` is under pressure. Agent writes `docs/adr/ADR-010-sse-stdlib-workaround.md`:
 
 ```markdown
 # ADR-010: SSE via http.server manual write
@@ -74,7 +74,7 @@ application
 ## Context and Problem Statement
 `http.server` does not expose a streaming write API. SSE requires holding the connection
 open and flushing individual `data:` events. A third-party server (FastAPI, aiohttp) would
-resolve this cleanly but violates ADR-003 (Standard Library First).
+resolve this cleanly but violates the Standard Library First constraint in `CONTEXT.md`.
 
 ## Considered Options
 - Option A: http.server with manual `wfile.write` + `flush()` loop
@@ -113,13 +113,13 @@ New context: src/streaming/ — owns SSE lifecycle and Claude streaming adapter.
 **Testability:** mock Claude SDK; assert emitted event sequence matches expected token list
 
 ## Constraints
-- ADR-003 (Standard Library First): use http.server + manual write; no FastAPI
+- Standard Library First (`CONTEXT.md` constraint): use http.server + manual write; no FastAPI
 - ADR-010 (SSE workaround): manual Content-Type and event framing in src/streaming/
 - No hardcoded secrets: Claude API key via Settings.claude_api_key
 
 ## Out of Scope
 - Multi-turn streaming — deferred: single call first
-- FastAPI migration — rejected per ADR-003
+- FastAPI migration — rejected per the Standard Library First constraint in `CONTEXT.md`
 
 ## Tracer Bullet
 `GET /stream?q=hello` → three hardcoded tokens → `data: [DONE]` → connection closes.

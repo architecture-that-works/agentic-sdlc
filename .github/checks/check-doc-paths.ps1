@@ -31,7 +31,6 @@ $RepoRoot = (Resolve-Path "$PSScriptRoot/../..").ProviderPath
 $docsToCheck = @(
     Get-Item -Path (Join-Path $RepoRoot 'AGENTS.md')
     Get-Item -Path (Join-Path $RepoRoot 'CONTEXT.md')
-    Get-Item -Path (Join-Path $RepoRoot 'docs/adr/ADR_STRUCTURE.md')
     # EXAMPLES.md is excluded: a worked example describes a fictional feature, so its paths
     # (`src/payments/`, `docs/arch/blast-radius.md`) are illustrative and must not resolve.
     Get-ChildItem -Path (Join-Path $RepoRoot '.agents/skills') -Filter '*.md' -File -Recurse |

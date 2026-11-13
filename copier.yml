@@ -15,25 +15,7 @@ project_type:
 
 _templates_suffix: ".jinja2"
 
-# .gitignore intentionally absent from _exclude — generated projects must inherit it.
-# .agents/skills/ intentionally absent from _exclude — skill files travel with every generated project
-# template/adr/ intentionally absent from _exclude — these ADRs document the orchestrator/
-# pipeline mechanism, which ships too (.github/orchestrator/, .agents/skills/); AGENTS.md's
-# Context Protocol cites them operationally wherever that mechanism runs.
-#
-# Template source layout: the template source is the repository root (no _subdirectory).
-# Functionality is grouped by the standard root folders (.github/, src/, tests/, docs/,
-# etc.), which are copied into generated projects as-is.
-#
-# pyproject.toml intentionally absent from _exclude: adding it also suppresses the
-# pyproject.toml.jinja2 rendering (Copier matches _exclude against rendered output
-# names). Both files coexist safely — Copier renders the .jinja2 template and the
-# smoke test in tests/test_copier_template.py asserts the generated pyproject.toml
-# carries the correct project_name.
-#
-# adr-staging/ and template/dev-notes/ are excluded: reusable app/domain ADRs staged for
-# a future cross-project store, and artifacts about assessing/developing this specific
-# template repo — neither is relevant to a generated project (#258).
+# .template/ is the template's own material; a root file with a .jinja2 twin is dual-use.
 _exclude:
     - ".git"
     - ".venv"
@@ -41,8 +23,4 @@ _exclude:
     - "uv.lock"
     - "copier.yml"
     - "logs"
-    - "tests/test_copier_template.py"
-    - "adr-staging"
-    - "template/dev-notes"
-
-# project_name substituted via pyproject.toml.jinja2 — no post-task required
+    - ".template"

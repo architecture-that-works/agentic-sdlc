@@ -387,7 +387,7 @@ arithmetic explicit:
 
 ## After Assessment
 
-1. **Write the artifact** to `template/dev-notes/assessment-<YYYY-MM-DD>.md`, following the
+1. **Write the artifact** to `.template/assessments/assessment-<YYYY-MM-DD>.md`, following the
    Required Output Format above and citing the prior assessment's score in the header. This
    directory is excluded by `copier.yml` — assessments are about building the template, not
    about any project generated from it, so they never ship.
@@ -397,4 +397,4 @@ arithmetic explicit:
 3. **Open an issue per unmet criterion** you intend to close, citing the criterion by tier and
    number. Roadmap items score zero (see Evaluation Discipline) — the issue is how the gap
    becomes work, not how it becomes credit.
-4. **Commit:** `docs(dev-notes): SDLC maturity assessment X.XX/10`
+4. **Commit:** `docs(assessments): SDLC maturity assessment X.XX/10`

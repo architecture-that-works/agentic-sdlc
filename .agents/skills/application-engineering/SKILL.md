@@ -7,7 +7,7 @@ description: Use when designing or building AI-backed APIs and services — REST
 
 ## Overview
 
-Covers the design and implementation of production AI application services. The primary use case is a FastAPI service that calls the Claude API — one Claude call per API request, returning structured or streamed results. **FastAPI** is the standard framework; **Anthropic Python SDK** is the primary AI provider; **Pydantic** validates every boundary. OTel instrumentation is mandatory from day one (ADR-003).
+Covers the design and implementation of production AI application services. The primary use case is a FastAPI service that calls the Claude API — one Claude call per API request, returning structured or streamed results. **FastAPI** is the standard framework; **Anthropic Python SDK** is the primary AI provider; **Pydantic** validates every boundary. OTel instrumentation is mandatory from day one — vendor-neutral, no proprietary cloud SDK in instrumentation paths.
 
 **Primary artifact:** Production AI-backed API or service — Claude as a replaceable port, OTel-instrumented, Pydantic-contracted.
 
@@ -41,7 +41,7 @@ See [REFERENCE.md](REFERENCE.md) for full code schemas (port/adapter, OTel instr
 
 - Domain model and port interfaces (from `refine`)
 - Acceptance criteria from Lean PRD testing decisions (from `plan`)
-- ADR-003 (OTel instrumentation standard) and ADR-004 (IAM provider) from `docs/adr/`
+- `SECURITY.md` — the authority for secrets, identity and trust boundaries
 
 ## Primary Outputs
 
@@ -70,7 +70,7 @@ No `scripts/` directory — this skill is a constraint document with no determin
 
 **No `response_model=` on endpoints.** FastAPI cannot generate correct OpenAPI docs and may serialise internal fields. Every endpoint must declare `response_model=`.
 
-**Secrets in environment variables.** Environment variables are visible in process lists and container inspection. Fetch secrets from a secrets manager at runtime via managed identity (`SECURITY.md`, ADR-008).
+**Secrets in environment variables.** Environment variables are visible in process lists and container inspection. Fetch secrets from a secrets manager at runtime via managed identity (`SECURITY.md`).
 
 **Catching `RateLimitError` without backoff.** Immediate retry on rate limit triggers another rate limit. Always use exponential backoff.
 

@@ -1,5 +1,5 @@
 ---
-name: TEMPLATE_ADR_STRUCTURE
+name: TEMPLATE_ADR_INDEX
 description: Index of architecture decisions about this template's own orchestrator and pipeline mechanism — load when touching .github/orchestrator, .agents/skills, or copier.yml
 ---
 
@@ -7,11 +7,11 @@ description: Index of architecture decisions about this template's own orchestra
 
 Decisions about **building and evolving the template's own mechanism** — the orchestrator,
 the pipeline, the Copier variables that drive scaffolding. Not application architecture;
-see [`adr-staging/`](../../adr-staging/) for that instead.
+a generated project keeps its own ADRs under `docs/adr/`.
 
-This index ships with every generated project, because the mechanism it documents ships
-too. `AGENTS.md`'s Context Protocol loads this file (not `docs/adr/ADR_STRUCTURE.md`) when
-the task touches `.github/orchestrator/`, `.agents/skills/`, or `copier.yml`.
+This index does not ship to generated projects: the enclosing folder is excluded by
+`copier.yml`. Read it when working on the template source repo and the task touches
+`.github/orchestrator/`, `.agents/skills/`, or `copier.yml`.
 
 | ADR | Title | Status | Decision |
 |---|---|---|---|

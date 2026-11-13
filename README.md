@@ -10,8 +10,7 @@ PR — refine → architect → plan → implement → review → ship.
 | [`AGENTS.md`](AGENTS.md) | Standing instructions and skill index for AI agents |
 | [`SECURITY.md`](SECURITY.md) | Secrets, accepted risks, and how to halt, override or roll back the agents |
 | [`ISSUES.md`](ISSUES.md) | Issue format, estimate and priority scales, local backlog |
-| [`docs/adr/`](docs/adr/ADR_STRUCTURE.md) | This project's own Architecture Decision Records — starts empty |
-| [`template/adr/`](template/adr/README.md) | Decisions about the orchestrator/pipeline mechanism itself |
+| [`docs/adr/`](docs/adr/ADR-000-template-architecture-decision.md) | This project's own Architecture Decision Records — ADR-000 is the blank form; your ADRs start at ADR-001 |
 
 ---
 
@@ -154,8 +153,7 @@ tests/                pytest suite mirroring src/; README.md documents conventio
 .github/tasks/        one runnable per Taskfile target
 .github/checks/       validators run by checks.yml
 .github/workflows/    checks.yml (CI gates), afk.yml (the pipeline), build, deploy
-docs/adr/             this project's own ADRs — starts empty, fill in as you decide things
-template/adr/         decisions about the orchestrator/pipeline mechanism itself
+docs/adr/             this project's own ADRs — ADR-000 is the blank form; add ADR-001 onwards
 ```
 
 The Module Map in [`CONTEXT.md`](CONTEXT.md) is the authoritative index.
