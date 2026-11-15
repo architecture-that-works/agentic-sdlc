@@ -321,3 +321,132 @@ exit 0
 """
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# ── Unfenced-block detection ──────────────────────────────────────────────────
+# Every ISSUE: line below the sentinel must be captured by the fenced-block
+# regex. When any are not, the sync exits non-zero and names the unfenced
+# titles before creating any GitHub issue.
+
+_UNFENCED_DETECT_SNIPPET = r"""
+function Detect-UnfencedTitles([string]$ParseContent, [string[]]$FencedTitles) {
+    $RawTitleMatches = [regex]::Matches($ParseContent, '(?m)^ISSUE:\s*(.+)')
+    $result = @($RawTitleMatches | ForEach-Object { $_.Groups[1].Value.Trim() } |
+                Where-Object { $_ -notin $FencedTitles })
+    return $result
+}
+"""
+
+
+def test_detect_unfenced_flags_missing_fence() -> None:
+    """A bare ISSUE: line without a backtick fence is returned as an unfenced title."""
+    result = _ps(
+        _UNFENCED_DETECT_SNIPPET
+        + r"""
+$content = "ISSUE: Unfenced Title`n**Goal**: Missing fence"
+$titles = Detect-UnfencedTitles $content @()
+if ($titles -contains 'Unfenced Title') { exit 0 } else {
+    Write-Host "Got: $($titles -join ', ')"; exit 1
+}
+"""
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_detect_unfenced_ignores_fenced_block() -> None:
+    """An ISSUE: line already captured by the fenced regex is not returned as unfenced."""
+    result = _ps(
+        _UNFENCED_DETECT_SNIPPET
+        + r"""
+$content = @'
+```
+ISSUE: Fenced Title
+**Goal**: Has fence
+END_ISSUE
+```
+'@
+$fenced = @('Fenced Title')
+$titles = Detect-UnfencedTitles $content $fenced
+if ($titles.Count -eq 0) { exit 0 } else {
+    Write-Host "Got: $($titles -join ', ')"; exit 1
+}
+"""
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_detect_unfenced_mixed_content() -> None:
+    """With one fenced block and one bare ISSUE: line, only the unfenced title is returned."""
+    result = _ps(
+        _UNFENCED_DETECT_SNIPPET
+        + r"""
+$content = @'
+```
+ISSUE: Fenced Title
+**Goal**: Has fence
+END_ISSUE
+```
+
+ISSUE: Unfenced Title
+**Goal**: Missing fence
+'@
+$fenced = @('Fenced Title')
+$titles = Detect-UnfencedTitles $content $fenced
+if (($titles.Count -eq 1) -and ($titles -contains 'Unfenced Title')) { exit 0 } else {
+    Write-Host "Got: $($titles -join ', ')"; exit 1
+}
+"""
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_script_detects_raw_issue_lines() -> None:
+    """sync.ps1 must contain the raw-ISSUE-line detection pattern used in the pre-flight guard."""
+    content = SCRIPT.read_text(encoding="utf-8")
+    assert r"(?m)^ISSUE:\s*" in content, (
+        r"sync.ps1 must use '(?m)^ISSUE:\s*' to detect raw ISSUE: lines for the pre-flight guard"
+    )
+
+
+def test_guard_exits_1_and_names_unfenced_title() -> None:
+    """The guard exits 1 and prints the unfenced title to stdout."""
+    result = _ps(
+        _UNFENCED_DETECT_SNIPPET
+        + r"""
+$ParseContent   = "ISSUE: Unfenced Title`n**Goal**: Missing fence"
+$FencedTitles   = @()
+$UnfencedTitles = Detect-UnfencedTitles $ParseContent $FencedTitles
+if ($UnfencedTitles.Count -gt 0) {
+    Write-Host "Unparsed ISSUE block(s):"
+    foreach ($t in $UnfencedTitles) { Write-Host "   • $t" }
+    exit 1
+}
+exit 0
+"""
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "Unfenced Title" in result.stdout
+
+
+def test_guard_exits_1_in_dryrun_mode() -> None:
+    """The guard fires before any DryRun summary — DryRun does not suppress the exit 1."""
+    result = _ps(
+        _UNFENCED_DETECT_SNIPPET
+        + r"""
+$DryRun         = $true
+$ParseContent   = "ISSUE: Unfenced Title`n**Goal**: Missing fence"
+$FencedTitles   = @()
+$UnfencedTitles = Detect-UnfencedTitles $ParseContent $FencedTitles
+if ($UnfencedTitles.Count -gt 0) {
+    Write-Host "Unparsed ISSUE block(s):"
+    foreach ($t in $UnfencedTitles) { Write-Host "   • $t" }
+    exit 1
+}
+# Guard fires before this point; DryRun summary must never be reached
+if ($DryRun) { Write-Host "Dry run complete. No changes made." }
+exit 0
+"""
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "Unfenced Title" in result.stdout
+    assert "Dry run complete" not in result.stdout

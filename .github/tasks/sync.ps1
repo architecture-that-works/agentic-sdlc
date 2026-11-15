@@ -82,6 +82,16 @@ $ParseContent  = if ($SentinelMatch.Success) { $Content.Substring($SentinelMatch
 $IssueRegex = '(?s)```\r?\nISSUE:\s*(.*?)\r?\n(.*?)\r?\nEND_ISSUE\r?\n```'
 $Found      = [regex]::Matches($ParseContent, $IssueRegex)
 
+$RawTitleMatches = [regex]::Matches($ParseContent, '(?m)^ISSUE:\s*(.+)')
+$FencedTitles    = @($Found | ForEach-Object { $_.Groups[1].Value.Trim() })
+$UnfencedTitles  = @($RawTitleMatches | ForEach-Object { $_.Groups[1].Value.Trim() } |
+                     Where-Object { $_ -notin $FencedTitles })
+if ($UnfencedTitles.Count -gt 0) {
+    Write-Host "❌ Unparsed ISSUE block(s) — missing fence or malformed:" -ForegroundColor Red
+    foreach ($t in $UnfencedTitles) { Write-Host "   • $t" -ForegroundColor Red }
+    exit 1
+}
+
 if ($Found.Count -eq 0) {
     Write-Host "✅ No pending ISSUE blocks found in ISSUES.md." -ForegroundColor Green
     exit 0
