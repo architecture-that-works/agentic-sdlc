@@ -510,8 +510,6 @@ def test_set_agent_state_throws_on_disallowed_transition() -> None:
         "catch { Write-Output $_.Exception.Message; exit 1 }\n"
         "}\n"
     )
-    import subprocess
-
     result = subprocess.run(
         [PWSH, "-NoProfile", "-Command", script],
         capture_output=True,
@@ -757,6 +755,7 @@ def test_agent_refining_allowedfrom_includes_valid_entry_points() -> None:
     assert None in out["allowed"]  # new issue, no prior label
     assert "human:decision" in out["allowed"]
     assert "agent:failed" in out["allowed"]
+    assert "human:approval" in out["allowed"]
 
 
 def test_agent_refining_in_downstream_allowedfrom() -> None:
@@ -795,8 +794,6 @@ def test_agent_refining_to_shipped_is_disallowed() -> None:
         "catch { Write-Output $_.Exception.Message; exit 1 }\n"
         "}\n"
     )
-    import subprocess
-
     result = subprocess.run(
         [PWSH, "-NoProfile", "-Command", script],
         capture_output=True,
