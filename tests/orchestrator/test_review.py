@@ -181,3 +181,53 @@ Invoke-Review -IssueNumber 1 -PRNumber 1
     assert out["turns"] == 35, (
         f"expected 35 turns for 5 changed files, got {out['turns']}"
     )
+
+
+# ── (e) conductor fast-fails on "ran out of turns" without counting an attempt ──
+
+_CONDUCTOR_FAKES = r"""
+$script:Log  = [System.Collections.Generic.List[string]]::new()
+$script:State = [pscustomobject]@{ attempts = @(); attempt_count = 0 }
+function script:Assert-EngineReady {}
+function script:Acquire-OrchestratorLock { param($IssueNumber) $true }
+function script:Release-OrchestratorLock {}
+function script:Get-IssueState     { param($IssueNumber) $script:State }
+function script:Set-AgentState     { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
+function script:Set-AgentFailedState { param($IssueNumber, $FailedAt, $Reason) $script:Log.Add("failed:$FailedAt") }
+function script:Add-FailedAttempt  { param($IssueNumber, $Stage, $Reason, $Attempt, $Max) $script:Log.Add("attempt:$Attempt") }
+function script:Add-Comment        { param($Number, $Body) }
+function script:Format-ErrorBlock  { param($Raw) $Raw }
+function script:Test-EngineUsageLimit { $null }
+function script:git { $global:LASTEXITCODE = 1 }
+function script:gh {
+    $global:LASTEXITCODE = 0
+    $argsStr = $args -join ' '
+    if ($argsStr -match 'pr list') { '[{"number":99}]' }
+    else { '{"title":"t","labels":[],"state":"OPEN"}' }
+}
+function script:Invoke-Implement { param($IssueNumber, [switch]$Force, [switch]$Revise) 'sha123' }
+"""
+
+
+def test_ran_out_of_turns_fast_fails_without_attempt_count(tmp_path: Path) -> None:
+    """When Invoke-Review throws 'ran out of turns', the conductor calls
+    Set-AgentFailedState for the review stage and returns immediately — no
+    attempt counter increment, no retry — mirroring the USAGE-LIMIT fast-fail."""
+    out = _run(
+        _CONDUCTOR_FAKES
+        + r"""
+function script:Invoke-Review {
+    param($IssueNumber, $PRNumber)
+    throw 'Review ran out of turns on 5 changed file(s) — retry needs a larger budget or a smaller PR.'
+}
+Invoke-Orchestration -IssueNumber 50 -MaxRetries 3
+[pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
+""",
+        cwd=tmp_path,
+    )
+    assert "failed:review" in out["log"], (
+        "conductor must call Set-AgentFailedState for the review stage"
+    )
+    assert not any(e.startswith("attempt:") for e in out["log"]), (
+        "ran-out-of-turns must not increment the attempt counter"
+    )
