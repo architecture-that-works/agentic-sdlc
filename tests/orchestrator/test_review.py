@@ -189,6 +189,7 @@ _CONDUCTOR_FAKES = r"""
 $script:Log  = [System.Collections.Generic.List[string]]::new()
 $script:State = [pscustomobject]@{ attempts = @(); attempt_count = 0 }
 function script:Assert-EngineReady {}
+function script:Test-TrustedAuthor { param($IssueNumber) $true }
 function script:Acquire-OrchestratorLock { param($IssueNumber) $true }
 function script:Release-OrchestratorLock {}
 function script:Get-IssueState     { param($IssueNumber) $script:State }

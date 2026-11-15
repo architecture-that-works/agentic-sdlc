@@ -63,6 +63,7 @@ function script:gh { $global:LASTEXITCODE = 0
 
 # Invoke-Ship up to the merge: branch checkout, rebase and a green CI poll are faked.
 _SHIP = r"""
+$env:KANBAN_LOCAL_CI = $null
 $script:Log = [System.Collections.Generic.List[string]]::new()
 $script:Labels = @()
 function script:Get-IssueLabel { param($IssueNumber) $script:Labels }
