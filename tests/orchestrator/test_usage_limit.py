@@ -125,6 +125,7 @@ _CONDUCTOR = r"""
 $script:Log = [System.Collections.Generic.List[string]]::new()
 $script:State = [pscustomobject]@{ attempts = @(); attempt_count = 0 }
 function script:Assert-EngineReady {}
+function script:Test-TrustedAuthor { param($IssueNumber) $true }
 function script:Acquire-OrchestratorLock { param($IssueNumber) $true }
 function script:Release-OrchestratorLock {}
 function script:Get-IssueState { param($IssueNumber) $script:State }
@@ -172,6 +173,7 @@ def test_spent_allowance_at_startup_pauses_the_issue(tmp_path: Path) -> None:
         _CONDUCTOR
         + r"""
 function script:Assert-EngineReady { throw 'USAGE-LIMIT|2026-09-23T15:00:00.0000000Z' }
+function script:Test-TrustedAuthor { param($IssueNumber) $true }
 $r = Invoke-Orchestration -From refine -IssueNumber 50
 [pscustomobject]@{ r = $r; log = @($script:Log) } | ConvertTo-Json -Compress
 """,

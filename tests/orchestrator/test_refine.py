@@ -372,6 +372,7 @@ try { Invoke-Refine -Number 7 } catch { $err = $_.Exception.Message }
 _CONDUCTOR_FAKES = r"""
 $script:Log = [System.Collections.Generic.List[string]]::new()
 function script:Assert-EngineReady {}
+function script:Test-TrustedAuthor { param($IssueNumber) $true }
 function script:Acquire-OrchestratorLock { param($IssueNumber) $true }
 function script:Release-OrchestratorLock {}
 function script:Add-IssueToBoard { param($IssueNumber) $true }

@@ -58,6 +58,14 @@ def test_every_new_issue_is_refined():
     assert "!contains(github.event.issue.labels.*.name, 'human:decision')" not in refine
 
 
+def test_a_strangers_issue_never_starts_refine():
+    """On a public repo anyone can open an issue, and refine runs with the owner's
+    tokens — so the opened trigger checks the author like the comment job does (#312)."""
+    refine = _job("refine")
+    assert '["OWNER","MEMBER","COLLABORATOR"]' in refine
+    assert "github.event.issue.author_association" in refine
+
+
 def test_owner_comment_re_refines_or_retries():
     """A comment from someone with write access is now handled by the central comment
     router job, not the refine job. The router calls Invoke-Orchestration -From comment

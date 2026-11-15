@@ -704,6 +704,17 @@ function Set-AgentState {
     }
 }
 
+# True when the issue was opened by an author in TrustedAuthors (#312). The pipeline
+# runs with the owner's tokens, so an outsider's issue on a public repo is never
+# processed. One REST call — never GraphQL: it runs on every Invoke-Orchestration.
+# Fail-closed: an unreadable association is untrusted.
+function Test-TrustedAuthor {
+    param([Parameter(Mandatory)][int]$IssueNumber)
+    $association = "$(gh api "repos/$KanbanRepo/issues/$IssueNumber" --jq '.author_association' 2>$null)".Trim()
+    if ($LASTEXITCODE -ne 0) { $association = '' }
+    return $association -in $OrchestratorConfig.TrustedAuthors
+}
+
 function Get-IssueLabel {
     <#
     .SYNOPSIS

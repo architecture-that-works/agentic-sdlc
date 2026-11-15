@@ -6,7 +6,8 @@ name: AFK
 # The issue is the interface. Every trigger is an issue event — or any feature-branch
 # PR closing; the dispatch inputs are for backfill and manual overrides.
 #
-#   issue opened                                → refine (refine → architect → plan)
+#   issue opened by the owner or a collaborator → refine (refine → architect → plan); an
+#                                                  outsider's issue is never processed (#312)
 #   agent:backlog label added                   → implement → review → ship
 #   owner comment on open issue                 → central router reads the live pipeline
 #     (not a 🤖/· pipeline comment,               label and dispatches:
@@ -96,13 +97,14 @@ jobs:
   # ── Refine (refine → architect → plan → grant agent:backlog) ─────────────────
   refine:
     name: Refine issue
-    # Runs on: new issues (opened), and manual dispatch. All owner comments —
-    # including those on agent:failed and human:approval issues — are now handled
-    # by the central comment router job below, so this job never triggers on
-    # issue_comment events.
+    # Runs on: new issues opened by someone with write access, and manual dispatch.
+    # On a public repo anyone can open an issue; this job runs with the owner's tokens,
+    # so the author check here matches the comment job's (#312). All owner comments
+    # are handled by the central comment router job below.
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.stage == 'refine') ||
       (github.event_name == 'issues' && github.event.action == 'opened' &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) &&
        !contains(github.event.issue.labels.*.name, 'agent:backlog'))
     runs-on: ${{ vars.KANBAN_RUNNER_PROFILE == 'self-hosted' && fromJSON('["self-hosted","gha-project"]') || 'ubuntu-latest' }}
     concurrency:
