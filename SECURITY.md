@@ -147,7 +147,9 @@ owes and picks it up again. To stop an issue for good, close it, or disable the 
     `agent:backlog` issue.
   - `ship` — merge the issue's PR now; your dispatch is the approval. A governance change is
     still held for you to merge by hand.
-  Locally, `task hitl ISSUE=<n>` runs implement → review → ship in your terminal.
+  Locally, `task hitl ISSUE=<n>` runs implement → review → ship in your terminal. When GitHub
+  Actions cannot run, set `KANBAN_LOCAL_CI=1` first: ship then runs `checks.yml`'s jobs locally
+  and holds every PR at `human:approval` — nothing merges on local CI alone (#314).
 - **Reject the agent's work.** Close the PR without merging and comment on the issue with what
   should change. The agent reads the issue body and your comments — not PR review comments.
 

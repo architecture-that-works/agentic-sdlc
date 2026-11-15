@@ -7,7 +7,8 @@
     Orchestrator library — loaded by Orchestrator.psm1. Invoke-Ship is reached only
     after the review stage approved (the conductor) or by the owner's manual
     dispatch (afk.yml stage=ship), so it does not re-derive approval. It rebases the
-    branch, waits for CI, and then either holds a PR that touches a governance file
+    branch, waits for CI (or, with KANBAN_LOCAL_CI, runs it locally and always holds
+    the PR — #314), and then either holds a PR that touches a governance file
     (human:approval) or squash-merges it, deletes the branch and updates CONTEXT.md
     (Complete-Ship). Complete-HeldPR reconciles the issue on every feature-branch PR
     close (afk.yml, pull_request closed) — merged ships it, closed-unmerged fails it —
@@ -182,6 +183,43 @@ function Get-FailedCheckLog {
     return ($blocks -join '')
 }
 
+# ── Local CI (#314) ───────────────────────────────────────────────────────────
+# When GitHub Actions cannot run (observed: a spent Actions allowance on a private
+# repo), KANBAN_LOCAL_CI makes ship run CI here instead of polling `gh pr checks`.
+# Mirrors checks.yml's lint / typecheck / test / audit jobs — keep the two in step;
+# test_ship.py fails when a checks.yml `uv run` command is missing here. The guards
+# job is every .github/checks/*.ps1. eval and secret-scan stay CI-only.
+$LocalCiJobs = [ordered]@{
+    'lint'      = @('uv', 'run', 'ruff', 'check', '.')
+    'format'    = @('uv', 'run', 'ruff', 'format', '--check', '.')
+    'typecheck' = @('uv', 'run', 'pyright')
+    'test'      = @('uv', 'run', 'pytest', '--cov=src', '--cov-report=term-missing', '--cov-fail-under=80')
+    'audit'     = @('uv', 'run', 'pip-audit')
+}
+
+function Test-LocalCI { return [bool]$env:KANBAN_LOCAL_CI }
+
+# Runs every local CI job in the working tree; one row per job: Name, ExitCode, Tail.
+function Invoke-LocalCI {
+    param([int]$Tail = 30)
+    $null = & uv sync 2>&1
+    $jobs = [ordered]@{}
+    foreach ($k in $LocalCiJobs.Keys) { $jobs[$k] = $LocalCiJobs[$k] }
+    foreach ($c in Get-ChildItem (Join-Path $_Root '.github/checks') -Filter '*.ps1' | Sort-Object Name) {
+        $jobs["guards: $($c.BaseName)"] = @('pwsh', '-NoProfile', '-File', $c.FullName)
+    }
+    foreach ($name in $jobs.Keys) {
+        $cmd  = $jobs[$name]
+        $rest = @($cmd | Select-Object -Skip 1)
+        $out  = & $cmd[0] @rest 2>&1 | Out-String
+        [pscustomobject]@{
+            Name     = $name
+            ExitCode = $LASTEXITCODE
+            Tail     = ((($out -split '\r?\n') | Where-Object { $_.Trim() } | Select-Object -Last $Tail) -join "`n")
+        }
+    }
+}
+
 function Invoke-RebaseOnMaster {
     param([int]$IssueNumber, [string]$Branch)
 
@@ -340,7 +378,25 @@ function Invoke-Ship {
     }
     Invoke-RebaseOnMaster -IssueNumber $IssueNumber -Branch $featureBranch
 
-    Write-Log "  Waiting for CI checks on PR #$PRNumber..." -Color DarkGray
+    # Local CI (#314): run checks.yml's jobs here and skip the `gh pr checks` poll.
+    # A pass always ends in the owner's hold below — nothing merges on local CI alone.
+    $localCi = Test-LocalCI
+    if ($localCi) {
+        Write-Log "  Running CI locally (KANBAN_LOCAL_CI) on PR #$PRNumber..." -Color DarkGray
+        $rows   = @(Invoke-LocalCI)
+        $failed = @($rows | Where-Object { $_.ExitCode -ne 0 })
+        if ($failed.Count -gt 0) {
+            $label = ($failed | ForEach-Object { $_.Name }) -join ', '
+            $logs  = ($failed | ForEach-Object { "`n`n**$($_.Name)** — exit $($_.ExitCode):`n``````text`n$($_.Tail)`n``````" }) -join ''
+            Add-Comment -Number $IssueNumber -Body "🤖❌ CI Failed`n`nFailed checks (run locally): $label$logs"
+            throw "CI checks failed for PR #${PRNumber}: $label"
+        }
+        $table = ($rows | ForEach-Object { "| $($_.Name) | pass |" }) -join "`n"
+        Add-Comment -Number $IssueNumber -Body ("🤖✅ Local CI passed`n`nGitHub Actions could not run, so ship ran " +
+            "``checks.yml``'s jobs on this branch locally (``KANBAN_LOCAL_CI``):`n`n| Job | Result |`n|---|---|`n$table")
+    } else {
+        Write-Log "  Waiting for CI checks on PR #$PRNumber..." -Color DarkGray
+    }
 
     # Poll `gh pr checks --json name,bucket` instead of `--watch`. After
     # rebase + force-push, GitHub Actions needs 5-30s to register the rerun
@@ -360,12 +416,12 @@ function Invoke-Ship {
 
     $registerDeadline   = (Get-Date).AddSeconds($CIRegisterTimeoutSec)
     $completionDeadline = (Get-Date).AddSeconds($CICompletionTimeoutSec)
-    $ciGreen            = $false
+    $ciGreen            = $localCi
     $ciFailed           = $false
     $everRegistered     = $false
     $failedNames        = ''
 
-    while ((Get-Date) -lt $completionDeadline) {
+    while (-not $localCi -and (Get-Date) -lt $completionDeadline) {
         $jsonOut  = gh pr checks $PRNumber --json name,bucket 2>$null | Out-String
         $jsonTrim = $jsonOut.Trim()
 
@@ -436,7 +492,7 @@ function Invoke-Ship {
         $state      = Get-IssueState -IssueNumber $IssueNumber
         $manual     = (@(Get-IssueLabel -IssueNumber $IssueNumber) -contains 'human:approval') -or
                       ($state -and $state.PSObject.Properties['approval_required'] -and $state.approval_required)
-        if ($governance.Count -gt 0 -or $proposed.Count -gt 0 -or $manual) {
+        if ($governance.Count -gt 0 -or $proposed.Count -gt 0 -or $manual -or $localCi) {
             Set-AgentState -IssueNumber $IssueNumber -Label 'human:approval'
 
             # Only fetch the diffstat on the hold path — the owner is about to read
@@ -452,7 +508,10 @@ function Invoke-Ship {
                     'it changes governance files'
                 }
                 "$reason — these are proposals for you to approve:`n`n" + (Format-HeldFiles -Files $held -Diffstat $stat)
+            } elseif ($localCi) {
+                'its CI ran locally (``KANBAN_LOCAL_CI``) — the merge is yours.'
             } else { 'this issue is labelled ``human:approval``.' }
+            if ($localCi -and $held.Count -gt 0) { $why += "`n`nIts CI ran locally (``KANBAN_LOCAL_CI``)." }
 
             Add-Comment -Number $IssueNumber -Body ("🤖⏸ Held for human approval`n`nPR #$PRNumber is green and self-reviewed, but " +
                 "$why`n`n**Comment on this issue to change the PR; close the PR to reject it.** Merge PR #$PRNumber to accept. " +
