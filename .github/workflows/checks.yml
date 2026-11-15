@@ -82,6 +82,9 @@ jobs:
       - name: Verify Claude Code settings
         shell: pwsh
         run: .github/checks/verify-settings.ps1
+      - name: Check Shortcut Comments
+        shell: pwsh
+        run: .github/checks/check-shortcuts.ps1
 
   # ── Evals (tests/README.md § Evals) ──────────────────────────────────────────
   # Evals call Claude, so they run only on a PR that changes a model-facing path.
