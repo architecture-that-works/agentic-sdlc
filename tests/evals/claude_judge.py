@@ -8,6 +8,7 @@ set. There is no non-Claude fallback by design.
 """
 
 import asyncio
+import os
 import subprocess
 from typing import Any
 
@@ -37,12 +38,21 @@ class ClaudeJudge(DeepEvalBaseLLM):
         self, prompt: str, schema: type[BaseModel] | None = None
     ) -> Any:
         """The judge's answer; validated into `schema` when DeepEval asks for one."""
-        answer = self._cli(prompt) or self._sdk(prompt)
-        if answer is None:
-            raise RuntimeError(
-                "No Claude judge available: install the Claude CLI (authenticated, "
-                "e.g. CLAUDE_CODE_OAUTH_TOKEN) or set ANTHROPIC_API_KEY."
-            )
+        cli_answer, cli_reason = self._cli(prompt)
+        if cli_answer is not None:
+            answer = cli_answer
+        else:
+            sdk_answer, sdk_reason = self._sdk(prompt)
+            if sdk_answer is not None:
+                answer = sdk_answer
+            else:
+                msg = f"Claude CLI: {cli_reason}; Anthropic SDK: {sdk_reason}"
+                if cli_reason == "not installed":
+                    msg += (
+                        " — install the Claude CLI"
+                        " (authenticated, e.g. CLAUDE_CODE_OAUTH_TOKEN)"
+                    )
+                raise RuntimeError(msg)
         if schema is None:
             return answer
         start, end = answer.find("{"), answer.rfind("}")
@@ -55,7 +65,7 @@ class ClaudeJudge(DeepEvalBaseLLM):
     ) -> Any:
         return await asyncio.to_thread(self.generate, prompt, schema)
 
-    def _cli(self, prompt: str) -> str | None:
+    def _cli(self, prompt: str) -> tuple[str | None, str]:
         try:
             result = subprocess.run(
                 ["claude", "-p", "--model", self.model_id],
@@ -67,13 +77,23 @@ class ClaudeJudge(DeepEvalBaseLLM):
                 check=False,
             )
         except FileNotFoundError:
-            return None
+            return None, "not installed"
         except subprocess.TimeoutExpired:
-            return None
+            return None, f"timeout after {JUDGE_TIMEOUT_SECONDS}s"
         answer = result.stdout.strip()
-        return answer if result.returncode == 0 and answer else None
+        if result.returncode == 0 and answer:
+            return answer, ""
+        for line in result.stderr.splitlines():
+            if line.strip():
+                return None, f"exit {result.returncode}: {line.strip()}"
+        for line in result.stdout.splitlines():
+            if line.strip():
+                return None, f"exit {result.returncode}: {line.strip()}"
+        return None, f"exit {result.returncode}"
 
-    def _sdk(self, prompt: str) -> str | None:
+    def _sdk(self, prompt: str) -> tuple[str | None, str]:
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            return None, "ANTHROPIC_API_KEY not set"
         try:
             import anthropic
             from anthropic.types import TextBlock
@@ -83,7 +103,8 @@ class ClaudeJudge(DeepEvalBaseLLM):
                 max_tokens=4096,
                 messages=[{"role": "user", "content": prompt}],
             )
-        except Exception:  # noqa: BLE001 — no key, no network: the judge is unavailable
-            return None
+        except Exception as e:  # noqa: BLE001 — any exception means the SDK cannot score
+            return None, f"{type(e).__name__}: {e}"
         text = "".join(b.text for b in response.content if isinstance(b, TextBlock))
-        return text.strip() or None
+        stripped = text.strip()
+        return (stripped, "") if stripped else (None, "empty response")
