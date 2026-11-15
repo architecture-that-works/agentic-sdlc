@@ -37,6 +37,7 @@ REQUIRED_LABELS = {
     "agent:reviewing",
     "agent:shipped",
     "agent:failed",
+    "agent:refining",
     "human:approval",
     "human:decision",
 }
@@ -55,6 +56,7 @@ _BASE_LABELS_SNIPPET = textwrap.dedent("""\
         @{ Name = 'agent:reviewing';    Color = '969696'; Description = 'Review stage in progress' }
         @{ Name = 'agent:shipped';      Color = '0e8a16'; Description = 'Shipped — PR merged and issue closed' }
         @{ Name = 'agent:failed';       Color = 'd73a4a'; Description = 'A stage errored unrecoverably — see failed_at in the issue body' }
+        @{ Name = 'agent:refining';     Color = 'bfd4f2'; Description = 'Refine, architect and plan are running' }
         # human:* — a human holds the ball; nothing advances until they act (ADR-015).
         @{ Name = 'human:approval';     Color = 'd4c5f9'; Description = 'Implemented and self-reviewed — a human must merge the PR' }
         @{ Name = 'human:decision';     Color = 'd4c5f9'; Description = 'A question for a human — not a work item; never enters the pipeline' }

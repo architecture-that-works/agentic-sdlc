@@ -211,6 +211,11 @@ function Invoke-Orchestration {
                 # the decisions (refine itself short-circuits — the Agent Brief exists).
             }
 
+            # Mark the issue as being actively refined so the board shows work in
+            # progress. Set only here — after all early returns — so a no-op pass
+            # (no new reply, partial answers) leaves the label unchanged.
+            Set-AgentState -IssueNumber $IssueNumber -Label 'agent:refining'
+
             # Refine failures (model or tool errors) get the same attempt budget as
             # implementation, recorded in the issue the same way.
             $attempt = if ($state -and $state.PSObject.Properties['attempt_count']) { [int]$state.attempt_count } else { 0 }

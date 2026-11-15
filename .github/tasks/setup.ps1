@@ -301,6 +301,7 @@ if ($LASTEXITCODE -ne 0 -or -not $_LabelRepo) {
         @{ Name = 'agent:shipped';      Color = '0e8a16'; Description = 'Shipped — PR merged and issue closed' }
         @{ Name = 'agent:failed';       Color = 'd73a4a'; Description = 'A stage errored unrecoverably — see failed_at in the issue body' }
         @{ Name = 'agent:paused';       Color = 'fbca04'; Description = 'Paused on the Claude usage limit — resumes automatically (max 5 h)' }
+        @{ Name = 'agent:refining';     Color = 'bfd4f2'; Description = 'Refine, architect and plan are running' }
         # human:* — a human holds the ball; nothing advances until they act (ADR-015).
         @{ Name = 'human:approval';     Color = 'd4c5f9'; Description = 'Green PR waiting for your merge — set when a change touches governance files' }
         @{ Name = 'human:decision';     Color = 'd4c5f9'; Description = 'Waiting on your answers — reply to the questions in a comment' }
