@@ -58,7 +58,8 @@ $OrchestratorConfig = @{
 
     # Turn budgets — other phases (flat)
     MaxTurns_Refine        = 15   # structured output + label assignment — lightweight
-    MaxTurns_Review        = 30   # read-only: inspect code + signal history, no writes
+    MaxTurns_Review        = 30   # read-only: inspect code + signal history, no writes; formula base
+    MaxTurns_Review_Cap    = 90   # ceiling for the per-PR scaled formula (base + changed files)
     MaxTurns_ContextUpdate = 15   # diff analysis + generate a unified patch
 
     # Governance files: a PR touching any of these is held for the owner's merge

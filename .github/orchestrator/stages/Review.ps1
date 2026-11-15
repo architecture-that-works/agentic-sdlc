@@ -52,8 +52,14 @@ function Invoke-Review {
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:reviewing'
     Add-Comment -Number $IssueNumber -Body "· reviewing PR #$PRNumber"
 
-    $issue = gh issue view $IssueNumber --repo $KanbanRepo --json title,body | ConvertFrom-Json
-    $diff  = gh pr diff $PRNumber 2>&1 | Out-String
+    $issue            = gh issue view $IssueNumber --repo $KanbanRepo --json title,body | ConvertFrom-Json
+    $diff             = gh pr diff $PRNumber 2>&1 | Out-String
+    $changedFileCount = ([regex]::Matches($diff, '(?m)^diff --git')).Count
+    $scaledTurns      = if ($env:KANBAN_MAX_TURNS_REVIEW) {
+        $KanbanMaxTurns_Review
+    } else {
+        [Math]::Min($OrchestratorConfig.MaxTurns_Review_Cap, $OrchestratorConfig.MaxTurns_Review + $changedFileCount)
+    }
 
     # Retrieve signal history — includes 🤖✅ Tests Passing output and any prior rejections.
     $signal = gh issue view $IssueNumber --repo $KanbanRepo --json comments `
@@ -75,6 +81,9 @@ $diff
 $signalSection
 
 REVIEW INSTRUCTIONS:
+Tools available: Read, Glob, and Grep only — do not attempt Bash commands or any shell invocation.
+Test and check results come from the signal history (look for robot emoji Tests Passing comments) and from CI — do not re-run them.
+
 - Read .agents/skills/review/SKILL.md and its REFERENCE.md first and review by that method: read
   the connected code (every caller of a changed function), not only the diff; every finding needs
   a concrete case; the verdict rule and the output shape are in the skill.
@@ -88,10 +97,17 @@ First line of your response MUST be exactly APPROVED or REJECTED (all caps), fol
 review in the skill's § Report shape.
 "@
 
-    if ($KanbanEngine -eq 'gemini') {
-        $review = Invoke-GeminiStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $KanbanMaxTurns_Review
-    } else {
-        $review = Invoke-ClaudeStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $KanbanMaxTurns_Review
+    try {
+        if ($KanbanEngine -eq 'gemini') {
+            $review = Invoke-GeminiStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $scaledTurns
+        } else {
+            $review = Invoke-ClaudeStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $scaledTurns
+        }
+    } catch {
+        if ($_.Exception.Message -match 'ran out of turns') {
+            throw "Review ran out of turns on $changedFileCount changed file(s) — retry needs a larger budget or a smaller PR."
+        }
+        throw
     }
     $approved = $review -match '(?im)^APPROVED'
 

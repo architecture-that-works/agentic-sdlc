@@ -340,6 +340,16 @@ function Invoke-Orchestration {
                 # A spent usage allowance is not the agent's failure: pause, count nothing.
                 $until = Test-EngineUsageLimit
                 if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Stage 'implement' -Until $until; return }
+                # Exhausted turn budget: not a transient API error; fail immediately without retry.
+                if ($reason -match 'ran out of turns') {
+                    Set-AgentFailedState -IssueNumber $IssueNumber -FailedAt $currentStage -Reason $reason
+                    $errBlock = Format-ErrorBlock -Raw $reason
+                    Add-Comment -Number $IssueNumber -Body ("🤖❌ Failed — needs you`n`n" +
+                        "$errBlock`n`n" +
+                        "To unblock: set a larger ``KANBAN_MAX_TURNS_REVIEW`` budget, or split the PR into fewer changed files.")
+                    Write-Log "⛔ Issue #$IssueNumber — $reason" -Color Red
+                    return
+                }
                 $attempt++
                 Add-FailedAttempt -IssueNumber $IssueNumber -Stage $currentStage -Reason $reason -Attempt $attempt -Max $MaxRetries
                 if ($attempt -ge $MaxRetries) {
