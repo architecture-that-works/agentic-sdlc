@@ -99,6 +99,8 @@ jobs:
       run: ${{ steps.diff.outputs.run }}
       run_commit: ${{ steps.diff.outputs.run_commit }}
       run_refine: ${{ steps.diff.outputs.run_refine }}
+      run_review: ${{ steps.diff.outputs.run_review }}
+      run_implement: ${{ steps.diff.outputs.run_implement }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -110,18 +112,26 @@ jobs:
           PATHS_SHARED: '^tests/evals/(conftest\.py|claude_judge\.py|eval_goldens\.py|eval_results\.py)$'
           PATHS_COMMIT: '^(src/tools/commit\.py|tests/evals/test_commit_eval\.py|tests/evals/goldens/commit\.jsonl)$'
           PATHS_REFINE: '^(\.agents/skills/refine/|\.github/orchestrator/(stages/|lib/Grill\.ps1)|tests/evals/test_refine_eval\.py|tests/evals/goldens/refine\.jsonl)'
+          PATHS_REVIEW: '^(\.agents/skills/review/|tests/evals/test_review_eval\.py|tests/evals/goldens/review\.jsonl)'
+          PATHS_IMPLEMENT: '^(\.agents/skills/implement/|tests/evals/test_implement_eval\.py|tests/evals/goldens/implement\.jsonl)'
         run: |
           changed=$(git diff --name-only "origin/$BASE_REF...HEAD")
           shared=false
           commit=false
           refine=false
+          review=false
+          implement=false
           if echo "$changed" | grep -qE "$PATHS_SHARED"; then shared=true; fi
           if $shared || echo "$changed" | grep -qE "$PATHS_COMMIT"; then commit=true; fi
           if $shared || echo "$changed" | grep -qE "$PATHS_REFINE"; then refine=true; fi
-          if $commit || $refine; then run=true; else run=false; fi
+          if $shared || echo "$changed" | grep -qE "$PATHS_REVIEW"; then review=true; fi
+          if $shared || echo "$changed" | grep -qE "$PATHS_IMPLEMENT"; then implement=true; fi
+          if $commit || $refine || $review || $implement; then run=true; else run=false; fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
           echo "run_commit=$commit" >> "$GITHUB_OUTPUT"
           echo "run_refine=$refine" >> "$GITHUB_OUTPUT"
+          echo "run_review=$review" >> "$GITHUB_OUTPUT"
+          echo "run_implement=$implement" >> "$GITHUB_OUTPUT"
 
   eval:
     needs: eval-scope
@@ -164,6 +174,12 @@ jobs:
       - name: Run refine eval
         if: needs.eval-scope.outputs.run_refine == 'true'
         run: uv run pytest tests/evals/test_refine_eval.py -m eval --junitxml=logs/evals/junit-refine.xml
+      - name: Run review eval
+        if: needs.eval-scope.outputs.run_review == 'true'
+        run: uv run pytest tests/evals/test_review_eval.py -m eval --junitxml=logs/evals/junit-review.xml
+      - name: Run implement eval
+        if: needs.eval-scope.outputs.run_implement == 'true'
+        run: uv run pytest tests/evals/test_implement_eval.py -m eval --junitxml=logs/evals/junit-implement.xml
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
