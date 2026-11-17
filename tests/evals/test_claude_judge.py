@@ -5,6 +5,7 @@ and are faked, so these run in the default suite without any model call.
 """
 
 import asyncio
+import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -18,8 +19,8 @@ class Verdict(BaseModel):
     reason: str
 
 
-def _cli(stdout: str, returncode: int = 0) -> MagicMock:
-    return MagicMock(returncode=returncode, stdout=stdout, stderr="")
+def _cli(stdout: str, returncode: int = 0, stderr: str = "") -> MagicMock:
+    return MagicMock(returncode=returncode, stdout=stdout, stderr=stderr)
 
 
 def test_generate_returns_the_cli_answer() -> None:
@@ -40,6 +41,7 @@ def test_generate_falls_back_to_the_sdk_when_the_cli_is_missing() -> None:
     with (
         patch("claude_judge.subprocess.run", side_effect=FileNotFoundError),
         patch("anthropic.Anthropic", return_value=client),
+        patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
     ):
         assert ClaudeJudge().generate("rate this") == "from sdk"
 
@@ -54,6 +56,7 @@ def test_generate_falls_back_to_the_sdk_when_the_cli_fails() -> None:
     with (
         patch("claude_judge.subprocess.run", return_value=_cli("", returncode=1)),
         patch("anthropic.Anthropic", return_value=client),
+        patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
     ):
         assert ClaudeJudge().generate("rate this") == "from sdk"
 
@@ -62,6 +65,7 @@ def test_generate_raises_when_no_claude_is_available() -> None:
     with (
         patch("claude_judge.subprocess.run", side_effect=FileNotFoundError),
         patch("anthropic.Anthropic", side_effect=Exception("no key")),
+        patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
         pytest.raises(RuntimeError, match="Claude"),
     ):
         ClaudeJudge().generate("rate this")
@@ -100,6 +104,7 @@ def test_cli_timeout_counts_as_unavailable() -> None:
             side_effect=subprocess.TimeoutExpired("claude", 1),
         ),
         patch("anthropic.Anthropic", return_value=client),
+        patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
     ):
         assert ClaudeJudge().generate("rate this") == "from sdk"
 
@@ -115,3 +120,44 @@ def test_deepeval_waits_as_long_as_the_judge_may_take() -> None:
     from deepeval.config.settings import get_settings
 
     assert get_settings().DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS >= JUDGE_TIMEOUT_SECONDS
+
+
+def test_non_zero_exit_with_usage_limit_names_the_line() -> None:
+    with (
+        patch(
+            "claude_judge.subprocess.run",
+            return_value=_cli("", returncode=1, stderr="usage limit reached"),
+        ),
+        patch("anthropic.Anthropic", side_effect=Exception("quota")),
+        patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
+        pytest.raises(RuntimeError) as exc_info,
+    ):
+        ClaudeJudge().generate("rate this")
+    msg = str(exc_info.value)
+    assert "usage limit reached" in msg
+    assert "install the Claude CLI" not in msg
+
+
+def test_missing_cli_raises_install_hint() -> None:
+    with (
+        patch("claude_judge.subprocess.run", side_effect=FileNotFoundError),
+        patch("anthropic.Anthropic", side_effect=Exception("quota")),
+        patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
+        pytest.raises(RuntimeError) as exc_info,
+    ):
+        ClaudeJudge().generate("rate this")
+    assert "install the Claude CLI" in str(exc_info.value)
+
+
+def test_timeout_names_the_duration() -> None:
+    with (
+        patch(
+            "claude_judge.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("claude", 1),
+        ),
+        patch("anthropic.Anthropic", side_effect=Exception("quota")),
+        patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
+        pytest.raises(RuntimeError) as exc_info,
+    ):
+        ClaudeJudge().generate("rate this")
+    assert "timeout after" in str(exc_info.value)
