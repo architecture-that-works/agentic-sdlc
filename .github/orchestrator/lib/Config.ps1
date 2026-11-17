@@ -173,11 +173,18 @@ $KanbanStopWords = @(
 # Adding a state means adding one row. Nothing else in the module may switch on a
 # label; a second mapping is how #252, #266 and #275 each shipped the same bug.
 $PipelineStates = [ordered]@{
+    'agent:refining' = @{
+        LaneName    = 'Backlog'
+        Holder      = 'agent'
+        Recovery    = 'restart'
+        AllowedFrom = @($null, 'human:decision', 'agent:failed', 'human:approval')
+        OnComment   = 'refine'
+    }
     'agent:backlog' = @{
         LaneName    = 'Backlog'
         Holder      = 'agent'
         Recovery    = 'implement'
-        AllowedFrom = @($null, 'human:approval', 'human:decision', 'agent:failed', 'agent:implementing', 'agent:reviewing', 'agent:paused')
+        AllowedFrom = @($null, 'human:approval', 'human:decision', 'agent:failed', 'agent:implementing', 'agent:reviewing', 'agent:paused', 'agent:refining')
         OnComment   = 'ack'
     }
     'agent:implementing' = @{
@@ -198,7 +205,7 @@ $PipelineStates = [ordered]@{
         LaneName    = 'Backlog'
         Holder      = 'agent'
         Recovery    = 'resume'
-        AllowedFrom = @($null, 'agent:backlog', 'agent:implementing', 'agent:reviewing', 'human:decision', 'human:approval', 'agent:failed')
+        AllowedFrom = @($null, 'agent:backlog', 'agent:implementing', 'agent:reviewing', 'human:decision', 'human:approval', 'agent:failed', 'agent:refining')
         OnComment   = 'ack'
     }
     'agent:shipped' = @{
@@ -212,14 +219,14 @@ $PipelineStates = [ordered]@{
         LaneName    = 'Backlog'
         Holder      = 'human'
         Recovery    = 'none'
-        AllowedFrom = @($null, 'human:decision', 'agent:backlog', 'agent:implementing', 'agent:reviewing', 'human:approval', 'agent:paused')
+        AllowedFrom = @($null, 'human:decision', 'agent:backlog', 'agent:implementing', 'agent:reviewing', 'human:approval', 'agent:paused', 'agent:refining')
         OnComment   = 'retry'
     }
     'human:decision' = @{
         LaneName    = 'Backlog'
         Holder      = 'human'
         Recovery    = 'none'
-        AllowedFrom = @($null, 'human:decision', 'agent:failed')
+        AllowedFrom = @($null, 'human:decision', 'agent:failed', 'agent:refining')
         OnComment   = 'refine'
     }
     'human:approval' = @{

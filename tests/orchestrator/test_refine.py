@@ -434,8 +434,9 @@ $r = Invoke-Orchestration -From refine -IssueNumber 50
         tmp_path,
     )
     assert out["result"] is True
-    assert out["log"][:3] == ["refine", "architect", "plan"]
-    # agent:backlog replaces human:decision in one transition (#225).
+    # agent:refining is set once work is confirmed, then stages run, then agent:backlog.
+    assert out["log"][:4] == ["state:agent:refining", "refine", "architect", "plan"]
+    # agent:backlog replaces agent:refining in one Set-AgentState call (#225).
     assert not any(e.startswith("label:") for e in out["log"])
     assert "state:agent:backlog" in out["log"]
 

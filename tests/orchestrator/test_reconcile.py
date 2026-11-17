@@ -137,6 +137,7 @@ def test_every_pipeline_label_has_a_rule() -> None:
 """
     )
     assert set(out["labels"]) == {
+        "agent:refining",
         "agent:backlog",
         "agent:implementing",
         "agent:reviewing",
@@ -509,8 +510,6 @@ def test_set_agent_state_throws_on_disallowed_transition() -> None:
         "catch { Write-Output $_.Exception.Message; exit 1 }\n"
         "}\n"
     )
-    import subprocess
-
     result = subprocess.run(
         [PWSH, "-NoProfile", "-Command", script],
         capture_output=True,
@@ -725,6 +724,109 @@ def test_revise_route_skipped_when_no_open_pr() -> None:
         "gh workflow run must NOT be dispatched when no open PR."
     )
     assert out["noPrComment"], "Expected '· no open PR found' comment when no open PR."
+
+
+# ── agent:refining state ─────────────────────────────────────────────────────
+
+
+def test_agent_refining_oncomment_is_refine() -> None:
+    """An owner comment on an agent:refining issue must route to refine so a
+    queued comment is handled after the in-progress run completes."""
+    out = _run(
+        r"""
+[pscustomobject]@{
+    oncomment = $PipelineStates['agent:refining'].OnComment
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert out["oncomment"] == "refine"
+
+
+def test_agent_refining_allowedfrom_includes_valid_entry_points() -> None:
+    """The entry points that lead to refine must all be in AllowedFrom so
+    Set-AgentState never throws for a normal start-of-refine transition."""
+    out = _run(
+        r"""
+[pscustomobject]@{
+    allowed = @($PipelineStates['agent:refining'].AllowedFrom)
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert None in out["allowed"]  # new issue, no prior label
+    assert "human:decision" in out["allowed"]
+    assert "agent:failed" in out["allowed"]
+    assert "human:approval" in out["allowed"]
+
+
+def test_agent_refining_in_downstream_allowedfrom() -> None:
+    """agent:backlog, human:decision, agent:failed, and agent:paused must each
+    list agent:refining in AllowedFrom so the transitions out of the alignment
+    gate are permitted."""
+    out = _run(
+        r"""
+[pscustomobject]@{
+    backlog  = @($PipelineStates['agent:backlog'].AllowedFrom)
+    decision = @($PipelineStates['human:decision'].AllowedFrom)
+    failed   = @($PipelineStates['agent:failed'].AllowedFrom)
+    paused   = @($PipelineStates['agent:paused'].AllowedFrom)
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert "agent:refining" in out["backlog"]
+    assert "agent:refining" in out["decision"]
+    assert "agent:refining" in out["failed"]
+    assert "agent:refining" in out["paused"]
+
+
+def test_agent_refining_to_shipped_is_disallowed() -> None:
+    """agent:refining → agent:shipped is not in any AllowedFrom — must throw."""
+    script = (
+        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
+        "& (Get-Module Orchestrator) {\n"
+        "function script:Write-Log { param($Message, $Color) }\n"
+        "function script:Get-IssueState { param($IssueNumber) $null }\n"
+        "function script:Get-IssueLabel { param($IssueNumber) @('agent:refining') }\n"
+        "function script:Set-IssueLabel { param($Number, $Add, $Remove) }\n"
+        "function script:Move-ToLane { param($IssueNumber, $OptionId, $LaneName) }\n"
+        "try { Set-AgentState -IssueNumber 1 -Label 'agent:shipped'; exit 0 }\n"
+        "catch { Write-Output $_.Exception.Message; exit 1 }\n"
+        "}\n"
+    )
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1, (
+        f"Expected Set-AgentState to throw on agent:refining → agent:shipped.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert (
+        "not allowed" in result.stdout.lower() or "not allowed" in result.stderr.lower()
+    ), (
+        f"Expected 'not allowed' error message.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+def test_a_stalled_agent_refining_issue_is_restarted_at_refine() -> None:
+    """Recovery='restart' for agent:refining: Restart-Issue removes the label
+    and dispatches stage=refine, as it does for any unready issue."""
+    out = _run(
+        _RESTART
+        + _NOT_READY
+        + r"""
+$script:Labels = @('agent:refining')
+$stage = Restart-Issue -IssueNumber 7 -Reason 'stalled at refining'
+[pscustomobject]@{ stage = $stage; log = @($script:Log) } | ConvertTo-Json -Compress
+"""
+    )
+    assert out["stage"] == "refine"
+    assert "state:agent:backlog" not in out["log"]
+    assert "label:-agent:refining" in out["log"]
+    assert any("stage=refine" in line for line in out["log"])
 
 
 @pytest.mark.parametrize(
