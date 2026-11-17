@@ -102,8 +102,8 @@ failure at most `KANBAN_MAX_RETRIES` (3) times per round before stopping on `age
 acts only on issues opened by, and comments from, the owner and collaborators (`TrustedAuthors`
 in `lib/Config.ps1`, matched by `afk.yml`): it runs with the owner's tokens, so on a public
 repository a stranger's issue is never processed (#312). When the Claude usage allowance is spent
-it stops work on `agent:paused` and an hourly job resumes it once the allowance resets (at most
-5 hours later).
+it stops work on `agent:paused`, and the next pipeline run (or the hourly job) resumes it once the
+allowance resets (at most 5 hours later).
 
 An hourly reconciliation pass recovers work that stopped without failing — a lost runner, a
 cancelled job, an Actions timeout. It re-enters only states the agent holds and that nothing

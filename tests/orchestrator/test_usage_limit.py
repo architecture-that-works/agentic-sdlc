@@ -125,6 +125,7 @@ _CONDUCTOR = r"""
 $script:Log = [System.Collections.Generic.List[string]]::new()
 $script:State = [pscustomobject]@{ attempts = @(); attempt_count = 0 }
 function script:Assert-EngineReady {}
+function script:Resume-PausedIssues {}
 function script:Test-TrustedAuthor { param($IssueNumber) $true }
 function script:Acquire-OrchestratorLock { param($IssueNumber) $true }
 function script:Release-OrchestratorLock {}
@@ -182,6 +183,35 @@ $r = Invoke-Orchestration -From refine -IssueNumber 50
     assert out == {"r": False, "log": ["paused:refine"]}
 
 
+def test_every_run_resumes_due_pauses_before_its_stage(tmp_path: Path) -> None:
+    """#306: GitHub skips hourly schedules, so any run resumes a due pause first."""
+    out = _run(
+        _CONDUCTOR
+        + r"""
+function script:Resume-PausedIssues { $script:Log.Add('resume') }
+function script:Test-EngineUsageLimit { $null }
+Invoke-Orchestration -IssueNumber 50 -MaxRetries 1
+[pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
+""",
+        cwd=tmp_path,
+    )
+    assert out["log"][:2] == ["resume", "state:agent:implementing"]
+
+
+def test_a_failing_resume_does_not_stop_the_run(tmp_path: Path) -> None:
+    out = _run(
+        _CONDUCTOR
+        + r"""
+function script:Resume-PausedIssues { throw 'gh api: HTTP 502' }
+function script:Test-EngineUsageLimit { $null }
+Invoke-Orchestration -IssueNumber 50 -MaxRetries 1
+[pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
+""",
+        cwd=tmp_path,
+    )
+    assert out["log"][0] == "state:agent:implementing"
+
+
 _RESUME = r"""
 $script:Log = [System.Collections.Generic.List[string]]::new()
 $past   = (Get-Date).ToUniversalTime().AddMinutes(-5).ToString('o')
@@ -196,8 +226,11 @@ function script:Set-PlanningState { param($IssueNumber, $State) $script:Log.Add(
 function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:${IssueNumber}:$Label") }
 function script:Set-IssueLabel { param($Number, $Add, $Remove) $script:Log.Add("label:${Number}:-$Remove") }
 function script:Add-Comment { param($Number, $Body) }
+$script:Paused = @('11', '12', '13')
 function script:gh { $global:LASTEXITCODE = 0
-    if ($args[0] -eq 'issue') { '11'; '12'; '13' } else { $script:Log.Add('dispatch:' + ($args -join ' ')) } }
+    # The paused listing is REST (ADR-012): one call on every run must not spend GraphQL.
+    if ($args[0] -eq 'api' -and "$($args[1])" -like '*issues?labels=agent:paused*') { $script:Paused }
+    else { $script:Log.Add('dispatch:' + ($args -join ' ')) } }
 """
 
 
@@ -227,3 +260,16 @@ Resume-PausedIssues
     assert "label:12:-agent:paused" in resumed
     assert any(e.startswith("dispatch:") and "issue_number=12" in e for e in resumed)
     assert not any(":13" in e or "=13" in e for e in resumed)  # not due yet
+
+
+def test_no_paused_issue_means_no_engine_probe() -> None:
+    out = _run(
+        _RESUME
+        + r"""
+$script:Paused = @()
+function script:Test-EngineUsageLimit { $script:Log.Add('probe') }
+Resume-PausedIssues
+[pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
+"""
+    )
+    assert out["log"] == []

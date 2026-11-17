@@ -267,7 +267,7 @@ jobs:
           $labels = gh issue view $env:RESOLVED_ISSUE --repo $env:GITHUB_REPOSITORY `
             --json labels --jq '[.labels[].name] | join(",")' 2>$null
           if (",$labels," -like '*,agent:paused,*') {
-            Write-Output "Paused on the Claude usage limit — the hourly resume job restarts the queue."
+            Write-Output "Paused on the Claude usage limit — resumes on the next pipeline run or the hourly check; task reconcile resumes it now."
             exit 0
           }
           if (",$labels," -like '*,agent:backlog,*') {
