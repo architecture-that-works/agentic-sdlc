@@ -9,12 +9,12 @@ description: Use when implementing a feature, fixing a bug, or refactoring — a
 
 Prevents implementation drift, untested code and bloat by enforcing a strict Red-Green-Refactor loop with the smallest complete change at every step. Every behaviour is proven by a failing test before implementation begins; every implementation stays minimal until the test passes; every refactor deletes before it adds. TDD is the method of this stage (`CONTEXT.md` glossary).
 
-The rules below are the team's one coding standard: `review` judges a change against them, not against its own taste. Simpler code or a marked shortcut chosen by these rules is a decision, not a finding.
+The rules below are the team's one coding standard: `review` judges a change against them, not against its own taste. Simpler code or a declared `Left undone:` chosen by these rules is a decision, not a finding.
 
 **Primary artifact:** Passing pytest suite with minimal, refactored implementation code.
 
 See [REFERENCE.md](REFERENCE.md) for the full decision tree, fixture conventions, coverage
-threshold, parametrize patterns and the `shortcut:` comment contract. See [EXAMPLES.md](EXAMPLES.md)
+threshold and parametrize patterns. See [EXAMPLES.md](EXAMPLES.md)
 for worked Red-Green-Refactor sessions (new feature, regression, parametrize, a bug fix traced
 through its callers).
 
@@ -24,7 +24,7 @@ through its callers).
 
 **Does not own:** Test infrastructure provisioning (`tests/README.md`), root-cause analysis of a failure (→ `diagnosis`), PR creation (→ `version-control`), code review (→ `review`), performance infrastructure (→ domain skills).
 
-**Interfaces with:** `plan` — testing decisions in the PRD drive the RED phase. `diagnosis` — a bug fix starts from its root-cause statement. Domain skills (`application-engineering`, `data-engineering`, `agentic-engineering`) — extend the REFACTOR phase with domain-specific patterns; the lean rules below apply to them unchanged. `review` — judges the change against these rules, the one standard for both stages; reads the closing `Left undone:` / `Issues discovered:` lines and lists a `shortcut:` line under `Not checked:` instead of as a finding.
+**Interfaces with:** `plan` — testing decisions in the PRD drive the RED phase. `diagnosis` — a bug fix starts from its root-cause statement. Domain skills (`application-engineering`, `data-engineering`, `agentic-engineering`) — extend the REFACTOR phase with domain-specific patterns; the lean rules below apply to them unchanged. `review` — judges the change against these rules, the one standard for both stages; reads the closing `Left undone:` / `Issues discovered:` lines.
 
 ## When to Use
 
@@ -99,8 +99,6 @@ Write only enough code to make the current test pass. Take the first option in t
 - Hardcoding is acceptable in GREEN if it makes the test pass — REFACTOR will fix it
 - Be lazy about the solution, never about the change: finish every caller, test and fixture the change breaks
 - Between options of equal size, take the one that is correct on edge cases (empty, zero, last item, rounding, time zones)
-- A deliberate simplification gets a one-line comment naming its follow-up: `# shortcut: <reason> — to be fixed in <follow-up-slug>`. The gap is explicit without a new label or state; `review` lists the line under `Not checked:` instead of as a finding
-
 ### Refactor — Deep Modules, Nothing Extra
 
 Once GREEN, refactor to make the implementation deep: maximum behaviour behind the smallest possible interface. Deletion beats addition.
@@ -118,9 +116,7 @@ Once GREEN, refactor to make the implementation deep: maximum behaviour behind t
 - Keep the structure the codebase already has: its layers, interfaces and conventions. An interface the Architectural Constraints require (the I/O port behind Dependency Inversion) is structure, not speculation — keep it
 - Code you move or merge keeps its error handling and validation
 - Split a function by job, never by line count — a helper that exists only to make a function shorter is one more name the reader must chase
-- Comment only the *why* the code cannot show, in one line
-- A `shortcut:` comment is never removed silently — removing one means doing its follow-up, in its own issue
-- Never cut: validation at trust boundaries, error handling that prevents data loss, security, anything the issue asked for
+- Comment only the *why* the code cannot show, in one line- Never cut: validation at trust boundaries, error handling that prevents data loss, security, anything the issue asked for
 - Domain skills extend this phase with language-specific patterns
 
 ### Acceptance Criteria Traceability

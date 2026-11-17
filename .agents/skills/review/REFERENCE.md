@@ -59,8 +59,6 @@ Any of:
 
 ### What is not a finding
 
-- A line bearing a `shortcut:` comment — a known gap with a named follow-up; list it under
-  `Not checked:`
 - Style and formatting — the `ruff` gate owns them
 - "Consider…", "might…", "could be cleaner" — no concrete case, no finding
 - Something the implementation declared under `Left undone:` that no acceptance criterion

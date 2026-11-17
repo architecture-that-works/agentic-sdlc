@@ -266,18 +266,14 @@ def normalise_score(value: int | None) -> float:
 
 Both callers are fixed by the one change. Neither caller is touched.
 
-### Step 3 — REFACTOR: nothing to add, one shortcut to mark
+### Step 3 — REFACTOR: nothing to add, one gap to declare
 
 One legacy export still hands over strings for non-empty cells. That is a known gap, not this
-issue's scope — it gets its own follow-up:
-
-```python
-    # shortcut: numeric cells only — to be fixed in legacy-export-str-cells
-```
+issue's scope — it goes in the closing note with its follow-up, not in a code comment.
 
 ### Closing note
 
 ```
-- Left undone: str cells from the legacy export — shortcut, follow-up legacy-export-str-cells.
+- Left undone: str cells from the legacy export — follow-up legacy-export-str-cells.
 - Issues discovered: none; both callers are covered by the new test and the existing three.
 ```

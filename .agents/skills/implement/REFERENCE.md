@@ -15,11 +15,10 @@ by path (`.agents/skills/implement/REFERENCE.md` § Coding Principles); rules ar
 2. **No speculative abstractions.** Build exactly what a failing test requires. Extract to a helper
    only once the pattern appears three times (Rule of Three — `CONTEXT.md`). A helper with one
    caller and no domain name is inlined.
-3. **Mark deliberate shortcuts explicitly.** A simplification the current issue defers gets a
-   one-line comment on the line it limits, naming the follow-up:
-   `# shortcut: <reason> — to be fixed in <follow-up-slug>`. REFACTOR never removes a shortcut
-   silently — removing one means doing its follow-up in its own issue. See
-   [§ Shortcut Comments](#shortcut-comments) for the full contract and restrictions.
+3. **Declare what you defer.** A simplification the issue does not need resolved now goes under
+   `Left undone:` in the closing note, naming its follow-up issue — never as a marker comment in
+   the code. Never deferred: validation at a trust boundary, error handling that prevents data
+   loss, security.
 
 ---
 
@@ -103,25 +102,6 @@ re-run the full test suite; repeat from the top.
 **Domain extension:** After this checklist, load the domain skill (`application-engineering`,
 `data-engineering`, or `agentic-engineering`) for language- and stack-specific REFACTOR
 patterns. Do not apply domain patterns before the checklist above completes.
-
----
-
-## Shortcut Comments
-
-A shortcut is a deliberate simplification the issue does not need resolved now — a linear scan
-that is fine for the current data, a single-process lock, one input format handled. It is written
-as one comment on the line it limits, naming the follow-up:
-
-```python
-# shortcut: linear scan — to be fixed in orders-index-lookup
-```
-
-Two parts, in order: `shortcut:` and the reason, then `to be fixed in` and the slug of the
-follow-up (an ISSUES.md block or an open issue). REFACTOR never removes a shortcut silently —
-removing one means doing the follow-up, in its own issue. `review` lists lines bearing the
-comment under `Not checked:` instead of raising them as findings; an unmarked simplification is
-a finding. A shortcut is never allowed on validation at a trust boundary, error handling that
-prevents data loss, or security.
 
 ---
 
