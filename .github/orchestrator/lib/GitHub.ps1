@@ -552,8 +552,9 @@ function Set-AttemptsSection {
 
 # ── Usage-limit pause and resume ──────────────────────────────────────────────
 # A spent usage allowance parks the issue on agent:paused with the resume time and
-# the stage to resume in the carrier; no attempt is counted. afk.yml's hourly
-# resume job calls Resume-PausedIssues.
+# the stage to resume in the carrier; no attempt is counted. Every pipeline run calls
+# Resume-PausedIssues before its own stage (#306); afk.yml's hourly reconcile is the
+# fallback for a quiet repo.
 function Suspend-ForUsageLimit {
     param([Parameter(Mandatory)][int]$IssueNumber, [Parameter(Mandatory)][string]$Stage,
           [Parameter(Mandatory)][datetime]$Until)
@@ -564,8 +565,9 @@ function Suspend-ForUsageLimit {
         Set-PlanningState -IssueNumber $IssueNumber -State $state
     }
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:paused'
-    Add-Comment -Number $IssueNumber -Body ("🤖⏳ Paused — the Claude usage limit is reached. $Stage resumes automatically " +
-        "after $($Until.ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC (checked hourly). No attempt was counted; nothing for you to do.")
+    Add-Comment -Number $IssueNumber -Body ("🤖⏳ Paused — the Claude usage limit is reached. $Stage resumes " +
+        "after $($Until.ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC, on the next pipeline run or the hourly check " +
+        "(``task reconcile`` resumes it now). No attempt was counted; nothing for you to do.")
     Write-Log "⏳ Issue #$IssueNumber paused at $Stage until $($Until.ToString('o'))." -Color Yellow
 }
 
@@ -575,7 +577,9 @@ function Suspend-ForUsageLimit {
 # agent:backlog (the label restarts implement); refine-stage pauses are dispatched
 # to the refine job.
 function Resume-PausedIssues {
-    $raw = gh issue list --repo $KanbanRepo --label 'agent:paused' --state open --json number --jq '.[].number' 2>&1
+    # REST, not `gh issue list` (GraphQL): every pipeline run now pays for this call (ADR-012).
+    $raw = gh api "repos/$KanbanRepo/issues?labels=agent:paused&state=open&per_page=100" `
+        --jq '.[] | select(.pull_request == null) | .number' 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Failed to list agent:paused issues: $raw" }
     $numbers = @($raw | Where-Object { "$_".Trim() } | ForEach-Object { [int]"$_" })
     if ($numbers.Count -eq 0) { Write-Log "No paused issues." -Color DarkGray; return }

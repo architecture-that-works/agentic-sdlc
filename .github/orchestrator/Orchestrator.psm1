@@ -78,7 +78,7 @@ function Invoke-Orchestration {
     }
 
     # Fail-fast engine validation. A spent usage allowance pauses the issue instead of
-    # failing it; the hourly resume job picks it up again.
+    # failing it; the next run that starts resumes it.
     try {
         Assert-EngineReady
     } catch {
@@ -89,6 +89,10 @@ function Invoke-Orchestration {
         }
         throw
     }
+
+    # Every run resumes due pauses first (#306): GitHub skips hourly schedules, so the
+    # queue must not wait on the reconcile job. Never fails the run that called it.
+    try { Resume-PausedIssues } catch { Write-Log "  ⚠️ Resume-PausedIssues failed: $_" -Color Yellow }
 
     # Prevent two concurrent instances from processing the same issue.
     if (-not (Acquire-OrchestratorLock -IssueNumber $IssueNumber)) {
