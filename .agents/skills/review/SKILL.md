@@ -21,7 +21,7 @@ fixed in one round, a clean approval, escalation after three rejections).
 
 **Does not own:** Code implementation and fixing findings (→ `implement`), static topology analysis and the repo-wide audit (→ `architect`), merge and security governance (→ `ship`), lint and format (the `ruff` gate in CI).
 
-**Interfaces with:** `implement` — review validates that GREEN and REFACTOR produced code compliant with `implement`'s own rules, the team's one standard; a rejection hands the numbered findings back to `implement`; a `shortcut:` line from `implement` is listed under `Not checked:`, never as a finding. `architect` — the blast-radius report is surfaced in the review; the repo audit reuses the finding categories defined here. `ship` — a clean review is the gate for `ship`.
+**Interfaces with:** `implement` — review validates that GREEN and REFACTOR produced code compliant with `implement`'s own rules, the team's one standard; a rejection hands the numbered findings back to `implement`. `architect` — the blast-radius report is surfaced in the review; the repo audit reuses the finding categories defined here. `ship` — a clean review is the gate for `ship`.
 
 ## When to Use
 
@@ -69,8 +69,7 @@ Plus the governance checks — `CONTEXT.md` constraints, internal mocks, Module 
 
 - Every finding needs a concrete case: "this input or situation leads to this wrong result". No case, no finding.
 - Re-read the lines and confirm: the caller exists, the value can really be empty, the code really is unused (grep the whole tree, tests and fixtures included).
-- A line bearing a `shortcut:` comment is a known gap with a named follow-up: list it under `Not checked:`, never as a finding.
-- Never overrule a choice `implement` made by the shared rules: simpler code, a marked `shortcut:`, a declared `Left undone:` that no criterion requires. A finding that asks for more code than the rules require is not a finding.
+- Never overrule a choice `implement` made by the shared rules: simpler code, a declared `Left undone:` that no criterion requires. A finding that asks for more code than the rules require is not a finding.
 - Propose the smallest fix that works. Prefer fixes that delete code. Never add layers, frameworks or config the problem does not need.
 - No style taste, no "consider", no vague worries. Lint and format belong to the `ruff` gate.
 
@@ -88,7 +87,7 @@ Then the findings, numbered, most important first (the order of Step 2), so the 
      `datetime.now(ZoneInfo("Europe/Berlin")).date()`. One line, nothing else changes.
 ```
 
-End with `Lean: -<N> lines possible.` when lean findings exist, then `Not checked:` — a heading listing the `shortcut:` lines you passed over and anything that mattered but you could not check.
+End with `Lean: -<N> lines possible.` when lean findings exist, then `Not checked:` — a heading listing anything that mattered but you could not check.
 
 Nothing found: the verdict, `What this change does:`, `Looks good.` and one line on what you checked.
 
@@ -129,7 +128,7 @@ A changed signature breaks callers the diff never shows. Grep every caller befor
 "This might be slow" and "consider extracting" are not findings. Name the input and the wrong result, or drop it.
 
 **Undoing what `implement` did on purpose.**
-Simpler code, a marked `shortcut:` or a declared `Left undone:` is a decision made by the shared rules — the same team standard the reviewer holds. One implementation needs no interface beyond what the Architectural Constraints require; three copies do (Rule of Three). The reviewer's job is to shrink the change, not to grow it.
+Simpler code or a declared `Left undone:` is a decision made by the shared rules — the same team standard the reviewer holds. One implementation needs no interface beyond what the Architectural Constraints require; three copies do (Rule of Three). The reviewer's job is to shrink the change, not to grow it.
 
 **Continuing past the rejection budget.**
 Three rounds is the cap. A fourth compounds drift and wastes context. Escalate and stop.
