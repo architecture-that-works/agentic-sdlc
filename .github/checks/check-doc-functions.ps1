@@ -16,10 +16,9 @@
     and inline code that merely contains a hyphen — the same class of false
     positives that check-module-api.ps1 produced before its scope was tightened.
 
-    Scope is deliberately narrow: the template ADR index (the navigational index
-    agents load for every orchestrator task), the top-level agent instructions,
-    the test README, and skill documents (EXAMPLES.md excluded — illustrative
-    content may cite fictional names).
+    Scope is deliberately narrow: the top-level agent instructions, the test
+    README, and skill documents (EXAMPLES.md excluded — illustrative content
+    may cite fictional names).
 
     CONTEXT.md is excluded: it uses PowerShell core cmdlets such as Import-Module
     in descriptive prose; those are PS built-ins, not orchestrator functions, and
