@@ -4,8 +4,8 @@
     Assert four public-repo safeguards in the template source repo.
 
 .DESCRIPTION
-    Exits 0 silently when the .template/ marker directory is absent at the repository root
-    (no-op in generated projects). When present, calls four GitHub REST endpoints via gh api
+    Exits 0 silently when copier.yml is absent at the repository root: no project receives
+    that file, so its presence marks the template source repo (no-op in generated projects). When present, calls four GitHub REST endpoints via gh api
     and prints the owner remediation step for each failing assertion. Exits 1 if any assertion
     fails; exits 0 silently when all pass.
 
@@ -27,9 +27,9 @@ if ($LASTEXITCODE -ne 0) {
 $repoRoot = $repoRoot.Trim()
 
 # ── Template-source-repo gate ─────────────────────────────────────────────────
-# Exit 0 silently in generated projects where .template/ is absent.
+# Exit 0 silently in generated projects, where copier.yml is absent.
 
-if (-not (Test-Path (Join-Path $repoRoot '.template'))) {
+if (-not (Test-Path (Join-Path $repoRoot 'copier.yml'))) {
     exit 0
 }
 

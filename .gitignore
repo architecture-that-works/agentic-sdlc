@@ -41,3 +41,6 @@ logs/
 
 # Claude Code — local overrides (personal paths, machine-specific approvals)
 .claude/settings.local.json
+
+# Local working material: never part of the repository
+.template/
