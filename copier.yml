@@ -15,7 +15,8 @@ project_type:
 
 _templates_suffix: ".jinja2"
 
-# .template/ is the template's own material; a root file with a .jinja2 twin is dual-use.
+# A root file with a .jinja2 twin is dual-use. tests/template/ tests the template itself
+# and is not copied into a project.
 _exclude:
     - ".git"
     - ".venv"
@@ -24,3 +25,4 @@ _exclude:
     - "copier.yml"
     - "logs"
     - ".template"
+    - "tests/template"

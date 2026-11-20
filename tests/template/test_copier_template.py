@@ -100,7 +100,7 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
     )
 
     # Template-only directories must not travel.
-    for stale in (".template", "template", "adr-staging"):
+    for stale in (".template", "template", "adr-staging", "tests/template"):
         assert not (tmp_path / stale).exists(), (
             f"Generated project must not contain {stale!r} directory"
         )

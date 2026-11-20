@@ -28,8 +28,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-# pytest skips dot-directories by default, so .template/tests must be named explicitly.
-testpaths = ["tests", ".template/tests"]
+testpaths = ["tests"]
 # Evals call a model: opt in with `uv run pytest -m eval` (a later -m overrides this one).
 # DeepEval's own pytest plugin is off — evals are plain pytest (tests/README.md).
 addopts = ["-m", "not eval", "-p", "no:deepeval"]

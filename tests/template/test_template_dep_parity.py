@@ -38,6 +38,10 @@ def _collect_test_imports() -> set[str]:
     stdlib = sys.stdlib_module_names
     modules: set[str] = set()
     for py_file in TESTS_DIR.rglob("*.py"):
+        # tests/template/ tests the template itself and is not copied into a project,
+        # so its imports are not a project's dependencies.
+        if py_file.parent == Path(__file__).parent:
+            continue
         try:
             tree = ast.parse(py_file.read_text(encoding="utf-8"))
         except SyntaxError:

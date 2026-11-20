@@ -76,7 +76,7 @@ def _run(
 
 
 def test_passes_outside_template_repo(tmp_path: Path) -> None:
-    """Script exits 0 silently when .template/ is absent (no-op in generated projects)."""
+    """Script exits 0 silently when copier.yml is absent (no-op in generated projects)."""
     _init_git_repo(tmp_path)
     result = _run(tmp_path)
     assert result.returncode == 0, result.stderr
@@ -85,7 +85,7 @@ def test_passes_outside_template_repo(tmp_path: Path) -> None:
 def test_all_assertions_pass(tmp_path: Path) -> None:
     """Script exits 0 when all four REST assertions pass."""
     _init_git_repo(tmp_path)
-    (tmp_path / ".template").mkdir()
+    (tmp_path / "copier.yml").touch()
     stub_dir = tmp_path / "_stub"
     stub_dir.mkdir()
     _write_stub_gh(
@@ -102,7 +102,7 @@ def test_all_assertions_pass(tmp_path: Path) -> None:
 def test_fails_repo_private(tmp_path: Path) -> None:
     """Script exits 1 and names Step 1 when the repository is private."""
     _init_git_repo(tmp_path)
-    (tmp_path / ".template").mkdir()
+    (tmp_path / "copier.yml").touch()
     stub_dir = tmp_path / "_stub"
     stub_dir.mkdir()
     _write_stub_gh(
@@ -120,7 +120,7 @@ def test_fails_repo_private(tmp_path: Path) -> None:
 def test_fails_fork_pr_approval(tmp_path: Path) -> None:
     """Script exits 1 and names Step 2 when the fork-PR approval policy is wrong."""
     _init_git_repo(tmp_path)
-    (tmp_path / ".template").mkdir()
+    (tmp_path / "copier.yml").touch()
     stub_dir = tmp_path / "_stub"
     stub_dir.mkdir()
     _write_stub_gh(
@@ -138,7 +138,7 @@ def test_fails_fork_pr_approval(tmp_path: Path) -> None:
 def test_fails_self_hosted_runner(tmp_path: Path) -> None:
     """Script exits 1 and names Step 3 when KANBAN_RUNNER_PROFILE is self-hosted."""
     _init_git_repo(tmp_path)
-    (tmp_path / ".template").mkdir()
+    (tmp_path / "copier.yml").touch()
     stub_dir = tmp_path / "_stub"
     stub_dir.mkdir()
     _write_stub_gh(
@@ -156,7 +156,7 @@ def test_fails_self_hosted_runner(tmp_path: Path) -> None:
 def test_fails_runner_registered(tmp_path: Path) -> None:
     """Script exits 1 and names Step 3 when a self-hosted runner is registered."""
     _init_git_repo(tmp_path)
-    (tmp_path / ".template").mkdir()
+    (tmp_path / "copier.yml").touch()
     stub_dir = tmp_path / "_stub"
     stub_dir.mkdir()
     _write_stub_gh(
