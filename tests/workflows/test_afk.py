@@ -160,3 +160,86 @@ def test_pipeline_comment_skipped_in_comment_job():
     comment = _job("comment")
     assert "startsWith(github.event.comment.body, '🤖')" in comment
     assert "startsWith(github.event.comment.body, '·')" in comment
+
+
+def test_no_secret_in_workflow_level_env():
+    """GH_TOKEN and CLAUDE_CODE_OAUTH_TOKEN must not appear in the workflow-level
+    env block — they must be scoped to the individual steps that use them."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    # Extract lines between the top-level "env:" key and the first "jobs:" line.
+    top_env_lines: list[str] = []
+    in_top_env = False
+    for line in text.splitlines():
+        if re.match(r"^env:\s*$", line):
+            in_top_env = True
+            continue
+        if in_top_env:
+            if re.match(r"^[a-zA-Z]", line):
+                break
+            top_env_lines.append(line)
+
+    top_env = "\n".join(top_env_lines)
+    assert "GH_TOKEN" not in top_env, (
+        "GH_TOKEN must not appear in the workflow-level env block"
+    )
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in top_env, (
+        "CLAUDE_CODE_OAUTH_TOKEN must not appear in the workflow-level env block"
+    )
+
+
+def test_installer_steps_precede_credentialed_checkouts():
+    """Every uv or npm install step must appear before any actions/checkout step
+    that stores credentials (i.e. one without persist-credentials: false).
+
+    pr-closed and reconcile intentionally do a credential-free first checkout
+    so their conditional install can run after the cheap pre-check without
+    exposing a PAT during package installation.
+    """
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    # Split into job blocks (text between "  <job>:" headers).
+    job_blocks = re.split(r"^  # ──.*$", text, flags=re.MULTILINE)
+
+    # Match each block to its job name via its first "  <name>:" line.
+    job_name_re = re.compile(r"^\s{2}([a-zA-Z][a-zA-Z0-9_-]*):\s*$", re.MULTILINE)
+
+    for block in job_blocks:
+        m = job_name_re.search(block)
+        if not m:
+            continue
+        job_name = m.group(1)
+
+        # Split the block into individual steps at "      - " boundaries (6 spaces).
+        steps = re.split(r"(?=^      - )", block, flags=re.MULTILINE)
+
+        credentialed_checkout_indices: list[int] = []
+        installer_indices: list[int] = []
+
+        _secret_names = (
+            "GH_TOKEN",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "OTEL_EXPORTER_OTLP_HEADERS",
+        )
+
+        for idx, step in enumerate(steps):
+            is_checkout = "actions/checkout" in step
+            has_no_creds = "persist-credentials: false" in step
+            is_installer = bool(re.search(r"\buv\b", step)) or "npm install" in step
+
+            if is_checkout and not has_no_creds:
+                credentialed_checkout_indices.append(idx)
+            if is_installer:
+                installer_indices.append(idx)
+                # Installer steps must not carry any known secret in their env block.
+                for secret in _secret_names:
+                    assert secret not in step, (
+                        f"job '{job_name}': installer step (index {idx}) "
+                        f"has secret '{secret}' in its env"
+                    )
+
+        for inst_idx in installer_indices:
+            for co_idx in credentialed_checkout_indices:
+                assert inst_idx < co_idx, (
+                    f"job '{job_name}': installer step (index {inst_idx}) appears "
+                    f"after credentialed checkout (index {co_idx})"
+                )

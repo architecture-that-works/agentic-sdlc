@@ -68,8 +68,7 @@ permissions:
 # Shared by every job: credentials, the default branch, and the board's field and
 # option IDs (repository variables written by `task setup`).
 env:
-  GH_TOKEN: ${{ secrets.GH_TOKEN }}
-  CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+  CLAUDE_CODE_VERSION: 2.1.330
   GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
   KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
   KANBAN_PROJECT_OWNER: ${{ vars.KANBAN_PROJECT_OWNER }}
@@ -115,22 +114,29 @@ jobs:
     env:
       KANBAN_ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: vars.KANBAN_RUNNER_PROFILE != 'self-hosted'
         with:
-          fetch-depth: 0
-          token: ${{ secrets.GH_TOKEN }}
+          enable-cache: true
 
       - name: Install tooling (hosted runner)
         if: vars.KANBAN_RUNNER_PROFILE != 'self-hosted'
         shell: bash
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          sudo npm install -g @anthropic-ai/claude-code
+          sudo npm install -g @anthropic-ai/claude-code@${{ env.CLAUDE_CODE_VERSION }}
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
+
       - name: Refine (refine → architect → plan → grant agent:backlog when ready)
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           if ([int]$env:KANBAN_ISSUE -gt 0) {
             Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
@@ -168,22 +174,29 @@ jobs:
     env:
       KANBAN_ISSUE: ${{ github.event.issue.number }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: vars.KANBAN_RUNNER_PROFILE != 'self-hosted'
         with:
-          fetch-depth: 0
-          token: ${{ secrets.GH_TOKEN }}
+          enable-cache: true
 
       - name: Install tooling (hosted runner)
         if: vars.KANBAN_RUNNER_PROFILE != 'self-hosted'
         shell: bash
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          sudo npm install -g @anthropic-ai/claude-code
+          sudo npm install -g @anthropic-ai/claude-code@${{ env.CLAUDE_CODE_VERSION }}
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
+
       - name: Route comment
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           $null = Invoke-Orchestration -From comment -IssueNumber ([int]$env:KANBAN_ISSUE)
@@ -203,23 +216,29 @@ jobs:
     env:
       TRIGGERED_ISSUE: ${{ github.event.issue.number || inputs.issue_number }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: vars.KANBAN_RUNNER_PROFILE != 'self-hosted'
         with:
-          fetch-depth: 0
-          token: ${{ secrets.GH_TOKEN }}
+          enable-cache: true
 
       - name: Install tooling (hosted runner)
         if: vars.KANBAN_RUNNER_PROFILE != 'self-hosted'
         shell: bash
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          sudo npm install -g @anthropic-ai/claude-code
+          sudo npm install -g @anthropic-ai/claude-code@${{ env.CLAUDE_CODE_VERSION }}
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
 
       - name: Resolve backlog issue
         id: resolve
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           $issue = $env:TRIGGERED_ISSUE
           if (-not $issue -or $issue -eq '0') {
@@ -250,6 +269,8 @@ jobs:
         shell: pwsh
         env:
           KANBAN_ISSUE: ${{ steps.resolve.outputs.issue_number }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           $ctx = Get-OrchestratorContext
@@ -263,6 +284,7 @@ jobs:
         shell: pwsh
         env:
           RESOLVED_ISSUE: ${{ steps.resolve.outputs.issue_number }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           $labels = gh issue view $env:RESOLVED_ISSUE --repo $env:GITHUB_REPOSITORY `
             --json labels --jq '[.labels[].name] | join(",")' 2>$null
@@ -302,21 +324,27 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ inputs.issue_number }}
     steps:
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Install tooling
+        shell: bash
+        run: |
+          sudo npm install -g @anthropic-ai/claude-code@${{ env.CLAUDE_CODE_VERSION }}
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           token: ${{ secrets.GH_TOKEN }}
 
-      - name: Install tooling
-        shell: bash
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          sudo npm install -g @anthropic-ai/claude-code
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
       - name: Ship
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           $issue = [int]$env:ISSUE_NUMBER
@@ -342,14 +370,18 @@ jobs:
       PR_BRANCH: ${{ github.event.pull_request.head.ref }}
       PR_MERGED: ${{ github.event.pull_request.merged }}
     steps:
-      # The default branch, not the PR: the CONTEXT.md update commits on top of it,
-      # and the cheap pre-check below needs it to Import-Module. Unconditional —
-      # checkout is cheap; what's expensive (and gated below) is the tooling install.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      # Credential-free checkout so the pre-check and tooling install below run
+      # without a stored PAT in git config. A second credentialed checkout follows
+      # only when work is actually needed.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
-          token: ${{ secrets.GH_TOKEN }}
+          persist-credentials: false
 
       # Cheap check first: skip only if Test-IssueShipped already says so — the
       # pipeline's own in-process merge path almost always wins that race (see
@@ -359,6 +391,8 @@ jobs:
       - name: Does the issue still need reconciling?
         id: reconcile
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           $issue = if ($env:PR_BRANCH -match '^feature/(\d+)-') { [int]$Matches[1] } else { 0 }
@@ -369,14 +403,25 @@ jobs:
         if: steps.reconcile.outputs.pending == 'true'
         shell: bash
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          sudo npm install -g @anthropic-ai/claude-code
+          sudo npm install -g @anthropic-ai/claude-code@${{ env.CLAUDE_CODE_VERSION }}
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # Credentialed checkout for git pushes (CONTEXT.md update commits on top of
+      # the default branch). Runs only when work is pending.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.reconcile.outputs.pending == 'true'
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
 
       - name: Ship or fail the issue
         if: steps.reconcile.outputs.pending == 'true'
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           Complete-HeldPR -PRNumber ([int]$env:PR_NUMBER) -Branch $env:PR_BRANCH -Merged ($env:PR_MERGED -eq 'true')
@@ -396,9 +441,15 @@ jobs:
       group: reconcile
       cancel-in-progress: false
     steps:
-      # The default branch, for Import-Module. Checkout is cheap; the tooling
-      # install below is what's worth gating.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      # The default branch, for Import-Module. No credentials stored — the pre-check
+      # only reads labels; tokens are scoped to the steps that need them below.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Cheap check first: most hours nothing is stuck and nothing is paused, and
       # then no tooling is installed. Reports the verdict for every open issue to
@@ -407,6 +458,8 @@ jobs:
       - name: Is anything stuck or paused?
         id: survey
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           # Deferred rows are in-flight states a live run still owns — the next pass
@@ -420,14 +473,16 @@ jobs:
         if: steps.survey.outputs.pending == 'true'
         shell: bash
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          sudo npm install -g @anthropic-ai/claude-code
+          sudo npm install -g @anthropic-ai/claude-code@${{ env.CLAUDE_CODE_VERSION }}
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Re-enter what nothing is working on
         if: steps.survey.outputs.pending == 'true'
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           $null = Invoke-Reconciliation
