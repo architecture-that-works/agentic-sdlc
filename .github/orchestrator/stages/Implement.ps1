@@ -79,6 +79,7 @@ INSTRUCTIONS:
 
     $allText           = [System.Text.StringBuilder]::new()
     $modifiedFiles     = [System.Collections.Generic.List[string]]::new()
+    $streamEvents      = [System.Collections.Generic.List[object]]::new()
     $explorationPosted = $false
     $writingPosted     = $false
     $testedOnce        = $false
@@ -88,11 +89,12 @@ INSTRUCTIONS:
     } else {
         $prompt | claude --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1
     }
-    
+
     $stream | ForEach-Object {
         $raw = [string]$_
         try {
             $ev = $raw | ConvertFrom-Json -ErrorAction Stop
+            $streamEvents.Add($ev)
 
             $blocks = if ($ev.message.content) { $ev.message.content }
                       elseif ($ev.content)      { $ev.content }
@@ -138,29 +140,58 @@ INSTRUCTIONS:
 
     if ($LASTEXITCODE -ne 0) { throw "Agent CLI exited with code $LASTEXITCODE." }
 
-    $bullets     = ($allText.ToString() -split '\r?\n') |
-                   Where-Object { $_ -match '^\s*[-*•]' } |
-                   Select-Object -Last 20
-    $summaryText = if ($bullets) { $bullets -join "`n" } else { '(see PR diff for details)' }
+    # Split the last 20 agent bullets into Implemented / Left undone / Issues discovered.
+    $bullets  = ($allText.ToString() -split '\r?\n') |
+                Where-Object { $_ -match '^\s*[-*•]' } |
+                Select-Object -Last 20
+    $implLines = @($bullets | Where-Object { $_ -notmatch '^\s*[-*•]\s+Left undone:' -and
+                                              $_ -notmatch '^\s*[-*•]\s+Issues discovered:' })
+    $luLine    = $bullets | Where-Object { $_ -match '^\s*[-*•]\s+Left undone:' }    | Select-Object -First 1
+    $idLine    = $bullets | Where-Object { $_ -match '^\s*[-*•]\s+Issues discovered:' } | Select-Object -First 1
+
+    $implementedText = if ($implLines) {
+        ($implLines | ForEach-Object { ($_ -replace '^\s*[-*•]\s+', '').Trim() }) -join '; '
+    } else { 'none' }
+    $leftUndoneText  = if ($luLine)  { ($luLine  -replace '^\s*[-*•]\s+Left undone:\s*',     '').Trim() } else { 'none' }
+    $issuesDiscText  = if ($idLine)  { ($idLine  -replace '^\s*[-*•]\s+Issues discovered:\s*', '').Trim() } else { 'none' }
+
     $fileSection = if ($modifiedFiles.Count -gt 0) {
         $fileLines = ($modifiedFiles | Select-Object -Unique |
                       ForEach-Object { "- ``$(Split-Path $_ -Leaf)``" }) -join "`n"
         "`n`n**Files changed ($($modifiedFiles.Count)):**`n$fileLines"
     } else { '' }
-    Add-Comment -Number $Number -Body "🤖 Implementation$fileSection`n`n$summaryText"
+
     Write-Log "  Implementation finished for issue #$Number." -Color Green
 
-    # Independent verification — output posted as signal so the reviewer can read exact results
+    # Independent verification — output posted as signal so the reviewer can read exact results.
     Write-Log "  Running test suite independently..." -Color DarkGray
     $testOutput = uv run pytest --tb=short -q 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0) {
+    $pytestExit = $LASTEXITCODE
+    $phaseOneCommands = @([pscustomobject]@{ Name = 'pytest'; Exit = $pytestExit })
+
+    if ($pytestExit -ne 0) {
         $errBlock = Format-ErrorBlock -Raw $testOutput
         Add-Comment -Number $Number -Body "🤖⚠️ Tests Failing`n`n$errBlock"
-        throw "Test suite failed after implementation for issue #$Number"
+    } else {
+        $testSummary = (($testOutput -split '\r?\n') | Where-Object { $_.Trim() } | Select-Object -Last 4) -join "`n"
+        Add-Comment -Number $Number -Body "🤖✅ Tests Passing`n``````text`n$($testSummary.Trim())`n``````"
+        Write-Log "  Tests passing ✅" -Color Green
     }
-    $testSummary = (($testOutput -split '\r?\n') | Where-Object { $_.Trim() } | Select-Object -Last 4) -join "`n"
-    Add-Comment -Number $Number -Body "🤖✅ Tests Passing`n``````text`n$($testSummary.Trim())`n``````"
-    Write-Log "  Tests passing ✅" -Color Green
+
+    $proc = Get-ProcedureRecord -StreamEvents $streamEvents.ToArray()
+
+    return @{
+        FileSection      = $fileSection
+        Implemented      = $implementedText
+        LeftUndone       = $leftUndoneText
+        IssuesDiscovered = $issuesDiscText
+        PhaseOneCommands = $phaseOneCommands
+        AgentsMdRead     = $proc.agentsMdRead
+        ContextMdRead    = $proc.contextMdRead
+        SkillRead        = $proc.skillRead
+        TestedOnce       = $testedOnce
+        TestsPassed      = ($pytestExit -eq 0)
+    }
 }
 
 # ── Phase 2: Commit + PR ──────────────────────────────────────────────────────
@@ -169,8 +200,11 @@ function Invoke-CommitAndPR {
     param([int]$Number, [string]$Title, [string]$Branch)
     Write-Log "  Phase 2 — Commit + PR for issue #$Number" -Color Yellow
 
+    $commands = [System.Collections.Generic.List[object]]::new()
+
     # Auto-format before staging so ruff format --check in CI always passes.
     $fmtOut = uv run ruff format . 2>&1 | Out-String
+    $commands.Add([pscustomobject]@{ Name = 'ruff'; Exit = $LASTEXITCODE })
     Write-Log "  ruff format: $($fmtOut.Trim())" -Color DarkGray
 
     # ── Allowlist classification ──────────────────────────────────────────────────
@@ -247,6 +281,7 @@ function Invoke-CommitAndPR {
         try {
             $message | Out-File $msgFile.FullName -Encoding utf8
             $commitOut = git commit -F $msgFile.FullName 2>&1 | Out-String
+            $commands.Add([pscustomobject]@{ Name = 'git commit'; Exit = $LASTEXITCODE })
             if ($LASTEXITCODE -ne 0) { throw "git commit failed for issue #${Number}:`n$commitOut" }
         } finally {
             Remove-Item $msgFile.FullName -ErrorAction SilentlyContinue
@@ -266,11 +301,10 @@ function Invoke-CommitAndPR {
         if ($aheadCount -eq 0) {
             Write-Log "  ✅ Already implemented — branch has no commits ahead of $defaultBranch. Skipping PR." -Color Green
             Add-Comment -Number $Number -Body "🤖✅ Already Implemented`n`nAll acceptance criteria are satisfied without code changes — branch ``$Branch`` has no commits ahead of ``$defaultBranch``. Tests pass. Closing as merged without raising a PR."
-            return $null
+            return @{ PrUrl = $null; Commands = $commands.ToArray() }
         }
 
         Write-Log "  ✅ No new changes this run — prior commits on branch. Proceeding to PR." -Color Green
-        Add-Comment -Number $Number -Body "🤖 Implementation`n`nNo new changes this run — branch already carries prior commits implementing this issue. Proceeding to PR and review."
     }
 
     # Capture stderr so any push rejection (workflow scope, branch protection,
@@ -291,6 +325,7 @@ function Invoke-CommitAndPR {
     } else {
         $pushOut = git push --quiet origin "HEAD:refs/heads/$Branch" 2>&1 | Out-String
     }
+    $commands.Add([pscustomobject]@{ Name = 'git push'; Exit = $LASTEXITCODE })
     if ($LASTEXITCODE -ne 0) {
         throw "git push failed for branch ${Branch}:`n$($pushOut.Trim())"
     }
@@ -326,7 +361,7 @@ Closes #$Number
     }
 
     Add-Comment -Number $Number -Body "· PR opened — $prUrl"
-    return $prUrl
+    return @{ PrUrl = $prUrl; Commands = $commands.ToArray() }
 }
 
 # ── Orchestrator entry point ──────────────────────────────────────────────────
@@ -393,10 +428,66 @@ function Invoke-Implement {
 
     Write-Log "▶ Implement — issue #$IssueNumber on $branch" -Color Cyan
 
-    $headBefore = git rev-parse HEAD 2>$null
+    $headBefore  = git rev-parse HEAD 2>$null
+    $devResult   = $null
+    $testsFailed = $false
     try {
-        Invoke-Develop       -Number $IssueNumber -Branch $branch
-        $prUrl = Invoke-CommitAndPR -Number $IssueNumber -Title $meta.title -Branch $branch
+        $devResult = Invoke-Develop -Number $IssueNumber -Branch $branch
+
+        if (-not $devResult.TestsPassed) {
+            # Build and post a partial Implementation comment, then throw for retry.
+            # Set $testsFailed so the catch block skips the duplicate "Implement Failed" comment.
+            $allCmds       = @($devResult.PhaseOneCommands)
+            $commandsLine  = ($allCmds | ForEach-Object { "$($_.Name) → $($_.Exit)" }) -join '  '
+            $procedureLine = "AGENTS.md $(if ($devResult.AgentsMdRead)  {'✓'} else {'✗'})  " +
+                             "CONTEXT.md $(if ($devResult.ContextMdRead) {'✓'} else {'✗'})  " +
+                             "skill $(if ($devResult.SkillRead)          {'✓'} else {'✗'})  " +
+                             "pytest $(if ($devResult.TestedOnce)        {'✓'} else {'✗'})"
+            $commentBody = "🤖 Implementation$($devResult.FileSection)" +
+                           "`n`nImplemented: $($devResult.Implemented)" +
+                           "`nLeft undone: $($devResult.LeftUndone)" +
+                           "`nIssues discovered: $($devResult.IssuesDiscovered)" +
+                           "`nCommands: $commandsLine" +
+                           "`nProcedure: $procedureLine"
+            Add-Comment -Number $IssueNumber -Body $commentBody
+
+            $stateForAttempt = Get-IssueState -IssueNumber $IssueNumber
+            $runAttempt      = if ($stateForAttempt -and $stateForAttempt.PSObject.Properties['attempt_count']) { [int]$stateForAttempt.attempt_count + 1 } else { 1 }
+            $maxR            = (Get-OrchestratorContext).MaxRetries
+            Add-ImplementAttempt -IssueNumber $IssueNumber -Stage 'implement' -Reason 'Tests failed' `
+                -Attempt $runAttempt -Max $maxR `
+                -Implemented $devResult.Implemented -LeftUndone $devResult.LeftUndone `
+                -IssuesDiscovered $devResult.IssuesDiscovered -Commands $commandsLine -Procedure $procedureLine
+
+            $testsFailed = $true
+            throw "ATTEMPT-RECORDED|Test suite failed after implementation for issue #$IssueNumber"
+        }
+
+        $commitResult = Invoke-CommitAndPR -Number $IssueNumber -Title $meta.title -Branch $branch
+        $prUrl        = $commitResult.PrUrl
+
+        # Build and post the unified 🤖 Implementation comment with five dense lines.
+        $allCmds       = @($devResult.PhaseOneCommands) + @($commitResult.Commands)
+        $commandsLine  = ($allCmds | ForEach-Object { "$($_.Name) → $($_.Exit)" }) -join '  '
+        $procedureLine = "AGENTS.md $(if ($devResult.AgentsMdRead)  {'✓'} else {'✗'})  " +
+                         "CONTEXT.md $(if ($devResult.ContextMdRead) {'✓'} else {'✗'})  " +
+                         "skill $(if ($devResult.SkillRead)          {'✓'} else {'✗'})  " +
+                         "pytest $(if ($devResult.TestedOnce)        {'✓'} else {'✗'})"
+        $commentBody = "🤖 Implementation$($devResult.FileSection)" +
+                       "`n`nImplemented: $($devResult.Implemented)" +
+                       "`nLeft undone: $($devResult.LeftUndone)" +
+                       "`nIssues discovered: $($devResult.IssuesDiscovered)" +
+                       "`nCommands: $commandsLine" +
+                       "`nProcedure: $procedureLine"
+        Add-Comment -Number $IssueNumber -Body $commentBody
+
+        $stateForAttempt = Get-IssueState -IssueNumber $IssueNumber
+        $runAttempt      = if ($stateForAttempt -and $stateForAttempt.PSObject.Properties['attempt_count']) { [int]$stateForAttempt.attempt_count + 1 } else { 1 }
+        $maxR            = (Get-OrchestratorContext).MaxRetries
+        Add-ImplementAttempt -IssueNumber $IssueNumber -Stage 'implement' -Reason '' `
+            -Attempt $runAttempt -Max $maxR `
+            -Implemented $devResult.Implemented -LeftUndone $devResult.LeftUndone `
+            -IssuesDiscovered $devResult.IssuesDiscovered -Commands $commandsLine -Procedure $procedureLine
 
         if ($null -eq $prUrl) {
             # Invoke-CommitAndPR returned the no-diff sentinel — branch has no commits
@@ -421,8 +512,10 @@ function Invoke-Implement {
         Write-Log "✅ Implement complete — PR at $prUrl" -Color Green
         return $prUrl
     } catch {
-        $errBlock = Format-ErrorBlock -Raw "$_"
-        Add-Comment -Number $IssueNumber -Body "🤖❌ Implement Failed`n`n$errBlock"
+        if (-not $testsFailed) {
+            $errBlock = Format-ErrorBlock -Raw "$_"
+            Add-Comment -Number $IssueNumber -Body "🤖❌ Implement Failed`n`n$errBlock"
+        }
         throw
     }
 }
