@@ -460,7 +460,7 @@ function Invoke-Implement {
                 -IssuesDiscovered $devResult.IssuesDiscovered -Commands $commandsLine -Procedure $procedureLine
 
             $testsFailed = $true
-            throw "Test suite failed after implementation for issue #$IssueNumber"
+            throw "ATTEMPT-RECORDED|Test suite failed after implementation for issue #$IssueNumber"
         }
 
         $commitResult = Invoke-CommitAndPR -Number $IssueNumber -Title $meta.title -Branch $branch

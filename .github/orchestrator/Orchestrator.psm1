@@ -360,7 +360,14 @@ function Invoke-Orchestration {
                     return
                 }
                 $attempt++
-                Add-FailedAttempt -IssueNumber $IssueNumber -Stage $currentStage -Reason $reason -Attempt $attempt -Max $MaxRetries
+                # Skip Add-FailedAttempt when Invoke-Implement already recorded the
+                # entry (sentinel prefix) — the five-field record was written there;
+                # a second call would append a duplicate for the same run number.
+                if ($reason -match '^ATTEMPT-RECORDED\|') {
+                    $reason = $reason -replace '^ATTEMPT-RECORDED\|', ''
+                } else {
+                    Add-FailedAttempt -IssueNumber $IssueNumber -Stage $currentStage -Reason $reason -Attempt $attempt -Max $MaxRetries
+                }
                 if ($attempt -ge $MaxRetries) {
                     Set-AgentFailedState -IssueNumber $IssueNumber -FailedAt $currentStage -Reason $reason
                     $errBlock = Format-ErrorBlock -Raw $reason
