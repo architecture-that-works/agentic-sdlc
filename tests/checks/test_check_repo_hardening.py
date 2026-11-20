@@ -151,3 +151,21 @@ def test_fails_self_hosted_runner(tmp_path: Path) -> None:
     result = _run(tmp_path, stub_dir)
     assert result.returncode == 1
     assert "Step 3" in result.stdout
+
+
+def test_fails_runner_registered(tmp_path: Path) -> None:
+    """Script exits 1 and names Step 3 when a self-hosted runner is registered."""
+    _init_git_repo(tmp_path)
+    (tmp_path / ".template").mkdir()
+    stub_dir = tmp_path / "_stub"
+    stub_dir.mkdir()
+    _write_stub_gh(
+        stub_dir,
+        private=False,
+        approval_policy="all_external_contributors",
+        runner_profile="hosted",
+        runner_count=1,
+    )
+    result = _run(tmp_path, stub_dir)
+    assert result.returncode == 1
+    assert "Step 3" in result.stdout
