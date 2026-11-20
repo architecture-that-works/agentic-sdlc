@@ -112,7 +112,7 @@ jobs:
           PATHS_SHARED: '^tests/evals/(conftest\.py|claude_judge\.py|eval_goldens\.py|eval_results\.py)$'
           PATHS_COMMIT: '^(src/tools/commit\.py|tests/evals/test_commit_eval\.py|tests/evals/goldens/commit\.jsonl)$'
           PATHS_REFINE: '^(\.agents/skills/refine/|\.github/orchestrator/(stages/|lib/Grill\.ps1)|tests/evals/test_refine_eval\.py|tests/evals/goldens/refine\.jsonl)'
-          PATHS_REVIEW: '^(\.agents/skills/review/|tests/evals/test_review_eval\.py|tests/evals/goldens/review\.jsonl)'
+          PATHS_REVIEW: '^(\.agents/skills/review/(SKILL|EXAMPLES)\.md|\.agents/skills/review/scripts/|tests/evals/test_review_eval\.py|tests/evals/goldens/review\.jsonl)'
           PATHS_IMPLEMENT: '^(\.agents/skills/implement/|tests/evals/test_implement_eval\.py|tests/evals/goldens/implement\.jsonl)'
         run: |
           changed=$(git diff --name-only "origin/$BASE_REF...HEAD")
