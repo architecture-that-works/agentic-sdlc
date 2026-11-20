@@ -82,6 +82,9 @@ jobs:
       - name: Verify Claude Code settings
         shell: pwsh
         run: .github/checks/verify-settings.ps1
+      - name: Check Token Scope
+        shell: pwsh
+        run: .github/checks/check-token-scope.ps1
 
   # ── Evals (tests/README.md § Evals) ──────────────────────────────────────────
   # Evals call Claude, so they run only on a PR that changes a model-facing path.
@@ -141,44 +144,48 @@ jobs:
     permissions:
       contents: read
     env:
-      # The judge and the agents under test use the Claude CLI with the same
-      # subscription token as the pipeline (afk.yml). Results go over OTLP instead
-      # of the JSONL artifact when the endpoint variable is set.
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      # Non-secret: the OTLP endpoint URL is not sensitive.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
-      OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+      # Pin the CLI version so the cache key is stable and the install is reproducible.
+      CLAUDE_CODE_VERSION: 2.1.330
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
       - run: uv sync
-      # Cache the Claude CLI npm global install. The CLI ships weekly-ish
-      # patches, so the key rolls over each ISO week so cached installs never
-      # outlive their upstream.
-      - id: cli-cache-key
-        shell: bash
-        run: echo "week=$(date -u +%Y-W%V)" >> "$GITHUB_OUTPUT"
       - id: cli-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             /usr/local/lib/node_modules/@anthropic-ai/claude-code
             /usr/local/bin/claude
-          key: claude-code-${{ runner.os }}-${{ steps.cli-cache-key.outputs.week }}
+          key: claude-code-${{ runner.os }}-${{ env.CLAUDE_CODE_VERSION }}
       - if: steps.cli-cache.outputs.cache-hit != 'true'
-        run: sudo npm install -g @anthropic-ai/claude-code
+        run: sudo npm install -g @anthropic-ai/claude-code@${{ env.CLAUDE_CODE_VERSION }}
       - name: Run commit eval
         if: needs.eval-scope.outputs.run_commit == 'true'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         run: uv run pytest tests/evals/test_commit_eval.py -m eval --junitxml=logs/evals/junit-commit.xml
       - name: Run refine eval
         if: needs.eval-scope.outputs.run_refine == 'true'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         run: uv run pytest tests/evals/test_refine_eval.py -m eval --junitxml=logs/evals/junit-refine.xml
       - name: Run review eval
         if: needs.eval-scope.outputs.run_review == 'true'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         run: uv run pytest tests/evals/test_review_eval.py -m eval --junitxml=logs/evals/junit-review.xml
       - name: Run implement eval
         if: needs.eval-scope.outputs.run_implement == 'true'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         run: uv run pytest tests/evals/test_implement_eval.py -m eval --junitxml=logs/evals/junit-implement.xml
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

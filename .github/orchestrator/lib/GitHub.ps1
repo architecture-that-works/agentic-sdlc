@@ -800,6 +800,10 @@ function Add-Comment {
     # would make the pipeline react to its own output.
     $lead = $Body.TrimStart()
     if (-not ($lead.StartsWith('🤖') -or $lead.StartsWith('·'))) { $Body = "· $Body" }
+    foreach ($name in @('GH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'OTEL_EXPORTER_OTLP_HEADERS')) {
+        $val = [System.Environment]::GetEnvironmentVariable($name)
+        if ($val) { $Body = $Body.Replace($val, '***') }
+    }
     $tmp = New-TemporaryFile
     try {
         $Body | Out-File $tmp.FullName -Encoding utf8
