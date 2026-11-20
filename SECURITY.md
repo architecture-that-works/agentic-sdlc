@@ -93,6 +93,18 @@ made every pipeline-improvement issue hands-on while adding no merge-time protec
 
 ---
 
+## Public repository
+
+The repository is published as public so GitHub Actions compute is free. Four safeguards must be
+in place and are verified by `check-repo-hardening.ps1` on every CI run:
+
+- **Public visibility (Step 1):** the repository is public — Actions minutes are free on public repos and fork-PR isolation is effective only when the visibility setting is public.
+- **Fork-PR approval gate (Step 2):** Actions → General → "Approval for running fork pull request workflows from contributors" is set to "Require approval for all external contributors" — prevents untrusted code from running in the pipeline without review.
+- **Hosted-only runner profile (Step 3):** `KANBAN_RUNNER_PROFILE` is not `self-hosted` — a self-hosted runner on a public repo lets fork pull requests execute code on the owner's machine.
+- **No registered self-hosted runner (Step 3):** no runner is registered under Settings → Actions → Runners — reinforces the hosted-only constraint even if the variable is misconfigured.
+
+---
+
 ## Human Oversight
 
 Every agent action can be halted, overridden or rolled back by a human, and every one of these

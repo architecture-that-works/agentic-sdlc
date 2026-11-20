@@ -122,7 +122,7 @@ Actions → **AFK** → **Run workflow** runs one stage — `refine` (issue `0` 
 `hosted` (default, `ubuntu-latest`) or `self-hosted` (a runner you register with the label
 `gha-project`, with `uv`, `claude`, `git`, `gh` and `pwsh` installed). Switch with
 `gh variable set KANBAN_RUNNER_PROFILE --body self-hosted`. `task afk` dispatches work — it does not
-start a self-hosted runner.
+start a self-hosted runner. While the repository is public, do not switch to self-hosted — a self-hosted runner on a public repo allows fork pull request workflows to execute code on your machine.
 
 ---
 

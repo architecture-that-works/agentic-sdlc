@@ -325,3 +325,4 @@ Write-Host "✅ Setup complete. Run 'task hitl' to pick up backlog issues." -For
 Write-Host ""
 Write-Host "ℹ️  Runner profile: KANBAN_RUNNER_PROFILE set to 'hosted' (GHA ubuntu-latest)." -ForegroundColor Cyan
 Write-Host "   To switch to a self-hosted runner: gh variable set KANBAN_RUNNER_PROFILE --body 'self-hosted'" -ForegroundColor DarkGray
+Write-Host "   Note: self-hosted is excluded while the repository is public — a self-hosted runner on a public repo lets fork PRs run code on your machine." -ForegroundColor DarkGray
