@@ -82,13 +82,13 @@ def test_partly_writable_plan_names_only_the_blocked_paths() -> None:
     result = _unwritable(
         [
             "src/main.py",
-            ".github/workflows/stale-prs.yml",
-            ".github/tasks/stale-prs.ps1",
+            ".github/workflows/checks.yml",
+            ".github/tasks/reconcile.ps1",
         ]
     )
     assert result == [
-        ".github/workflows/stale-prs.yml",
-        ".github/tasks/stale-prs.ps1",
+        ".github/workflows/checks.yml",
+        ".github/tasks/reconcile.ps1",
     ]
 
 
