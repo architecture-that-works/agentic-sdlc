@@ -88,9 +88,9 @@ Default new issues to **P3** (new work) or **P4** (improvement). Escalation to P
 <!-- ISSUES -->
 
 **Held chain — sync one block at a time, in this order, each only when its condition holds** (the
-implement queue ignores "Depends on"; a plain `task sync` would release all three at once):
+implement queue ignores "Depends on"; a plain `task sync` would release every block below at once):
 
-1. Orchestrator naming — after #298, #304, #306, #309 and #311 merge.
+1. Orchestrator naming — ready: #298, #304, #306, #309 and #311 all merged by 2026-11-20.
 2. TADR rewrite — after #298 and block 1 merge.
 3. TADR set completion — after block 2 merges; then tag `v0.2.0`.
 
@@ -153,5 +153,22 @@ PRIORITY: P3
 - From the coverage table alone, any folder in a generated project leads to the TADR that explains it.
 - `uv run pytest`, `ruff check`, `ruff format --check` and all checks pass.
 - Owner follow-up after merge (not the agent's): tag `v0.2.0`; generate a project at that tag, change a template-owned file here, and confirm `copier update` brings only that change.
+END_ISSUE
+```
+
+Independent of the chain — sync any time:
+
+```
+ISSUE: Remove the agent:locked label that nothing reads
+ESTIMATE: 2
+PRIORITY: P4
+**Goal**: Every label the pipeline writes is a row in its one state table, so nothing on an issue claims something the pipeline does not act on.
+**Description**: `.github/tasks/hitl.ps1` adds `agent:locked` before a local run (line 103) and removes it afterwards (line 111) "so GHA cannot claim the issue". Nothing reads it — no workflow, stage or check tests for it — and it is not a row in `$PipelineStates` (`.github/orchestrator/lib/Config.ps1`), the one label table. The label does not even exist on the repository, so `gh issue edit --add-label` fails and `| Out-Null` swallows the error: it has never been applied (observed on #309, 2026-11-20). During a local run the issue already holds the agent-held state `Set-AgentState` gives it; if refine finds a case where the cloud pipeline would still claim it, that guard belongs in `$PipelineStates`, not in a side label. The script header (lines 8–12) also says "agent:backlog is never set", which is no longer true.
+**Requirements**:
+1. Remove the `agent:locked` add and remove from `hitl.ps1`, and the `try`/`finally` that exists only for them.
+2. Rewrite the `hitl.ps1` header to describe what the script does today.
+**Acceptance Criteria**:
+- `git grep -n "agent:locked"` returns nothing.
+- `uv run pytest`, `ruff check`, `ruff format --check` and all checks pass.
 END_ISSUE
 ```
