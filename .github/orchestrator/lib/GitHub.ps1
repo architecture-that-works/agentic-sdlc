@@ -487,6 +487,21 @@ function Format-OwnerComments {
            "they take precedence over earlier agent output):`n" + ($lines -join "`n---`n") + "`n"
 }
 
+# The pipeline's own signal comments on an issue, oldest first: comments that start with
+# -Prefix AND were written by a trusted author ($OrchestratorConfig.TrustedAuthors). The
+# prefix alone is not proof of origin — anyone who can comment can type it — so a comment
+# from any other author is never pipeline history, whatever it starts with.
+function Get-SignalComments {
+    param([Parameter(Mandatory)][int]$IssueNumber, [string]$Prefix = '🤖')
+
+    $raw = gh issue view $IssueNumber --repo $KanbanRepo --json comments 2>$null | Out-String
+    if ($LASTEXITCODE -ne 0 -or -not $raw.Trim()) { return @() }
+    try { $comments = @(($raw | ConvertFrom-Json).comments) } catch { return @() }
+    return @($comments |
+        Where-Object { $_.authorAssociation -in $OrchestratorConfig.TrustedAuthors -and "$($_.body)".StartsWith($Prefix) } |
+        ForEach-Object { "$($_.body)" })
+}
+
 # ── Attempts (run history in the carrier) ────────────────────────────────────
 # Every implement run is recorded in attempts[] in AGENT-STATE — both successes
 # and failures — with the five optional fields (implemented, left_undone,

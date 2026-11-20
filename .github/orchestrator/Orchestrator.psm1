@@ -301,9 +301,8 @@ function Invoke-Orchestration {
                     if ($state -and $state.PSObject.Properties['approval_required'] -and $state.approval_required) {
                         # Owner asked a question — the agent answered it without new commits.
                         # Post the answer (last 🤖 signal comment) and return to human:approval.
-                        $latestImpl = gh issue view $IssueNumber --repo $ctx.Repo --json comments `
-                            --jq '[.comments[] | select(.body | startswith("🤖 Implementation"))] | last | .body' 2>&1 | Out-String
-                        $answerBody = if ($LASTEXITCODE -eq 0 -and $latestImpl.Trim() -and $latestImpl.Trim() -ne 'null') {
+                        $latestImpl = "$(Get-SignalComments -IssueNumber $IssueNumber -Prefix '🤖 Implementation' | Select-Object -Last 1)"
+                        $answerBody = if ($latestImpl.Trim()) {
                             $latestImpl.Trim()
                         } else {
                             '(The agent analysed the request but produced no code changes.)'

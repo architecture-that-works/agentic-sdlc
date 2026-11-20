@@ -62,9 +62,8 @@ function Invoke-Review {
     }
 
     # Retrieve signal history — includes 🤖✅ Tests Passing output and any prior rejections.
-    $signal = gh issue view $IssueNumber --repo $KanbanRepo --json comments `
-        --jq '[.comments[] | select(.body | startswith("🤖"))] | map(.body) | join("\n---\n")' 2>&1 | Out-String
-    $signalSection = if ($LASTEXITCODE -eq 0 -and $signal.Trim() -and $signal.Trim() -ne 'null') {
+    $signal = (Get-SignalComments -IssueNumber $IssueNumber) -join "`n---`n"
+    $signalSection = if ($signal.Trim()) {
         "`nSIGNAL HISTORY (test results, prior implementation notes, previous rejections — use this to verify correctness):`n$($signal.Trim())"
     } else { '' }
 
