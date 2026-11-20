@@ -51,8 +51,6 @@ foreach ($file in $orchestratorFiles) {
 # Documents an agent must be able to trust for orchestrator function names.
 $docsToCheck = @(
     Get-Item -Path (Join-Path $RepoRoot 'AGENTS.md')
-    # Template-mechanism ADR index: only in the template source repo, never shipped.
-    Get-Item -Path (Join-Path $RepoRoot '.template/adr/README.md') -ErrorAction SilentlyContinue
     # tests/README.md if present (absent in some generated projects)
     Get-Item -Path (Join-Path $RepoRoot 'tests/README.md') -ErrorAction SilentlyContinue
     # EXAMPLES.md excluded: worked examples describe fictional features.

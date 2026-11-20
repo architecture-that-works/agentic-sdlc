@@ -126,13 +126,13 @@ def test_adr_staging_deletion_not_blocked() -> None:
     )
 
 
-def test_template_adr_secrets_not_blocked() -> None:
+def test_md_with_sensitive_name_not_blocked() -> None:
     result = _ps(
         _DENYLIST_SNIPPET
-        + "if (Test-SensitivePath '.template/adr/TADR-005-secrets-and-trust-boundaries.md') { exit 1 } else { exit 0 }"
+        + "if (Test-SensitivePath 'docs/adr/ADR-005-secrets-and-trust-boundaries.md') { exit 1 } else { exit 0 }"
     )
     assert result.returncode == 0, (
-        ".template/adr/TADR-005-secrets-and-trust-boundaries.md must NOT be blocked by the denylist"
+        "docs/adr/ADR-005-secrets-and-trust-boundaries.md must NOT be blocked by the denylist"
     )
 
 

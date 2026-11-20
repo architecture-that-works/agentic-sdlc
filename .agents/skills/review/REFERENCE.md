@@ -89,8 +89,7 @@ gain` — never a silent drop.
 
 ## Fix loop
 
-The loop is the pipeline's implement ↔ review bounce; there is no separate fixer agent (the
-Planner/Generator/Evaluator split is in `.out-of-scope.md`).
+The loop is the pipeline's implement ↔ review bounce; there is no separate fixer agent.
 
 1. `REJECTED` posts the review to the issue as a signal comment and sets `agent:implementing`.
 2. `implement` reads the signal history, fixes the root cause once (`implement` § Before you

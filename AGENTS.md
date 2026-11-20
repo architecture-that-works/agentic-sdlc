@@ -53,8 +53,7 @@ Mandatory before opening any source file (`.py`, `.ps1`, `.yml`):
 Template-owned paths are not edited in a generated project — `.agents/skills/`,
 `.github/orchestrator/`, `.github/tasks/`, `.github/checks/`, the pipeline workflows,
 `AGENTS.md`, `Taskfile.yml`, `.devcontainer/`. File the improvement as an issue on the
-template repo and take it with `copier update`. In the template source repo itself (a dot
-template folder exists at the root) read that folder's README first.
+template repo and take it with `copier update`.
 
 ## Skills
 
