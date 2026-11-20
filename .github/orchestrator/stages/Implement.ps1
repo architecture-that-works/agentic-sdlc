@@ -40,9 +40,8 @@ function Invoke-Develop {
 
     # Retrieve all agent signal comments (🤖-prefixed) — full decision history for this issue.
     # Includes review rejections, CI failures, prior implementation summaries, and errors.
-    $signal = gh issue view $Number --repo $KanbanRepo --json comments `
-        --jq '[.comments[] | select(.body | startswith("🤖"))] | map(.body) | join("\n---\n")' 2>&1 | Out-String
-    $signalSection = if ($LASTEXITCODE -eq 0 -and $signal.Trim() -and $signal.Trim() -ne 'null') {
+    $signal = (Get-SignalComments -IssueNumber $Number) -join "`n---`n"
+    $signalSection = if ($signal.Trim()) {
         "`nISSUE SIGNAL HISTORY (agent decisions and outcomes — address all rejections and failures before finishing):`n$($signal.Trim())"
     } else { '' }
 
