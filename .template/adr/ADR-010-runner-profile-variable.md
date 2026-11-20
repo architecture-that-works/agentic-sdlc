@@ -57,6 +57,10 @@ On `ubuntu-latest`, `pwsh`, `git`, and `gh` are pre-installed. The workflow adds
 
 Requirements for this ADR include auditing `anthropics/claude-code-base-action` output format (text-only vs. tool-call stream) when invoked from a GHA-hosted runner. The kanban scripts currently invoke the Claude CLI directly via `Invoke-ClaudeStreaming` and parse `--output-format stream-json`. If a follow-up issue determines that the base action is preferable on hosted runners, a translation layer will be needed to map action outputs into the existing `🤖`-prefixed signal-comment cadence. That work is scoped as a follow-up and does not block this ADR.
 
+### Caveat — public repository
+
+`self-hosted` is excluded while the repository is public: a self-hosted runner on a public repository allows fork pull request workflows to execute code on the owner's machine; `check-repo-hardening.ps1` enforces this and fails CI if `KANBAN_RUNNER_PROFILE` is set to `self-hosted` on the public template repo.
+
 ### Confirmation
 
 * `KANBAN_RUNNER_PROFILE` is set to `hosted` after a fresh `task setup` run — verify with `gh variable list`.

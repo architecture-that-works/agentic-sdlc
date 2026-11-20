@@ -187,6 +187,21 @@ jobs:
           path: logs/evals/
           if-no-files-found: ignore
 
+  hardening:
+    runs-on: ubuntu-latest
+    # Skip on private repos (no runner needed; check would always fail until published)
+    # and on fork PRs (the fork's repo context differs; GH_TOKEN is not available).
+    if: >-
+      github.event.repository.private != true &&
+      github.event.pull_request.head.repo.fork != true
+    env:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check repo hardening
+        shell: pwsh
+        run: .github/checks/check-repo-hardening.ps1
+
   secret-scan:
     runs-on: ubuntu-latest
     permissions:
