@@ -80,6 +80,43 @@ function Get-IssueTemplate {
     return $null
 }
 
+# ── Procedure-derivation from agent stream events ────────────────────────────
+# Pure function: inspects tool_use blocks in the parsed stream and returns four
+# booleans that describe what the agent did (read which files, ran pytest).
+# Used by Invoke-Develop to build the Procedure: line in the Implementation comment.
+function Get-ProcedureRecord {
+    param([array]$StreamEvents)
+    $agentsMdRead  = $false
+    $contextMdRead = $false
+    $skillRead     = $false
+    $pytestRun     = $false
+
+    foreach ($ev in @($StreamEvents | Where-Object { $_ })) {
+        $blocks = if ($ev.message.content) { $ev.message.content }
+                  elseif ($ev.content)      { $ev.content }
+                  else                      { @() }
+        foreach ($block in @($blocks | Where-Object { $_ })) {
+            if ($block.type -ne 'tool_use') { continue }
+            if ($block.name -eq 'Read') {
+                $fp = "$($block.input.file_path)"
+                if ($fp -match '(^|[/\\])AGENTS\.md$')                      { $agentsMdRead  = $true }
+                if ($fp -match '(^|[/\\])CONTEXT\.md$')                     { $contextMdRead = $true }
+                if ($fp -match '(^|[/\\])\.agents[/\\]skills[/\\]')          { $skillRead     = $true }
+            }
+            if ($block.name -eq 'Bash' -and "$($block.input.command)" -match 'pytest') {
+                $pytestRun = $true
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        agentsMdRead  = $agentsMdRead
+        contextMdRead = $contextMdRead
+        skillRead     = $skillRead
+        pytestRun     = $pytestRun
+    }
+}
+
 # ── LLM-optimized error formatter (issue #119) ────────────────────────────────
 # Wraps raw error output (pytest failures, ruff output, tracebacks) into a
 # structured Markdown block so the verification loop can self-correct, via

@@ -487,11 +487,47 @@ function Format-OwnerComments {
            "they take precedence over earlier agent output):`n" + ($lines -join "`n---`n") + "`n"
 }
 
-# ── Attempts (failure history in the carrier) ────────────────────────────────
-# A stage failure does not fail the issue at once: the conductor retries up to
-# MaxRetries attempts per round. Each failed attempt is appended to attempts[] in
-# AGENT-STATE (full history, kept across rounds) and attempt_count (this round),
-# and rendered as the "## Attempts" body section, which the next attempt reads.
+# ── Attempts (run history in the carrier) ────────────────────────────────────
+# Every implement run is recorded in attempts[] in AGENT-STATE — both successes
+# and failures — with the five optional fields (implemented, left_undone,
+# issues_discovered, commands, procedure) populated on successful runs.
+# The "## Attempts" body section is re-rendered after each write.
+function Add-ImplementAttempt {
+    param(
+        [Parameter(Mandatory)][int]$IssueNumber,
+        [Parameter(Mandatory)][string]$Stage,
+        [string]$Reason           = '',
+        [Parameter(Mandatory)][int]$Attempt,
+        [Parameter(Mandatory)][int]$Max,
+        [string]$Implemented      = '',
+        [string]$LeftUndone       = '',
+        [string]$IssuesDiscovered = '',
+        [string]$Commands         = '',
+        [string]$Procedure        = ''
+    )
+    $state = Get-IssueState -IssueNumber $IssueNumber
+    if ($null -eq $state) { return }
+    $short = ("$Reason" -replace '\s+', ' ').Trim()
+    if ($short.Length -gt 400) { $short = $short.Substring(0, 397) + '...' }
+    $entry = [pscustomobject]@{
+        attempt   = $Attempt
+        of        = $Max
+        stage     = $Stage
+        reason    = $short
+        timestamp = (Get-Date).ToUniversalTime().ToString('o')
+    }
+    if ($Implemented)      { $entry | Add-Member -NotePropertyName implemented        -NotePropertyValue $Implemented      -Force }
+    if ($LeftUndone)       { $entry | Add-Member -NotePropertyName left_undone         -NotePropertyValue $LeftUndone       -Force }
+    if ($IssuesDiscovered) { $entry | Add-Member -NotePropertyName issues_discovered   -NotePropertyValue $IssuesDiscovered -Force }
+    if ($Commands)         { $entry | Add-Member -NotePropertyName commands            -NotePropertyValue $Commands         -Force }
+    if ($Procedure)        { $entry | Add-Member -NotePropertyName procedure           -NotePropertyValue $Procedure        -Force }
+    $history = @($state.attempts | Where-Object { $_ }) + $entry
+    $state | Add-Member -NotePropertyName attempts      -NotePropertyValue @($history) -Force
+    $state | Add-Member -NotePropertyName attempt_count -NotePropertyValue $Attempt    -Force
+    Set-PlanningState -IssueNumber $IssueNumber -State $state
+    Set-AttemptsSection -IssueNumber $IssueNumber -State $state -Max $Max
+}
+
 function Add-FailedAttempt {
     param(
         [Parameter(Mandatory)][int]$IssueNumber,
@@ -500,21 +536,7 @@ function Add-FailedAttempt {
         [Parameter(Mandatory)][int]$Attempt,
         [Parameter(Mandatory)][int]$Max
     )
-    $state = Get-IssueState -IssueNumber $IssueNumber
-    if ($null -eq $state) { return }
-    $short = ("$Reason" -replace '\s+', ' ').Trim()
-    if ($short.Length -gt 400) { $short = $short.Substring(0, 397) + '...' }
-    $history = @($state.attempts | Where-Object { $_ }) + [pscustomobject]@{
-        attempt   = $Attempt
-        of        = $Max
-        stage     = $Stage
-        reason    = $short
-        timestamp = (Get-Date).ToUniversalTime().ToString('o')
-    }
-    $state | Add-Member -NotePropertyName attempts      -NotePropertyValue @($history) -Force
-    $state | Add-Member -NotePropertyName attempt_count -NotePropertyValue $Attempt    -Force
-    Set-PlanningState -IssueNumber $IssueNumber -State $state
-    Set-AttemptsSection -IssueNumber $IssueNumber -State $state -Max $Max
+    Add-ImplementAttempt -IssueNumber $IssueNumber -Stage $Stage -Reason $Reason -Attempt $Attempt -Max $Max
 }
 
 # Starts a new round: after success, or when the owner asks for a retry.
