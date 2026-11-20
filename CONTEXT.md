@@ -104,6 +104,7 @@ Invariants that must not be violated in any implementation.
 - **KISS** — no premature abstractions or heavy frameworks where a simple standard-library implementation suffices (e.g. `src/main.py` uses `http.server`, not a web framework).
 - **Dependency Inversion** — external I/O (HTTP, filesystem, subprocess) sits behind an interface declared in `src/`. `src/tools/` is exempt: thin CLI utilities may call I/O directly.
 - **DRY (Rule of Three)** — extract to `src/utils/` only once code is duplicated three times. `architect` flags duplication that meets the threshold.
+- **The state machine is rigid** — `$PipelineStates` lists only transitions on the designed path. An issue that reaches a state the table refuses left the path somewhere: close that entry point, never widen `AllowedFrom` to accept it.
 
 ## Out of Scope
 
