@@ -17,9 +17,6 @@
 
 $ErrorActionPreference = 'Stop'
 
-$workflowPath = Join-Path $PSScriptRoot '..\..\..\.github\workflows\afk.yml' |
-    Resolve-Path -Relative -ErrorAction SilentlyContinue
-
 # Resolve relative to repo root regardless of CWD
 $repo = git rev-parse --show-toplevel 2>$null
 if (-not $repo) { $repo = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent | Split-Path -Parent }
@@ -97,7 +94,17 @@ for ($j = 0; $j -lt $jobBoundaries.Count; $j++) {
         $isInstaller      = $stepBlock -match '\buv\b' -or $stepBlock -match 'npm install'
 
         if ($isCheckout -and -not $hasNoCreds) { $credentialedCheckoutIndices.Add($s) }
-        if ($isInstaller)                       { $installerIndices.Add($s) }
+        if ($isInstaller) {
+            $installerIndices.Add($s)
+            # Check 2b: no known secret in an installer step's env block.
+            foreach ($secret in @('GH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'OTEL_EXPORTER_OTLP_HEADERS')) {
+                if ($stepBlock -match "\b${secret}\s*:") {
+                    $failures.Add(
+                        "job '$jobName': installer step (index $s) has secret '$secret' in its env"
+                    )
+                }
+            }
+        }
     }
 
     foreach ($instIdx in $installerIndices) {

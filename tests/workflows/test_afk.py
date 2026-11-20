@@ -215,6 +215,12 @@ def test_installer_steps_precede_credentialed_checkouts():
         credentialed_checkout_indices: list[int] = []
         installer_indices: list[int] = []
 
+        _secret_names = (
+            "GH_TOKEN",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "OTEL_EXPORTER_OTLP_HEADERS",
+        )
+
         for idx, step in enumerate(steps):
             is_checkout = "actions/checkout" in step
             has_no_creds = "persist-credentials: false" in step
@@ -224,6 +230,12 @@ def test_installer_steps_precede_credentialed_checkouts():
                 credentialed_checkout_indices.append(idx)
             if is_installer:
                 installer_indices.append(idx)
+                # Installer steps must not carry any known secret in their env block.
+                for secret in _secret_names:
+                    assert secret not in step, (
+                        f"job '{job_name}': installer step (index {idx}) "
+                        f"has secret '{secret}' in its env"
+                    )
 
         for inst_idx in installer_indices:
             for co_idx in credentialed_checkout_indices:
