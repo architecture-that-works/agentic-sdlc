@@ -92,6 +92,18 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
         "Generated project missing .env.example"
     )
 
+    for rel in (
+        ".github/ISSUE_TEMPLATE/issue.md",
+        ".github/ISSUE_TEMPLATE/config.yml",
+        "CONTRIBUTING.md",
+    ):
+        shipped = tmp_path / rel
+        assert shipped.exists(), f"Generated project missing {rel}"
+        text = shipped.read_text()
+        assert "{{" not in text and "{%" not in text, (
+            f"{rel} must not contain Jinja2 syntax"
+        )
+
     agents_md_content = (tmp_path / "AGENTS.md").read_text()
     assert "{{" not in agents_md_content, "AGENTS.md must not contain Jinja2 syntax"
 
