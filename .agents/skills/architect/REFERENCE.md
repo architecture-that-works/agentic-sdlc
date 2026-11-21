@@ -198,22 +198,22 @@ Circular dependency
 ## Repo Audit — Finding to ISSUES.md Block
 
 Each audit finding but the small suggestions (SKILL.md § Repo Audit) becomes one block in
-ISSUES.md, in the shape its header defines. The three parts of the finding map onto the block:
+ISSUES.md, in the shape its header defines:
 
 ```
 ISSUE: <finding title, action-oriented — "Close the check-then-write race in …">
 ESTIMATE: <ISSUES.md scale — 2 for a one-line fix with its test, 3 for a function, 5 across modules>
 PRIORITY: <P2 for a bug or risk with a reproduction; P4 for lean; P3 otherwise>
-**Goal**: <the outcome once fixed>
-**Description**: <defect + case, with path:Lx-y>
-**Requirements**:
-1. <"Fix" — the smallest change; prefer deletion>
-2. <the one test that fails when it breaks — for bug, risk, scale and missing-test findings>
-**Acceptance Criteria**:
-- <the concrete case now produces the right result>
-- `uv run pytest` passes
+<body — the issue template's headings>
 END_ISSUE
 ```
+
+The body is the issue template, `.github/ISSUE_TEMPLATE/issue.md`, with every heading filled. The three parts of the
+finding map onto it: the outcome once fixed is the goal; the defect and its case, with
+`path:Lx-y`, the description; the fix (the smallest change, preferring deletion) and the one
+test that fails when it breaks (for bug, risk, scale and missing-test findings) the
+requirements; the concrete case now producing the right result, and `uv run pytest` passing,
+the acceptance criteria.
 
 No label: `refine` sets `agent:backlog`, or `human:decision` when the fix needs the owner.
 Small suggestions are not issues; they stay in the audit report.

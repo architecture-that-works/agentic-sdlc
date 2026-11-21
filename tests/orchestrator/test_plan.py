@@ -282,79 +282,83 @@ def test_get_plan_label_batch() -> None:
 
 
 # ── Format-ChildIssue ────────────────────────────────────────────────────────
-# Validates the block format matches what sync-issues.ps1 expects when parsing
+# Validates the block format matches what sync.ps1 expects when parsing
 # ISSUE: ... END_ISSUE blocks (LABELS: / ESTIMATE: / PRIORITY: header lines
-# followed by **Goal**/**Description**/**Requirements**/**Acceptance Criteria**).
+# followed by one section per issue-template heading). The template is stubbed
+# under tmp_path so no heading is spelled here from memory (#369).
+
+_CHILD_TEMPLATE = (
+    "---\nname: Stub\nabout: Stub\n---\n"
+    "**Aim**: <text>\n**Steps**:\n1. <step>\n**Done when**:\n- [ ] <check>\n"
+)
 
 
-def test_format_child_issue_batch() -> None:
-    """All four Format-ChildIssue invariants exercised in one pwsh spawn."""
+def test_format_child_issue_batch(tmp_path: Path) -> None:
+    """Format-ChildIssue invariants exercised in one pwsh spawn."""
+    template = tmp_path / ".github" / "ISSUE_TEMPLATE" / "issue.md"
+    template.parent.mkdir(parents=True)
+    template.write_text(_CHILD_TEMPLATE, encoding="utf-8")
     script = (
         _import_prelude()
-        # Scenario 1: LABELS / ESTIMATE / PRIORITY must precede **Goal**
+        + f"$script:_Root = '{tmp_path}'\n"
+        # Scenario 1: LABELS / ESTIMATE / PRIORITY must precede the first heading
         + "$b1 = Format-ChildIssue -Label 'human:decision' -Estimate 2 -Priority 'P3' "
-        + "-Goal 'Goal text' -Description 'Description text' "
-        + "-Requirements @('r1','r2') -AcceptanceCriteria @('a1','a2')\n"
+        + "-Sections @{ 'Aim' = 'Aim text'; 'Steps' = @('r1','r2'); 'Done when' = @('a1') }\n"
         + '$b1s = $b1 -join "`n"\n'
         + "Write-Output \"__CASE__labels_idx=$($b1s.IndexOf('LABELS: human:decision'))\"\n"
         + "Write-Output \"__CASE__estimate_idx=$($b1s.IndexOf('ESTIMATE: 2'))\"\n"
         + "Write-Output \"__CASE__priority_idx=$($b1s.IndexOf('PRIORITY: P3'))\"\n"
-        + "Write-Output \"__CASE__goal_idx=$($b1s.IndexOf('**Goal**'))\"\n"
-        # Scenario 2: requirements must be numbered starting at 1
-        + "$b2 = Format-ChildIssue -Label '' -Goal 'g' -Description 'd' "
-        + "-Requirements @('alpha','beta','gamma') -AcceptanceCriteria @()\n"
+        + "Write-Output \"__CASE__aim_idx=$($b1s.IndexOf('**Aim**: Aim text'))\"\n"
+        + "Write-Output \"__CASE__steps_idx=$($b1s.IndexOf('**Steps**:'))\"\n"
+        + "Write-Output \"__CASE__done_idx=$($b1s.IndexOf('**Done when**:'))\"\n"
+        # Scenario 2: a numbered heading numbers its items from 1
+        + "$b2 = Format-ChildIssue -Sections @{ 'Steps' = @('alpha','beta','gamma') }\n"
         + '$b2s = $b2 -join "`n"\n'
         + "Write-Output \"__CASE__req_1=$(($b2s -match '1\\. alpha'))\"\n"
         + "Write-Output \"__CASE__req_2=$(($b2s -match '2\\. beta'))\"\n"
         + "Write-Output \"__CASE__req_3=$(($b2s -match '3\\. gamma'))\"\n"
-        # Scenario 3: acceptance criteria render as `- [ ]` checkboxes
-        + "$b3 = Format-ChildIssue -Label '' -Goal 'g' -Description 'd' "
-        + "-Requirements @() -AcceptanceCriteria @('CI passes','tests green')\n"
+        # Scenario 3: a checkbox heading renders `- [ ]` items
+        + "$b3 = Format-ChildIssue -Sections ([pscustomobject]@{ 'Done when' = @('CI passes','tests green') })\n"
         + '$b3s = $b3 -join "`n"\n'
         + "Write-Output \"__CASE__ckbox_ci=$(($b3s -match '- \\[ \\] CI passes'))\"\n"
         + "Write-Output \"__CASE__ckbox_green=$(($b3s -match '- \\[ \\] tests green'))\"\n"
-        # Scenario 4: Estimate=0 means not set — ESTIMATE: line must not appear
-        + "$b4 = Format-ChildIssue -Label 'human:decision' -Estimate 0 -Goal 'g' "
-        + "-Description 'd' -Requirements @() -AcceptanceCriteria @()\n"
+        # Scenario 4: Estimate=0 means not set — ESTIMATE: line must not appear;
+        # an absent value gets a placeholder in its heading's style
+        + "$b4 = Format-ChildIssue -Label 'human:decision' -Estimate 0 -Sections @{}\n"
         + '$b4s = $b4 -join "`n"\n'
         + "Write-Output \"__CASE__no_estimate=$(($b4s -match 'ESTIMATE:'))\"\n"
+        + "Write-Output \"__CASE__ph_steps=$(($b4s -match '1\\. _\\(populated by plan synthesis\\)_'))\"\n"
     )
     result = _ps(script + "}\n")
     assert result.returncode == 0, result.stderr
     cases = _parse_cases(result.stdout)
 
-    # header ordering
+    # header ordering, then the template's headings in template order
     labels_idx = int(cases.get("labels_idx", "-1"))
     estimate_idx = int(cases.get("estimate_idx", "-1"))
     priority_idx = int(cases.get("priority_idx", "-1"))
-    goal_idx = int(cases.get("goal_idx", "-1"))
-    assert 0 <= labels_idx < goal_idx, (
-        f"LABELS must precede **Goal** (labels={labels_idx}, goal={goal_idx})"
-    )
-    assert 0 <= estimate_idx < goal_idx, (
-        f"ESTIMATE must precede **Goal** (estimate={estimate_idx}, goal={goal_idx})"
-    )
-    assert 0 <= priority_idx < goal_idx, (
-        f"PRIORITY must precede **Goal** (priority={priority_idx}, goal={goal_idx})"
-    )
+    aim_idx = int(cases.get("aim_idx", "-1"))
+    steps_idx = int(cases.get("steps_idx", "-1"))
+    done_idx = int(cases.get("done_idx", "-1"))
+    assert 0 <= labels_idx < aim_idx, (labels_idx, aim_idx)
+    assert 0 <= estimate_idx < aim_idx, (estimate_idx, aim_idx)
+    assert 0 <= priority_idx < aim_idx, (priority_idx, aim_idx)
+    assert aim_idx < steps_idx < done_idx, (aim_idx, steps_idx, done_idx)
 
-    # numbered requirements
-    assert cases.get("req_1", "").strip() == "True", "requirement '1. alpha' missing"
-    assert cases.get("req_2", "").strip() == "True", "requirement '2. beta' missing"
-    assert cases.get("req_3", "").strip() == "True", "requirement '3. gamma' missing"
+    # numbered list
+    assert cases.get("req_1", "").strip() == "True", "item '1. alpha' missing"
+    assert cases.get("req_2", "").strip() == "True", "item '2. beta' missing"
+    assert cases.get("req_3", "").strip() == "True", "item '3. gamma' missing"
 
     # checkboxes
-    assert cases.get("ckbox_ci", "").strip() == "True", (
-        "Acceptance criterion '- [ ] CI passes' missing"
-    )
-    assert cases.get("ckbox_green", "").strip() == "True", (
-        "Acceptance criterion '- [ ] tests green' missing"
-    )
+    assert cases.get("ckbox_ci", "").strip() == "True", "'- [ ] CI passes' missing"
+    assert cases.get("ckbox_green", "").strip() == "True", "'- [ ] tests green' missing"
 
-    # no ESTIMATE line when Estimate=0
+    # no ESTIMATE line when Estimate=0; placeholder in the numbered style
     assert cases.get("no_estimate", "").strip() == "False", (
         "Estimate=0 must not emit ESTIMATE: line"
     )
+    assert cases.get("ph_steps", "").strip() == "True", "numbered placeholder missing"
 
 
 # ── Format-PRDSection ────────────────────────────────────────────────────────

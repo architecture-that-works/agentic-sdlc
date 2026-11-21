@@ -1,4 +1,4 @@
-"""The issue template, ISSUES.md and the intake skill hold the same four headings."""
+"""The issue template is the one place an issue's headings are written (#369)."""
 
 import re
 from pathlib import Path
@@ -21,37 +21,34 @@ def _front_matter(text: str) -> tuple[str, str]:
     return match.group(1), match.group(2)
 
 
-def _section(text: str, heading: str) -> str:
-    match = re.search(
-        rf"^#+ {re.escape(heading)}\n(.*?)(?=^#+ |\Z)", text, re.MULTILINE | re.DOTALL
-    )
-    assert match, f"section {heading!r} not found"
-    return match.group(1)
-
-
-def _first_fence(text: str) -> str:
-    match = re.search(r"```\n(.*?)```", text, re.DOTALL)
-    assert match, "no fenced example found"
-    return match.group(1)
-
-
 def test_template_headings() -> None:
     _, body = _front_matter(TEMPLATE.read_text())
     assert _headings(body) == EXPECTED
 
 
-def test_issues_md_block_format_headings() -> None:
-    block = _first_fence(_section((ROOT / "ISSUES.md").read_text(), "Block Format"))
-    assert _headings(block) == EXPECTED
+def test_issues_md_does_not_repeat_the_headings() -> None:
+    """ISSUES.md points to the template; above its sentinel it spells no heading."""
+    _, body = _front_matter(TEMPLATE.read_text())
+    text = (ROOT / "ISSUES.md").read_text()
+    sentinel = re.search(r"^<!-- ISSUES -->\s*$", text, re.MULTILINE)
+    assert sentinel, "ISSUES.md sentinel not found"
+    header = text[: sentinel.start()]
+    for name in _headings(body):
+        assert f"**{name}**:" not in header, f"ISSUES.md repeats the heading {name!r}"
 
 
-def test_intake_draft_headings() -> None:
-    text = (ROOT / ".agents" / "skills" / "intake" / "SKILL.md").read_text()
-    step = re.search(
-        r"^### Step 2.*?\n(.*?)(?=^### Step 3)", text, re.MULTILINE | re.DOTALL
-    )
-    assert step, "intake Step 2 not found"
-    assert _headings(_first_fence(step.group(1))) == EXPECTED
+def test_no_heading_spelled_in_orchestrator_or_commands() -> None:
+    """The orchestrator and the commands read the headings; they never spell one."""
+    _, body = _front_matter(TEMPLATE.read_text())
+    hits = [
+        f"{path.relative_to(ROOT)}: **{name}**"
+        for folder in (ROOT / ".github" / "orchestrator", ROOT / ".github" / "tasks")
+        for path in sorted(folder.rglob("*"))
+        if path.is_file()
+        for name in _headings(body)
+        if f"**{name}**" in path.read_text(encoding="utf-8", errors="ignore")
+    ]
+    assert not hits, hits
 
 
 def test_template_front_matter() -> None:

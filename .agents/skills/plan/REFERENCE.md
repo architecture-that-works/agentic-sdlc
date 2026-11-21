@@ -93,18 +93,7 @@ provision, or a UI/UX decision requiring visual review.
 
 ### Issue body template
 
-```markdown
-**Goal**: <one-sentence goal>
-**Description**: <what, why, and context — no implementation steps>
-
-**Requirements**:
-1. <requirement 1>
-2. <requirement 2>
-
-**Acceptance Criteria**:
-- [ ] <criterion 1>
-- [ ] <criterion 2>
-```
+A child issue's body is the issue template, `.github/ISSUE_TEMPLATE/issue.md`: one section per heading below its front matter, in template order and in the style the template writes it (text after the colon, a numbered list, `- [ ]` checkboxes or `-` bullets). The orchestrator builds it from the template (`Format-ChildIssue`, from the planner's `sections` keyed by heading name); write a child by hand the same way. Keep implementation steps out of the descriptive headings.
 
 ---
 

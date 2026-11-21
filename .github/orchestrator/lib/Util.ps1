@@ -2,8 +2,8 @@
 <#
     Util.ps1 — cross-cutting local utilities for the Kanban module.
 
-    Logging, runtime detection, the orchestrator lock, and the ISSUES.md template
-    reader. These touch only the local
+    Logging, runtime detection, the orchestrator lock, and the issue template
+    reader (Get-IssueTemplate, Get-IssueHeadings). These touch only the local
     filesystem / process environment (no gh, no Claude). Loaded after Config.ps1
     (it reads $KanbanLogFile / $_Root from there).
 #>
@@ -61,23 +61,53 @@ function Release-OrchestratorLock {
     Remove-Item $OrchestratorLockFile -Force -ErrorAction SilentlyContinue
 }
 
-# ── Issue template reader (from ISSUES.md header) ─────────────────────────────
+# ── The issue template — the one place an issue's headings are written (#369) ──
+# Refine's body check, the epic child-issue body (Plan.ps1) and the sync command's
+# block check all read the headings from here. A heading is a body line of the form
+# `**<Name>**:`. There is no fallback: a missing template stops the run.
 
+$KanbanIssueTemplatePath = '.github/ISSUE_TEMPLATE/issue.md'
+
+# The template's body: the text below its leading YAML front matter, or the whole
+# file when it has none. Throws, naming the file, when it is missing or holds no
+# heading. Never returns $null.
 function Get-IssueTemplate {
-    $path = "$_Root\ISSUES.md"
-    if (-not (Test-Path $path)) { return $null }
-
-    $content  = Get-Content $path -Raw
-    $sentinel = $content.IndexOf('<!-- ISSUES -->')
-    $header   = if ($sentinel -ge 0) { $content.Substring(0, $sentinel) } else { $content }
-
-    if ($header -match '(?s)```\s*\r?\n(ISSUE:.*?END_ISSUE)\s*\r?\n```') {
-        $block  = $Matches[1]
-        $fields = ($block -split '\r?\n' | Select-Object -Skip 1 |
-            Where-Object { $_ -notmatch '^END_ISSUE' }) -join "`n"
-        return $fields.Trim()
+    $path = Join-Path $_Root $KanbanIssueTemplatePath
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "The issue template $KanbanIssueTemplatePath is missing. It gives every issue its headings; restore it before running the pipeline."
     }
-    return $null
+    $text = "$(Get-Content -LiteralPath $path -Raw)" -replace "`r`n", "`n"
+    if ($text -match '(?s)\A---\n.*?\n---(?:\n|\z)(.*)\z') { $text = $Matches[1] }
+    $body = $text.Trim()
+    if (-not @($body -split "`n" | Where-Object { $_ -match '^\*\*([^*]+)\*\*:' })) {
+        throw "The issue template $KanbanIssueTemplatePath holds no heading (a line such as '**<Name>**: ...')."
+    }
+    return $body
+}
+
+# The template's headings in template order: { Name; Style }. Name is bare, without
+# the bold markup. Style says how a section is written, read from the template itself:
+#   inline    text follows the colon on the heading line
+#   numbered  the next line starts with `1.`
+#   checkbox  the next line starts with `- [ ]`
+#   bullet    the next line starts with `-`
+# A heading with neither text nor a list under it is inline.
+function Get-IssueHeadings {
+    $lines    = @((Get-IssueTemplate) -split "`n")
+    $headings = [System.Collections.Generic.List[object]]::new()
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -notmatch '^\*\*([^*]+)\*\*:(.*)$') { continue }
+        $name = $Matches[1].Trim()
+        $rest = $Matches[2].Trim()
+        $next = if ($i + 1 -lt $lines.Count) { $lines[$i + 1] } else { '' }
+        $style = if ($rest)                          { 'inline' }
+                 elseif ($next -match '^\s*\d+\.\s') { 'numbered' }
+                 elseif ($next -match '^\s*- \[[ xX]\]') { 'checkbox' }
+                 elseif ($next -match '^\s*[-*]\s')  { 'bullet' }
+                 else                                { 'inline' }
+        $headings.Add([pscustomobject]@{ Name = $name; Style = $style })
+    }
+    return $headings.ToArray()
 }
 
 # ── Procedure-derivation from agent stream events ────────────────────────────

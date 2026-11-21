@@ -38,24 +38,12 @@ Owner response
 
 ## Body Schema Template
 
-Use this template verbatim for the issue body. Fill each heading from the owner's input. When the owner's input does not supply enough detail, use the placeholder prompts shown below — they are parseable by the AFK refine stage and prompt the owner to fill them in during refine.
-
-```markdown
-**Goal**: [One non-technical sentence describing the business or user outcome.]
-
-**Description**: [One to three sentences explaining why this matters and linking it to existing context, prior decisions, or related work. If none is known, write: "Context to be supplied during refine."]
-
-**Requirements**:
-1. [First actionable step — explicit enough for an independent developer or AI to implement. If unclear from the owner's input, write: "Requirements to be decomposed during refine."]
-
-**Acceptance Criteria**:
-- [First verifiable boundary defining when the work is done. If unclear, write: "Acceptance criteria to be defined during refine."]
-```
+The body is the issue template, `.github/ISSUE_TEMPLATE/issue.md` — everything below its front matter, used verbatim. The template is the one place an issue's headings are written; this skill does not repeat them. Fill each heading from the owner's input. When the input does not supply enough detail for a heading, write a placeholder prompt in its place, in the style the template shows for it — for example "Context to be supplied during refine.", "Requirements to be decomposed during refine.", "Acceptance criteria to be defined during refine." Placeholders are parseable by the AFK refine stage and prompt the owner to fill them in during refine.
 
 **Rules:**
-- All four headings are mandatory. Omitting any heading is a violation of C-3.
+- Every template heading is mandatory. Omitting any heading is a violation of C-3.
 - Placeholder text is acceptable; a missing heading is not.
-- Do not add additional headings (e.g. `**Notes**`, `**Background**`) — refine and plan expect exactly these four.
+- Do not add additional headings (e.g. `**Notes**`, `**Background**`) — refine and plan expect exactly the template's.
 - Do not add labels, estimates, or priorities to the body. Those are pipeline outputs.
 
 ---

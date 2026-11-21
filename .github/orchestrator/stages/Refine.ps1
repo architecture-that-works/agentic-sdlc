@@ -29,19 +29,13 @@ function Invoke-Refine {
     Write-Log "  Refine -- issue #$Number" -Color Yellow
 
     $issue    = gh issue view $Number --repo $KanbanRepo --json title,body,comments | ConvertFrom-Json
+    # The issue template is the one source of an issue's headings (#369). A missing or
+    # empty template throws here, out of Invoke-Refine, before anything is written.
     $template = Get-IssueTemplate
 
-    # Determine what needs work
-    $needsBodyRefine = $false
-    if ($template) {
-        $headings        = $template -split '\r?\n' |
-            Where-Object { $_ -match '^\*\*\w' } |
-            ForEach-Object { ($_ -split ':')[0] }
-        $missing         = @($headings | Where-Object { $issue.body -notmatch [regex]::Escape($_) })
-        $needsBodyRefine = $missing.Count -gt 0
-    } else {
-        $needsBodyRefine = $true
-    }
+    # Determine what needs work: the body is missing a heading when it lacks **<Name>**.
+    $missing         = @(@(Get-IssueHeadings).Name | Where-Object { "$($issue.body)" -notmatch [regex]::Escape("**$_**") })
+    $needsBodyRefine = $missing.Count -gt 0
 
     # Short-circuit: a prior pass that completed refinement posts a "· refined —" comment
     # AND injects the AGENT-BRIEF marker via the self-grill subagent. Both must
@@ -79,10 +73,8 @@ function Invoke-Refine {
     $parsed = $null
 
     if ($needsClaudeStructureCall) {
-        $bodyInstruction = if ($needsBodyRefine -and $template) {
+        $bodyInstruction = if ($needsBodyRefine) {
             "REWRITE the body to match this field structure exactly (fill all fields from the raw issue — do not invent requirements):`n`n$template"
-        } elseif ($needsBodyRefine) {
-            "REWRITE the body with: **Goal**, **Description**, **Requirements** (numbered), **Acceptance Criteria** (bulleted)."
         } else {
             "Body is already structured — copy it unchanged into the 'body' field."
         }

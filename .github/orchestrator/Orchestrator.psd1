@@ -65,6 +65,10 @@
         'Write-Log'
         'Set-EnvVar'
         'Get-ResolvedOwner'
+
+        # The issue template's headings — sync.ps1 refuses a block that lacks one
+        # (#369). The template reader itself stays private.
+        'Get-IssueHeadings'
     )
 
     # Never variables: the $Kanban* run state stays private so it cannot leak into
