@@ -33,6 +33,8 @@ def _run(body: str, cwd: Path) -> dict:
         "function script:Write-Log { param($Message, $Color) }\n"
         "$script:Comments = [System.Collections.Generic.List[string]]::new()\n"
         "function script:Add-Comment { param($Number, $Body) $script:Comments.Add($Body) }\n"
+        "$script:Labels = ''\n"
+        "function script:gh { $global:LASTEXITCODE = 0; if (\"$args\" -like 'api repos/*/labels*') { $script:Labels } }\n"
         f"{body}\n"
         "}\n"
     )
@@ -205,3 +207,20 @@ def test_an_up_to_date_branch_is_left_alone(tmp_path: Path) -> None:
     assert out["upToDate"] is True and out["merged"] is False
     assert out["comments"] == []
     assert _git(work, "rev-parse", "HEAD") == head
+
+
+def test_a_shipped_issue_merges_but_pushes_nothing(tmp_path: Path) -> None:
+    """#377: the merge closed the PR and GitHub deleted the branch; a push would
+    re-create it. The shipped guard stops the round before the push."""
+    work, origin = _setup(tmp_path, conflict=False)
+    remote_before = _git(origin, "rev-parse", BRANCH)
+
+    out = _run(
+        "$script:Labels = 'agent:shipped'\n"
+        "$err = $null\n"
+        "try { $null = Update-Branch -IssueNumber 7 -Branch 'feature/7-thing' } catch { $err = \"$_\" }\n"
+        "[pscustomobject]@{ err = $err } | ConvertTo-Json -Compress",
+        cwd=work,
+    )
+    assert out["err"].startswith("ISSUE-SHIPPED|")
+    assert _git(origin, "rev-parse", BRANCH) == remote_before
