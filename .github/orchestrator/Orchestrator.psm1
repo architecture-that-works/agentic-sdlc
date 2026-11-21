@@ -273,7 +273,7 @@ function Invoke-Orchestration {
 
         # One budget of $MaxRetries attempts per round covers every failure after
         # agent:backlog — an implement error, failing tests, a review rejection, red CI
-        # on the PR, a rebase conflict. A failed attempt is recorded in the issue
+        # on the PR, a merge conflict found in ship. A failed attempt is recorded in the issue
         # (Add-FailedAttempt) and the next one re-implements on top of the existing
         # branch with that history in its prompt. The count lives in the issue, so a
         # lost runner resumes the round rather than restarting it.
@@ -361,8 +361,11 @@ function Invoke-Orchestration {
                 # The engine refused an edit to a path it protects (#346): a property of
                 # the path, so no retry can help. Invoke-Implement already recorded the
                 # attempt, pushed the rest of the work and posted the refusal comment.
-                if ($reason -match '^ATTEMPT-RECORDED\|ENGINE-REFUSED\|') {
-                    $reason = $reason -replace '^ATTEMPT-RECORDED\|ENGINE-REFUSED\|', ''
+                # Conflict markers the agent left in a merged file (#367) end the round the
+                # same way: retrying the same merge unchanged cannot help, and the owner's
+                # comment starts a new round that carries their guidance.
+                if ($reason -match '^ATTEMPT-RECORDED\|(ENGINE-REFUSED|CONFLICT-MARKERS)\|') {
+                    $reason = $reason -replace '^ATTEMPT-RECORDED\|(ENGINE-REFUSED|CONFLICT-MARKERS)\|', ''
                     Set-AgentFailedState -IssueNumber $IssueNumber -FailedAt 'implement' -Reason $reason
                     Write-Log "⛔ Issue #$IssueNumber — $reason" -Color Red
                     return

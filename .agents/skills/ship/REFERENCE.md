@@ -90,6 +90,9 @@ gh pr merge <number> --squash --delete-branch
 - One commit per PR keeps `git log` readable at the feature level
 - Merge commits pollute history with implementation-detail commits
 - Rebase requires force-push if the branch was already reviewed — unsafe
+- A branch that is behind is brought up to date by merging the default branch into it
+  (GitHub's "Update branch"), never by rebasing it — the squash discards the branch's
+  history anyway, so the merge costs nothing and every push stays a plain push
 
 **If branch protection requires a different strategy:**
 - Do not bypass the `ship` skill to accommodate the rule

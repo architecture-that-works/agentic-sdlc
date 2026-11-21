@@ -1,13 +1,14 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Ship stage — rebase, wait for green CI, then merge or hold for the owner.
+    Ship stage — bring the branch up to date, wait for green CI, then merge or hold for the owner.
 
 .DESCRIPTION
     Orchestrator library — loaded by Orchestrator.psm1. Invoke-Ship is reached only
     after the review stage approved (the conductor) or by the owner's manual
-    dispatch (afk.yml stage=ship), so it does not re-derive approval. It rebases the
-    branch, waits for CI (or, with KANBAN_LOCAL_CI, runs it locally and always holds
+    dispatch (afk.yml stage=ship), so it does not re-derive approval. It merges the
+    default branch into the branch (Update-Branch — a conflict ends the attempt and
+    the next one settles it at implement), waits for CI (or, with KANBAN_LOCAL_CI, runs it locally and always holds
     the PR — #314), and then either holds a PR that touches a governance file
     (human:approval) or squash-merges it and deletes the branch
     (Complete-Ship). Complete-HeldPR reconciles the issue on every feature-branch PR
@@ -80,37 +81,107 @@ function Invoke-LocalCI {
     }
 }
 
-function Invoke-RebaseOnMaster {
+# ── Bringing a branch up to date (#367) ───────────────────────────────────────
+# The default branch is merged INTO the issue's branch, as GitHub's "Update branch"
+# button does. Pull requests are squash-merged, so the branch's own history never
+# reaches the default branch and nothing needs rewriting: every push is a plain
+# fast-forward push. A conflict is left in place for the implementing agent
+# (Invoke-Implement) instead of ending the round; ship aborts it and lets the next
+# attempt, which starts at implement, settle it.
+
+# The fixed message of the merge commit. Squash merges copy each commit's subject
+# into the squash commit's body, so it follows <type>(#<issue>): <subject> too.
+function Get-BranchUpdateMessage {
+    param([int]$IssueNumber, [string]$Branch)
+    return "chore(#${IssueNumber}): merge $KanbanDefaultBranch into $Branch"
+}
+
+# Fetches the default branch and merges it into HEAD. Returns
+# { UpToDate, Merged, Conflicts }. A clean merge is committed and pushed (plain
+# push); a conflicted one is left in progress — MERGE_HEAD and the unmerged paths
+# stay — with Conflicts naming those paths.
+function Update-Branch {
     param([int]$IssueNumber, [string]$Branch)
 
     $default = $KanbanDefaultBranch
+    $result  = [pscustomobject]@{ UpToDate = $false; Merged = $false; Conflicts = @() }
     git fetch --quiet origin $default 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Could not fetch $default from origin." }
 
-    $mergeBase  = git merge-base HEAD "origin/$default" 2>&1 | Out-String | ForEach-Object { $_.Trim() }
-    $masterHead = git rev-parse "origin/$default"         2>&1 | Out-String | ForEach-Object { $_.Trim() }
-
-    if ($mergeBase -eq $masterHead) {
-        Write-Log "  Branch $Branch is up-to-date with $default — skipping rebase." -Color DarkGray
-        return
+    git merge-base --is-ancestor "origin/$default" HEAD 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Log "  Branch $Branch already contains $default — nothing to merge." -Color DarkGray
+        $result.UpToDate = $true
+        return $result
     }
 
-    $behind = git rev-list --count "HEAD..origin/$default" 2>&1 | Out-String | ForEach-Object { $_.Trim() }
-    Write-Log "  Branch $Branch is $behind commit(s) behind $default — rebasing..." -Color DarkGray
-    Add-Comment -Number $IssueNumber -Body "· rebasing onto $default ($behind commit(s) behind)"
+    $behind = "$(git rev-list --count "HEAD..origin/$default" 2>$null)".Trim()
+    Write-Log "  Branch $Branch is $behind commit(s) behind $default — merging..." -Color DarkGray
+    Add-Comment -Number $IssueNumber -Body "· merging $default into $Branch ($behind commit(s) behind)"
 
-    git rebase "origin/$default" 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        $conflicts = git diff --name-only --diff-filter=U 2>&1 | Out-String
-        git rebase --abort 2>&1 | Out-Null
-        Add-Comment -Number $IssueNumber -Body "🤖❌ Rebase Conflict`n`nConflicting files:`n``````text`n$($conflicts.Trim())`n``````"
-        throw "Rebase conflict on $Branch against $default — manual resolution required."
+    $mergeOut = git merge --no-ff --no-commit "origin/$default" 2>&1 | Out-String
+    $mergeExit = $LASTEXITCODE
+    $conflicts = @((git -c core.quotePath=false diff --name-only --diff-filter=U 2>$null) |
+                   ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+    if ($conflicts.Count -gt 0) {
+        Write-Log "  Merge conflict in: $($conflicts -join ', ')" -Color Yellow
+        $result.Conflicts = $conflicts
+        $global:LASTEXITCODE = 0
+        return $result
+    }
+    if ($mergeExit -ne 0) {
+        git merge --abort 2>&1 | Out-Null
+        throw "git merge of $default into $Branch failed:`n$($mergeOut.Trim())"
     }
 
-    git push --force-with-lease --quiet origin $Branch 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Force push after rebase failed for branch $Branch." }
+    $commitOut = git commit --quiet -m (Get-BranchUpdateMessage -IssueNumber $IssueNumber -Branch $Branch) 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "Could not commit the merge of $default into ${Branch}:`n$($commitOut.Trim())" }
 
-    Write-Log "  Rebased $Branch onto $default." -Color Green
-    Add-Comment -Number $IssueNumber -Body "· rebased onto $default"
+    $pushOut = git push --quiet origin "HEAD:refs/heads/$Branch" 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "git push after merging $default failed for branch ${Branch}:`n$($pushOut.Trim())" }
+
+    Write-Log "  Merged $default into $Branch." -Color Green
+    $result.Merged = $true
+    return $result
+}
+
+# Completes a merge Update-Branch left in conflict, once the agent has edited the
+# files. Scans only the files that were in conflict, for lines that begin a
+# '<<<<<<< ' or '>>>>>>> ' marker ('=======' is also a Markdown heading underline).
+# Markers left: returns them in MarkerFiles and commits nothing. Otherwise stages
+# exactly those files and commits the merge with the fixed message — the agent's
+# other edits stay unstaged, so they belong to the attempt's own commit.
+function Complete-BranchUpdate {
+    param([int]$IssueNumber, [string]$Branch, [string[]]$Conflicts)
+
+    $root    = "$(git rev-parse --show-toplevel 2>$null)".Trim()
+    $markers = @(foreach ($f in @($Conflicts | Where-Object { $_ })) {
+        $path = Join-Path $root $f
+        if ((Test-Path -LiteralPath $path -PathType Leaf) -and
+            @(Get-Content -LiteralPath $path | Where-Object { $_ -match '^(<{7}|>{7}) ' }).Count -gt 0) { $f }
+    })
+    if ($markers.Count -gt 0) {
+        Write-Log "  Conflict markers left in: $($markers -join ', ')" -Color Red
+        return [pscustomobject]@{ MarkerFiles = $markers }
+    }
+
+    foreach ($f in @($Conflicts | Where-Object { $_ })) {
+        # A file the agent deleted to settle a modify/delete conflict is staged as deleted.
+        git add -A -- $f 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Could not stage the resolved file $f." }
+    }
+    $commitOut = git commit --quiet -m (Get-BranchUpdateMessage -IssueNumber $IssueNumber -Branch $Branch) 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "Could not commit the merge of $KanbanDefaultBranch into ${Branch}:`n$($commitOut.Trim())" }
+    Write-Log "  Merge of $KanbanDefaultBranch into $Branch completed." -Color Green
+    return [pscustomobject]@{ MarkerFiles = @() }
+}
+
+# True while a merge is in progress (MERGE_HEAD exists).
+function Test-MergeInProgress {
+    git rev-parse -q --verify MERGE_HEAD 2>$null | Out-Null
+    $inProgress = ($LASTEXITCODE -eq 0)
+    $global:LASTEXITCODE = 0
+    return $inProgress
 }
 
 # ── Hold announcement ─────────────────────────────────────────────────────────
@@ -229,14 +300,25 @@ function Invoke-Ship {
     }
 
     # Checkout the feature branch (may not be on it when called standalone from the default branch).
-    # The default branch is authoritative — always rebase rather than merge forward.
+    # The default branch is merged in (Update-Branch), never rebased onto: the PR is
+    # squash-merged, so the branch's history need not be rewritten or force-pushed.
     $featureBranch = gh pr view $PRNumber --json headRefName --jq '.headRefName' 2>&1 | Out-String | ForEach-Object { $_.Trim() }
     $currentBranch = git rev-parse --abbrev-ref HEAD 2>&1 | Out-String | ForEach-Object { $_.Trim() }
     if ($currentBranch -ne $featureBranch) {
         git checkout --quiet $featureBranch 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Could not switch to feature branch $featureBranch." }
     }
-    Invoke-RebaseOnMaster -IssueNumber $IssueNumber -Branch $featureBranch
+    # A conflict here is not resolved in ship: abort, name the files, and fail the
+    # attempt. The next attempt starts at implement, where the agent settles it.
+    $update = Update-Branch -IssueNumber $IssueNumber -Branch $featureBranch
+    $conflicts = @($update.Conflicts | Where-Object { $_ })
+    if ($conflicts.Count -gt 0) {
+        git merge --abort 2>&1 | Out-Null
+        $list = ($conflicts | ForEach-Object { "- ``$_``" }) -join "`n"
+        Add-Comment -Number $IssueNumber -Body ("🤖❌ Merge Conflict`n`n``$KanbanDefaultBranch`` changed the same lines as " +
+            "this branch in:`n`n$list`n`nThe next attempt merges ``$KanbanDefaultBranch`` again and settles these files first.")
+        throw "Merge conflict between $featureBranch and $KanbanDefaultBranch in: $($conflicts -join ', ')"
+    }
 
     # Local CI (#314): run checks.yml's jobs here and skip the `gh pr checks` poll.
     # A pass always ends in the owner's hold below — nothing merges on local CI alone.
@@ -259,7 +341,7 @@ function Invoke-Ship {
     }
 
     # Poll `gh pr checks --json name,bucket` instead of `--watch`. After
-    # rebase + force-push, GitHub Actions needs 5-30s to register the rerun
+    # a push of the merge, GitHub Actions needs 5-30s to register the rerun
     # and during that window `--watch` produces non-deterministic text on a
     # mixed stdout/stderr stream — previously this leaked into a downstream
     # ConvertFrom-Json and crashed the orchestrator (dropping the issue to

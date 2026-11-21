@@ -134,7 +134,7 @@ function script:Format-OwnerComments { param($IssueNumber) '' }
 function script:Get-IssueEstimate { param($IssueNumber) 2 }
 function script:Get-CommitMessage { param($Diff, $FallbackMessage) $FallbackMessage }
 function script:Test-RemoteBranch { param($Branch) $false }
-function script:Invoke-RebaseOnMaster { $script:Log.Add('rebase') }
+function script:Update-Branch { $script:Log.Add('update'); [pscustomobject]@{ UpToDate = $true; Merged = $false; Conflicts = @() } }
 function script:Invoke-Review { $script:Log.Add('review'); $true }
 function script:Invoke-Ship { $script:Log.Add('ship'); $true }
 function script:New-FeatureBranch { param($Number, $Title)
@@ -207,6 +207,146 @@ $pushed = & $script:RealGit log -1 --name-status --format=%s feature/346-use-pro
     assert "SECURITY.md#protected-paths" in refusal
     # Not the generic failure or retry comments.
     assert not any("Implement Failed" in c or "🤖🔁" in c for c in out["comments"])
+
+
+# ── A merge conflict at the start of an attempt (#367) ────────────────────────
+
+
+def _conflicted_repo(tmp_path: Path) -> Path:
+    """On the issue's branch; origin/main changed keep.py's line and added a file."""
+    repo = _repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "feature/346-use-protected-files")
+    (repo / "keep.py").write_text("x = 'branch'\n")
+    _git(repo, "commit", "-qam", "feat(#346): branch work")
+    _git(repo, "checkout", "-q", "main")
+    (repo / "keep.py").write_text("x = 'main'\n")
+    (repo / "main_only.py").write_text("m = 1\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "chore: main moves on")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "main")
+    _git(repo, "checkout", "-q", "feature/346-use-protected-files")
+    return repo
+
+
+# Real Update-Branch against the local origin/main; the agent's turn is $AgentTurn.
+_MERGE_CONDUCTOR = (
+    "\n".join(
+        line
+        for line in _CONDUCTOR.splitlines()
+        if not line.startswith(("function script:Update-Branch", "$script:Stream"))
+    )
+    + r"""
+function script:Test-RemoteBranch { param($Branch) $true }
+function script:gh {
+    $global:LASTEXITCODE = 0
+    $a = "$args"
+    if ($a -like 'issue view*') { return '{"title":"Use protected files","labels":[],"state":"OPEN","body":"b"}' }
+    if ($a -like 'pr list*')    { if ($script:Log -contains 'pr-create') { return '[{"number":1,"url":"https://x/pr/1"}]' }; return '[]' }
+    if ($a -like 'pr create*')  { $script:Log.Add('pr-create'); return 'https://x/pr/1' }
+    return ''
+}
+$script:Pushes = [System.Collections.Generic.List[string]]::new()
+function script:git {
+    if ($args[0] -eq 'push')  { $script:Log.Add('push'); $script:Pushes.Add("$args"); $global:LASTEXITCODE = 0; return }
+    if ($args[0] -in @('fetch', 'reset', 'stash')) { $global:LASTEXITCODE = 0; return }
+    & $script:RealGit @args
+}
+function script:claude {
+    $script:Log.Add('engine')
+    $script:Prompt = "$input"
+    & $script:AgentTurn
+    @{ type = 'result'; subtype = 'success' } | ConvertTo-Json -Compress
+    $global:LASTEXITCODE = 0
+}
+"""
+)
+
+_MERGE_REPORT = r"""
+Invoke-Orchestration -IssueNumber 346 -MaxRetries 3
+& $script:RealGit checkout -q feature/346-use-protected-files
+[pscustomobject]@{
+    log      = @($script:Log)
+    comments = @($script:Comments)
+    reason   = $script:AttemptReason
+    prompt   = $script:Prompt
+    pushes   = @($script:Pushes)
+    merging  = (Test-Path .git/MERGE_HEAD)
+    subjects = @(& $script:RealGit log --format=%s -3)
+} | ConvertTo-Json -Compress -Depth 5
+"""
+
+
+def test_conflict_markers_left_end_the_round_after_one_attempt(tmp_path: Path) -> None:
+    repo = _conflicted_repo(tmp_path)
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    out = _run(
+        _MERGE_CONDUCTOR
+        + "$script:AgentTurn = { }   # the agent leaves the markers\n"
+        + _MERGE_REPORT,
+        cwd=repo,
+    )
+
+    log = out["log"]
+    assert log.count("engine") == 1, log
+    assert log.count("attempt:implement:1") == 1, log
+    assert "failed:implement" in log
+    assert "failed-attempt" not in log  # recorded once, by implement
+    assert "push" not in log and "review" not in log and "pr-create" not in log
+    assert out["reason"] == "Conflict markers left in: keep.py"
+    assert out["merging"] is False  # the merge was aborted
+    head_after = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert head_after == head
+
+    assert "MERGE CONFLICT" in out["prompt"] and "- keep.py" in out["prompt"]
+    assert out["prompt"].index("MERGE CONFLICT") < out["prompt"].index("INSTRUCTIONS:")
+    assert any(c.startswith("🤖⚠️ Merge conflict with main") for c in out["comments"])
+    left = next(c for c in out["comments"] if "Conflict markers left" in c)
+    assert left.startswith("🤖❌") and "`keep.py`" in left
+    assert not any("Implement Failed" in c or "🤖🔁" in c for c in out["comments"])
+
+
+def test_an_attempt_that_merged_main_lists_only_its_own_files(tmp_path: Path) -> None:
+    repo = _conflicted_repo(tmp_path)
+
+    out = _run(
+        _MERGE_CONDUCTOR
+        + r"""
+$script:AgentTurn = {
+    Set-Content -Path keep.py -Value "x = ('branch', 'main')"
+    Set-Content -Path agent_own.py -Value 'a = 1'
+}
+"""
+        + _MERGE_REPORT,
+        cwd=repo,
+    )
+
+    record = next(c for c in out["comments"] if c.startswith("🤖 Implementation"))
+    assert "`keep.py` — changed" in record
+    assert "`agent_own.py` — added" in record
+    assert "main_only.py" not in record
+    assert "**Files changed (2):**" in record
+
+    assert (
+        out["subjects"][1]
+        == "chore(#346): merge main into feature/346-use-protected-files"
+    )
+    assert out["merging"] is False
+    assert "review" in out["log"] and "ship" in out["log"]
+    assert "failed-attempt" not in out["log"]
+    assert out["pushes"] and not any("force" in p for p in out["pushes"])
 
 
 # ── Invoke-CommitAndPR -NoPR: the attempt's work reaches the branch ───────────

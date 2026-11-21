@@ -78,6 +78,21 @@ gh pr view <number> --json body | jq '.body | test("Closes #[0-9]+")'
 ```
 If missing → add it before merge, do not skip.
 
+### Bring the Branch Up to Date
+
+Branch protection requires a branch that is up to date with the default branch. Merge the
+default branch into the feature branch — what GitHub's "Update branch" button does — and push
+without force:
+
+```bash
+git fetch origin main && git merge --no-ff origin/main && git push origin HEAD
+```
+
+Never rebase the feature branch: the PR is squash-merged, so its history never reaches the
+default branch, and a rebase only forces a forced push. The orchestrator does the same
+(`Update-Branch`): a conflict found at ship ends the attempt, and the next attempt's agent
+settles it, keeping what both sides changed.
+
 ### Merge
 
 ```bash

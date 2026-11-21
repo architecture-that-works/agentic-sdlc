@@ -100,10 +100,44 @@ function Format-RefusalComment {
     return $body
 }
 
+# The 🤖 signal that ends a round on conflict markers left after the agent's turn
+# (#367): each file, and what the owner does next.
+function Format-MarkersLeftComment {
+    param([string[]]$MarkerFiles, [string]$Branch)
+    $list = ($MarkerFiles | ForEach-Object { "- ``$_``" }) -join "`n"
+    return "🤖❌ Conflict markers left — needs you`n`n" +
+           "Merging ``$KanbanDefaultBranch`` into ``$Branch`` conflicted, and after the agent's turn these file(s) " +
+           "still hold conflict markers, so the merge was aborted, nothing was pushed and no retry was started:`n`n$list`n`n" +
+           "Resolve these files on branch ``$Branch`` — with GitHub's conflict editor on the pull request, or by " +
+           "merging ``$KanbanDefaultBranch`` locally — then comment on this issue. That starts a new round with " +
+           "your comment in the agent's instructions."
+}
+
 # ── Phase 1: Develop ──────────────────────────────────────────────────────────
 
+# The MERGE CONFLICT section of the agent prompt (#367), '' when nothing conflicts.
+# It comes before the numbered instructions: settling the merge is the first task.
+function Format-ConflictInstructions {
+    param([string[]]$Conflicts)
+    $files = @($Conflicts | Where-Object { $_ })
+    if ($files.Count -eq 0) { return '' }
+    $list = ($files | ForEach-Object { "- $_" }) -join "`n"
+    return @"
+
+MERGE CONFLICT:
+The orchestrator merged $KanbanDefaultBranch into this branch, and these files conflict:
+$list
+Resolving these conflicts is your FIRST task, before anything else. In each file, keep what
+both sides changed — combine the two versions rather than choosing one — and remove every
+conflict marker line (``<<<<<<<``, ``=======``, ``>>>>>>>``). Edit the files only: never run
+``git merge``, ``git commit``, ``git merge --abort`` or ``git push``. The orchestrator completes the
+merge, runs the tests and pushes. Conflict markers left in any of these files end the round.
+
+"@
+}
+
 function Invoke-Develop {
-    param([int]$Number, [string]$Branch, [string]$BaseCommit = '')
+    param([int]$Number, [string]$Branch, [string]$BaseCommit = '', [string[]]$Conflicts = @())
     Write-Log "  Phase 1 — Develop issue #$Number on $Branch" -Color Yellow
     Move-ToLane -IssueNumber $Number -OptionId $KanbanOpt_Implementing -LaneName 'Implementing'
     Add-Comment -Number $Number -Body "· branch checked out — starting"
@@ -129,7 +163,7 @@ ISSUE TITLE: $($issue.title)
 ISSUE BODY:
 $($issue.body)
 $(Format-OwnerComments -IssueNumber $Number)$signalSection
-INSTRUCTIONS:
+$(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
 0. If the issue body has an "Attempts" section, earlier attempts failed. Read each failure there
    and in the signal history (test output, review rejections, CI logs), find the root cause with the
    ``diagnosis`` skill (``.agents/skills/diagnosis/SKILL.md``), and fix it — do not repeat an approach
@@ -226,8 +260,45 @@ INSTRUCTIONS:
     $leftUndoneText  = if ($luLine)  { ($luLine  -replace '^\s*[-*•]\s+Left undone:\s*',     '').Trim() } else { 'none' }
     $issuesDiscText  = if ($idLine)  { ($idLine  -replace '^\s*[-*•]\s+Issues discovered:\s*', '').Trim() } else { 'none' }
 
+    # A merge left in conflict at the start of the attempt (#367) is completed before
+    # anything is measured: the merge commit — with the agent's resolution — becomes
+    # the attempt's base, so nothing that came in from the default branch is counted
+    # as the attempt's change. Markers left behind end here, before the tests.
+    $conflicts   = @($Conflicts | Where-Object { $_ })
+    $markerFiles = @()
+    if ($conflicts.Count -gt 0) {
+        $completion  = Complete-BranchUpdate -IssueNumber $Number -Branch $Branch -Conflicts $conflicts
+        $markerFiles = @($completion.MarkerFiles | Where-Object { $_ })
+        if ($markerFiles.Count -eq 0) { $BaseCommit = "$(git rev-parse HEAD 2>$null)".Trim() }
+    }
+    if ($markerFiles.Count -gt 0) {
+        $proc = Get-ProcedureRecord -StreamEvents $streamEvents.ToArray()
+        return @{
+            FileSection      = ''
+            ChangedFiles     = @()
+            RefusedFiles     = @()
+            MarkerFiles      = $markerFiles
+            AttemptBase      = $BaseCommit
+            Implemented      = $implementedText
+            LeftUndone       = $leftUndoneText
+            IssuesDiscovered = $issuesDiscText
+            PhaseOneCommands = @()
+            AgentsMdRead     = $proc.agentsMdRead
+            ContextMdRead    = $proc.contextMdRead
+            SkillRead        = $proc.skillRead
+            TestedOnce       = $testedOnce
+            TestsPassed      = $false
+        }
+    }
+
     # What really changed (git) and what the engine refused (its result event).
+    # The conflicted files the agent resolved are the attempt's work too, even though
+    # the merge commit already holds them.
     $changedFiles = @(Get-AttemptChangedFiles -BaseCommit $BaseCommit)
+    $listed       = @($changedFiles | ForEach-Object { $_.path })
+    foreach ($f in $conflicts) {
+        if ($listed -notcontains $f) { $changedFiles += [pscustomobject]@{ path = $f; change = 'changed' } }
+    }
     $fileSection  = Format-ChangedFiles -ChangedFiles $changedFiles
     $repoRoot     = "$(git rev-parse --show-toplevel 2>$null)".Trim()
     $refusedFiles = @(Get-RefusedFiles -StreamEvents $streamEvents.ToArray() -RepoRoot $repoRoot)
@@ -258,6 +329,8 @@ INSTRUCTIONS:
         FileSection      = $fileSection
         ChangedFiles     = $changedFiles
         RefusedFiles     = $refusedFiles
+        MarkerFiles      = @()
+        AttemptBase      = $BaseCommit
         Implemented      = $implementedText
         LeftUndone       = $leftUndoneText
         IssuesDiscovered = $issuesDiscText
@@ -394,18 +467,11 @@ function Invoke-CommitAndPR {
     # observed when issue #42 modified .github/workflows/ci.yml and the PAT
     # lacked the `workflow` scope; the real GitHub error never made it to logs.
     #
-    # When origin already has this branch, push under a lease. A resumed retry or an
-    # implement-time rebase (see Invoke-Implement) both leave HEAD unable to
-    # fast-forward, which is what rejected issue #154's push outright. The lease still
-    # refuses to overwrite commits this clone has not seen, so it is not a blind
-    # --force; Ship.ps1 has used the same guard on its post-rebase push all along.
-    # A brand-new branch has no remote-tracking ref for a lease to compare against,
-    # so it takes the plain push.
-    if (Test-RemoteBranch -Branch $Branch) {
-        $pushOut = git push --force-with-lease --quiet origin "HEAD:refs/heads/$Branch" 2>&1 | Out-String
-    } else {
-        $pushOut = git push --quiet origin "HEAD:refs/heads/$Branch" 2>&1 | Out-String
-    }
+    # Always a plain push (#367). The branch is never rewritten: the default branch is
+    # merged in (Update-Branch), not rebased onto, and a resumed branch is checked out
+    # from origin (New-FeatureBranch, #154), so HEAD always descends from the pushed tip
+    # and the push fast-forwards. A rejection means someone else pushed — surface it.
+    $pushOut = git push --quiet origin "HEAD:refs/heads/$Branch" 2>&1 | Out-String
     $commands.Add([pscustomobject]@{ Name = 'git push'; Exit = $LASTEXITCODE })
     if ($LASTEXITCODE -ne 0) {
         throw "git push failed for branch ${Branch}:`n$($pushOut.Trim())"
@@ -478,32 +544,39 @@ function Invoke-Implement {
         $branch = New-FeatureBranch -Number $IssueNumber -Title $meta.title
     }
 
-    # Reconcile with the default branch BEFORE writing code, not only at merge time.
-    # Invoke-Ship rebases too (Ship.ps1), but by then the agent has finished and a
-    # conflict lands on a human — PR #175 sat seven weeks and acquired a pyproject.toml
-    # conflict that had to be resolved by hand. Rebasing here means drift surfaces
-    # while the agent is still in the loop, and the implementation is written against
-    # current main rather than a stale snapshot.
+    # Bring the branch up to date with the default branch BEFORE writing code, not
+    # only at merge time. Invoke-Ship merges too (Ship.ps1), but by then the agent has
+    # finished — PR #175 sat seven weeks and acquired a pyproject.toml conflict that
+    # had to be resolved by hand. Merging here means drift surfaces while the agent is
+    # still in the loop, and the implementation is written against current main.
     #
-    # A freshly-created branch is already at origin/<default>, so the rebase
-    # short-circuits on the merge-base check and costs nothing. Only resumed branches
-    # do real work here.
+    # The default branch is merged in (Update-Branch, #367), never rebased onto: a
+    # conflict is left in place and becomes the agent's first task, instead of ending
+    # the round before the agent runs. A freshly-created branch already contains
+    # origin/<default>, so the update is a no-op; only resumed branches do real work.
     #
     # The dirty-tree check matters for local runs: when the caller is ALREADY on the
-    # feature branch, New-FeatureBranch (and its auto-stash) never ran, so `hitl.ps1`
-    # from a branch with uncommitted work would otherwise hit a hard
-    # "cannot rebase: You have unstaged changes". Skipping is safe — Invoke-Ship still
-    # rebases before merging, so this is an earlier opportunity, not the only one.
+    # feature branch, New-FeatureBranch (and its auto-stash) never ran, and git merge
+    # refuses to start over local changes. Skipping is safe — Invoke-Ship still brings
+    # the branch up to date before merging, so this is an earlier opportunity.
+    $conflicts = @()
     if (Test-RemoteBranch -Branch $branch) {
         $dirtyTree = git status --porcelain 2>$null
         if ($dirtyTree) {
-            Write-Log "  Working tree has uncommitted changes — skipping implement-time rebase (merge will still rebase)." -Color Yellow
+            Write-Log "  Working tree has uncommitted changes — skipping the update from $KanbanDefaultBranch (ship will still merge it)." -Color Yellow
         } else {
-            Invoke-RebaseOnMaster -IssueNumber $IssueNumber -Branch $branch
+            $update    = Update-Branch -IssueNumber $IssueNumber -Branch $branch
+            $conflicts = @($update.Conflicts | Where-Object { $_ })
         }
     }
 
-    if (-not $Force) {
+    if ($conflicts.Count -gt 0) {
+        # The agent runs even when a PR exists and the run is not forced: review must
+        # never start on a half-merged tree.
+        $list = ($conflicts | ForEach-Object { "- ``$_``" }) -join "`n"
+        Add-Comment -Number $IssueNumber -Body ("🤖⚠️ Merge conflict with $KanbanDefaultBranch — the agent resolves it first`n`n" +
+            "Merging ``$KanbanDefaultBranch`` into ``$branch`` conflicts in:`n`n$list")
+    } elseif (-not $Force) {
         $existingPR = gh pr list --head $branch --json number,url --limit 1 | ConvertFrom-Json
         if ($existingPR.Count -gt 0) {
             Write-Log "  PR #$($existingPR[0].number) already exists — skipping implement." -Color DarkGray
@@ -517,11 +590,35 @@ function Invoke-Implement {
     $devResult   = $null
     $testsFailed = $false   # set when this stage already posted and recorded the failure
     try {
-        $devResult = Invoke-Develop -Number $IssueNumber -Branch $branch -BaseCommit $headBefore
+        $devResult = Invoke-Develop -Number $IssueNumber -Branch $branch -BaseCommit $headBefore -Conflicts $conflicts
+        # The merge commit when a conflict was completed, else the pre-attempt HEAD.
+        $attemptBase = if ($devResult.AttemptBase) { $devResult.AttemptBase } else { $headBefore }
 
         $stateForAttempt = Get-IssueState -IssueNumber $IssueNumber
         $runAttempt      = if ($stateForAttempt -and $stateForAttempt.PSObject.Properties['attempt_count']) { [int]$stateForAttempt.attempt_count + 1 } else { 1 }
         $maxR            = (Get-OrchestratorContext).MaxRetries
+
+        $markerFiles = @($devResult.MarkerFiles | Where-Object { $_ })
+        if ($markerFiles.Count -gt 0) {
+            # Conflict markers left after the agent's turn (#367). The same merge retried
+            # unchanged would end the same way, so the round ends here, like a refused
+            # edit. The merge is aborted and nothing is pushed: a commit with markers
+            # would put broken files in the PR and break CI.
+            git merge --abort 2>&1 | Out-Null
+            $record = New-ImplementationRecord -DevResult $devResult -Commands @()
+            Add-Comment -Number $IssueNumber -Body $record.Body
+
+            $reason = "Conflict markers left in: $($markerFiles -join ', ')"
+            Add-ImplementAttempt -IssueNumber $IssueNumber -Stage 'implement' -Reason $reason `
+                -Attempt $runAttempt -Max $maxR `
+                -Implemented $devResult.Implemented -LeftUndone $devResult.LeftUndone `
+                -IssuesDiscovered $devResult.IssuesDiscovered -Commands $record.Commands -Procedure $record.Procedure
+
+            Add-Comment -Number $IssueNumber -Body (Format-MarkersLeftComment -MarkerFiles $markerFiles -Branch $branch)
+
+            $testsFailed = $true
+            throw "ATTEMPT-RECORDED|CONFLICT-MARKERS|$reason"
+        }
 
         $refused = @($devResult.RefusedFiles | Where-Object { $_ })
         if ($refused.Count -gt 0) {
@@ -591,7 +688,9 @@ function Invoke-Implement {
             # Only a revision reads "no new commits" as an answered question. A retry also
             # runs with -Force and may find nothing left to commit (the owner fixed it by
             # hand); it must go on to review with the existing PR, not close the issue.
-            $newCommits = [int](git rev-list --count "${headBefore}..HEAD" 2>$null)
+            # Counted from the attempt's base, so a merge of the default branch alone is
+            # not new work.
+            $newCommits = [int](git rev-list --count "${attemptBase}..HEAD" 2>$null)
             if ($newCommits -eq 0) {
                 # The revision produced no new commits — the owner asked a question.
                 Write-Log "✅ Implement complete — question answered, no new commits." -Color Green
@@ -602,6 +701,10 @@ function Invoke-Implement {
         Write-Log "✅ Implement complete — PR at $prUrl" -Color Green
         return $prUrl
     } catch {
+        # Never leave a merge half done for the next attempt: it would start on a tree
+        # with conflict markers and no instructions about them. The next attempt merges
+        # again and sees the conflict fresh.
+        if (Test-MergeInProgress) { git merge --abort 2>&1 | Out-Null }
         if (-not $testsFailed) {
             $errBlock = Format-ErrorBlock -Raw "$_"
             Add-Comment -Number $IssueNumber -Body "🤖❌ Implement Failed`n`n$errBlock"
