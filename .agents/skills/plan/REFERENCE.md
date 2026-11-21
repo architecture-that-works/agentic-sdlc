@@ -52,7 +52,7 @@ For each module touched by this PRD, state:
 
 ## Out of Scope
 
-Concepts explicitly deferred. Each entry here becomes a `.out-of-scope.md` section post-merge.
+Concepts explicitly deferred. Each entry here becomes a `.out-of-scope.md` section in the implementing PR.
 Format: "X — deferred because Y."
 ```
 

@@ -71,7 +71,6 @@ function script:Test-HoldAnnounced { param($IssueNumber) $false }
 $script:State = $null
 function script:Get-IssueState { param($IssueNumber) $script:State }
 function script:Invoke-RebaseOnMaster { param($IssueNumber, $Branch) }
-function script:Invoke-ContextUpdate { param($IssueNumber) }
 function script:Set-IssueLabel { param($Number, $Add, $Remove) $script:Log.Add("label:+$Add") }
 function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
 function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:" + ($Body -split "`n")[0]) }
@@ -221,7 +220,6 @@ function script:Set-IssueLabel { param($Number, $Add, $Remove) $script:Log.Add("
 function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
 function script:Set-AgentFailedState { param($IssueNumber, $FailedAt, $Reason) $script:Log.Add("failed:$FailedAt") }
 function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:" + ($Body -split "`n")[0]) }
-function script:Invoke-ContextUpdate { param($IssueNumber) $script:Log.Add("context:$IssueNumber") }
 function script:git { $global:LASTEXITCODE = 0 }
 """
 
@@ -244,7 +242,6 @@ def test_owner_merge_of_a_held_pr_ships_the_issue(tmp_path: Path) -> None:
         "read:212",
         "state:agent:shipped",
         "comment:🤖✅ Merged",
-        "context:212",
     ]
 
 
@@ -272,7 +269,6 @@ def test_pr_merged_directly_without_going_through_ship_still_ships_the_issue(
         "read:212",
         "state:agent:shipped",
         "comment:🤖✅ Merged",
-        "context:212",
     ]
 
 
@@ -306,79 +302,79 @@ def test_a_failed_issue_still_ships_when_its_pr_merges(tmp_path: Path) -> None:
         "read:212",
         "state:agent:shipped",
         "comment:🤖✅ Merged",
-        "context:212",
     ]
 
 
-# ── Invoke-ContextUpdate: best-effort, never leaks a stale exit code (#268) ─────
-# The real function (not the script:Invoke-ContextUpdate stub _HELD uses) ran on a
-# live merge of #267 and reported the whole workflow step as failed even though the
-# issue shipped correctly: claude's "workspace not trusted" warning wasn't stripped
-# from the response, so a harmless, already-logged git-apply failure left
-# $LASTEXITCODE non-zero after the function returned — and nothing after it in the
-# script ever reset it, so the GitHub Actions step inherited that stale code.
-
-_CONTEXT_UPDATE_PRELUDE = """\
-function script:Test-Path { param($Path) $true }
-function script:Get-Content { param($Path, [switch]$Raw) '# CONTEXT.md' }
-function script:Add-Comment { param($Number, $Body) }
-function script:gh {
-    $global:LASTEXITCODE = 0
-    '{"title":"t","body":"b"}'
-}
+# ── After the merge: no commit, no push, no model call (#349) ──────────────────
+# Every change reaches the default branch through a PR. Complete-Ship sets
+# agent:shipped and posts the signal comment, then returns — it never switches or
+# syncs the default branch, commits, pushes, or asks a model to patch CONTEXT.md.
+# git, gh and both engine CLIs are recorded, not faked into success-only no-ops.
+_RECORDED = r"""
+$script:Log   = [System.Collections.Generic.List[string]]::new()
+$script:Calls = [System.Collections.Generic.List[string]]::new()
+$env:KANBAN_LOCAL_CI = $null
+$script:Labels = @('agent:reviewing')
+function script:Get-IssueLabel { param($IssueNumber) $script:Labels }
+function script:Test-HoldAnnounced { param($IssueNumber) $false }
+function script:Get-IssueState { param($IssueNumber) $null }
+function script:Invoke-RebaseOnMaster { param($IssueNumber, $Branch) }
+function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
+function script:Set-AgentFailedState { param($IssueNumber, $FailedAt, $Reason) $script:Log.Add("failed:$FailedAt") }
+function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:" + ($Body -split "`n")[0]) }
+function script:git    { $script:Calls.Add('git ' + ($args -join ' ')); $global:LASTEXITCODE = 0; if ($args[0] -eq 'rev-parse') { 'feature/1-x' } }
+function script:claude { $script:Calls.Add('claude ' + ($args -join ' ')); $global:LASTEXITCODE = 0; 'NO_CHANGES' }
+function script:agy    { $script:Calls.Add('agy ' + ($args -join ' '));    $global:LASTEXITCODE = 0; 'NO_CHANGES' }
+function script:gemini { $script:Calls.Add('gemini ' + ($args -join ' ')); $global:LASTEXITCODE = 0; 'NO_CHANGES' }
+function script:gh { $script:Calls.Add('gh ' + ($args -join ' ')); $global:LASTEXITCODE = 0
+    switch ($args[1]) {
+        'view'   { 'feature/1-x' }
+        'checks' { '[{"name":"test","bucket":"pass"}]' }
+        'diff'   { 'src/x.py' }
+        'merge'  { $script:Log.Add('merged') }
+    } }
 """
 
 
-def _context_update(git_body: str, claude_output: str) -> int:
-    script = (
-        "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
-        "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
-        f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
-        "& (Get-Module Orchestrator) {\n"
-        "function script:Write-Log { param($Message, $Color) }\n"
-        f"{_CONTEXT_UPDATE_PRELUDE}\n"
-        f"function script:git {{ {git_body} }}\n"
-        f'function script:claude {{ $global:LASTEXITCODE = 0; "{claude_output}" }}\n'
-        "Invoke-ContextUpdate -IssueNumber 212\n"
-        '"__EXIT__$LASTEXITCODE"\n'
-        "}\n"
+def _after_merge(call: str, tmp_path: Path) -> tuple[list[str], list[str], list[str]]:
+    """Run `call`; return (log, git calls after the merge, model CLI calls)."""
+    out = _run(
+        _RECORDED
+        + call
+        + "\n[pscustomobject]@{ log = @($script:Log); calls = @($script:Calls) }"
+        " | ConvertTo-Json -Compress",
+        tmp_path,
     )
-    result = subprocess.run(
-        [PWSH, "-NoProfile", "-Command", script],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    marker = next(
-        line for line in result.stdout.splitlines() if line.startswith("__EXIT__")
-    )
-    return int(marker.removeprefix("__EXIT__"))
+    calls = out["calls"]
+    merge = next((i for i, c in enumerate(calls) if c.startswith("gh pr merge")), -1)
+    after = calls[merge + 1 :]
+    git_after = [c for c in after if c.startswith("git ")]
+    models = [c for c in calls if c.split(" ", 1)[0] in {"claude", "agy", "gemini"}]
+    return out["log"], git_after, models
 
 
-def test_context_update_strips_the_claude_trust_dialog_warning() -> None:
-    """The exact text from the live #267 run: a trust-dialog warning line ahead of
-    the real answer. Stripped, the response is exactly NO_CHANGES — no git apply is
-    even attempted, and the process exit code stays clean."""
-    exit_code = _context_update(
-        git_body="$global:LASTEXITCODE = 0",
-        claude_output=(
-            "Ignoring 12 permissions.allow entries from .claude/settings.json: "
-            "this workspace has not been trusted.\nNO_CHANGES"
+_FORBIDDEN_GIT = ("commit", "push", "checkout", "switch", "pull", "reset", "fetch")
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param("Invoke-Ship -IssueNumber 1 -PRNumber 9 | Out-Null", id="ship"),
+        pytest.param(
+            "Complete-HeldPR -PRNumber 9 -Branch 'feature/1-x' -Merged $true",
+            id="held-pr-merged",
         ),
-    )
-    assert exit_code == 0
-
-
-def test_context_update_resets_lastexitcode_after_a_handled_git_apply_failure() -> None:
-    """A genuinely malformed patch still fails git apply — handled (logged, and the
-    function returns normally) rather than thrown — but must not leave a stale
-    non-zero $LASTEXITCODE for the calling workflow step to inherit."""
-    exit_code = _context_update(
-        git_body="$global:LASTEXITCODE = if ($args[0] -eq 'apply') { 1 } else { 0 }",
-        claude_output="not a real diff, not NO_CHANGES either",
-    )
-    assert exit_code == 0
+    ],
+)
+def test_after_a_merge_ship_makes_no_commit_no_push_and_no_model_call(
+    call: str, tmp_path: Path
+) -> None:
+    log, git_after, models = _after_merge(call, tmp_path)
+    assert "state:agent:shipped" in log
+    assert "comment:🤖✅ Merged" in log
+    forbidden = [c for c in git_after if c.split(" ")[1] in _FORBIDDEN_GIT]
+    assert forbidden == [], forbidden
+    assert models == [], models
 
 
 # ── Test-IssueShipped: the one rule, called by afk.yml's cheap pre-check AND by

@@ -16,7 +16,7 @@ issue for a suspected vulnerability.
 | Secret | Used by | Local dev | CI | Production |
 |---|---|---|---|---|
 | `GH_TOKEN` | every `gh` call in the pipeline — issues, labels, board, PRs, merges; `task` commands locally | `.env` | Actions secret | Azure Key Vault (corporate) / GCP Secret Manager (personal) |
-| `CLAUDE_CODE_OAUTH_TOKEN` | every `claude` call in the pipeline — refine, plan, implement, review, commit messages, CONTEXT.md update | your own `claude` login | Actions secret | — (developer credential) |
+| `CLAUDE_CODE_OAUTH_TOKEN` | every `claude` call in the pipeline — refine, plan, implement, review, commit messages | your own `claude` login | Actions secret | — (developer credential) |
 | `ANTHROPIC_API_KEY` | AI-backed endpoints in `src/`; `src/tools/commit.py` when the Claude CLI is absent. Not used by the pipeline | `.env` | Actions secret | Azure Key Vault / GCP Secret Manager |
 
 `.env` is git-ignored and must never be committed. In production, secrets are read at runtime
@@ -181,12 +181,12 @@ owes and picks it up again. To stop an issue for good, close it, or disable the 
 
 ### Roll back
 
-Ship squash-merges one commit per issue, then may push a follow-up `chore(context)` commit that
-updates CONTEXT.md directly on the default branch.
+Ship squash-merges one commit per issue and pushes nothing to the default branch after it —
+any CONTEXT.md or `.out-of-scope.md` change rode in that same PR. Reverting the squash commit
+reverts all of it.
 
 1. On the merged PR, click **Revert** and merge the revert PR (or `git revert <squash-sha>`
-   through a PR). Revert the follow-up CONTEXT.md commit too, if there is one — `git log -3
-   -- CONTEXT.md` on the default branch shows it.
+   through a PR).
 2. Reopen the issue (`gh issue reopen <n>`) and remove `agent:shipped`.
 3. To redo it, run `task retry ISSUE=<n>` — the refine/architect/plan state in the issue body
    is kept, so it re-enters `agent:backlog` and implementation starts. Otherwise close it as not

@@ -152,6 +152,6 @@ Plan session produces:
 - 1 Lean PRD (needs a human) — awaits human sign-off before implementation begins
 - 3 decomposed issues: 2 unlabelled (fully automatable), 1 `human:approval` (requires human review)
 - No duplicates found; no `.out-of-scope.md` entries violated
-- Multi-turn streaming and auth appended as `## ` sections to `.out-of-scope.md` post-merge
+- Multi-turn streaming and auth appended as `## ` sections to `.out-of-scope.md` in the implementing PR
 
 **Next:** `implement` session opens Issue #1 (tracer bullet) and enters the RED phase.

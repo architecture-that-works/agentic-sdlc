@@ -5,12 +5,15 @@ logic from the script, avoiding the need for a live GitHub connection while
 still verifying the real rules.
 """
 
+import re
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
 PWSH = shutil.which("pwsh") or "pwsh"
+_ROOT = Path(__file__).resolve().parents[2]
 
 pytestmark = pytest.mark.skipif(
     not shutil.which("pwsh"),
@@ -108,11 +111,6 @@ $Body = [ordered]@{
         dismiss_stale_reviews           = $false
         require_code_owner_reviews      = $false
         require_last_push_approval      = $false
-        bypass_pull_request_allowances  = [ordered]@{
-            users = @()
-            teams = @()
-            apps  = @("github-actions")
-        }
     }
     restrictions                     = $null
     allow_force_pushes               = $false
@@ -195,18 +193,34 @@ if ($Parsed.required_pull_request_reviews -ne $null) { exit 0 } else { exit 1 }
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_body_bypass_includes_github_actions_app() -> None:
+def test_body_requires_a_pr_with_no_approvals_and_no_bypass() -> None:
     result = _ps(
         _BODY_SCRIPT
         + """
-$apps = $Parsed.required_pull_request_reviews.bypass_pull_request_allowances.apps
-if ($apps -contains 'github-actions') { exit 0 } else {
-    Write-Host "apps: $($apps -join ', ')"
+$pr = $Parsed.required_pull_request_reviews
+$keys = @($pr.PSObject.Properties.Name)
+if ($pr.required_approving_review_count -eq 0 `
+    -and (@($keys | Where-Object { $_ -like 'bypass*' }).Count -eq 0) `
+    -and $Parsed.enforce_admins -eq $true) { exit 0 } else {
+    Write-Host "keys: $($keys -join ', ')"
     exit 1
 }
 """
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_script_grants_no_pull_request_bypass() -> None:
+    """The real script, not the replica above: its PUT body names no bypass (#349).
+
+    Every change reaches the default branch through a PR, the orchestrator's included,
+    so protection carries no exception for any user, team or app.
+    """
+    source = (_ROOT / ".github" / "tasks" / "protect.ps1").read_text(encoding="utf-8")
+    # No allowance key of any kind in the PUT body — users, teams and apps alike.
+    assert re.search(r"^\s*bypass_\w+\s*=", source, flags=re.MULTILINE) is None
+    assert "enforce_admins                   = $true" in source
+    assert "required_approving_review_count = 0" in source
 
 
 # ---------------------------------------------------------------------------

@@ -8,19 +8,18 @@
       - Required status checks: lint, typecheck, test, audit, secret-scan, checks, eval
         (eval is skipped — reported as success — on PRs that touch no model-facing path)
       - Require branches to be up-to-date before merging (strict)
-      - Require a pull request before merging (no approval count required)
-      - github-actions app bypass for direct push (orchestrator CONTEXT.md update)
+      - Require a pull request before merging (no approval count required), with no
+        bypass allowances for any user, team or app — every change, the orchestrator's
+        included, reaches the default branch through a pull request
       - Enforce all rules for admins too (no admin bypass)
 
-    Run via:  task protect
-    Requires: GH_TOKEN with 'repo' scope (repository admin access)
-    Verify:   gh api repos/{owner}/{repo}/branches/main/protection
+    Branch protection is a one-time setting. The owner runs this once from a terminal
+    with their own `gh` login, which needs repository admin rights. No workflow applies
+    it, and no admin-capable token is stored as an Actions secret for it (SECURITY.md:
+    GH_TOKEN never carries admin:* scope).
 
-.NOTES
-    The github-actions bypass allows the orchestrator's post-merge CONTEXT.md
-    direct push (afk.yml) to succeed despite the PR requirement.
-    If the bypass API call is rejected (e.g. plan limitation), branch protection
-    is still applied and the CONTEXT.md push fails gracefully (non-blocking).
+    Run via:  task protect
+    Verify:   gh api repos/{owner}/{repo}/branches/main/protection
 
 .EXAMPLE
     task protect
@@ -62,11 +61,6 @@ $BodyObject = [ordered]@{
         # delegated to the human:approval label (GovernancePaths in lib/Config.ps1) instead.
         require_code_owner_reviews      = $false
         require_last_push_approval      = $false
-        bypass_pull_request_allowances  = [ordered]@{
-            users = @()
-            teams = @()
-            apps  = @("github-actions")
-        }
     }
     restrictions                     = $null
     allow_force_pushes               = $false
@@ -124,13 +118,6 @@ if ($Protection.enforce_admins.enabled) {
     Write-Host "  ✅ Admin bypass disabled (enforce_admins: true)." -ForegroundColor Green
 } else {
     Write-Host "  ⚠️  Admin bypass not disabled — enforce_admins may be false." -ForegroundColor Yellow
-}
-
-$Bypass = $Protection.required_pull_request_reviews.bypass_pull_request_allowances.apps
-if ($Bypass -and ($Bypass | Where-Object { $_.slug -eq 'github-actions' -or $_ -eq 'github-actions' })) {
-    Write-Host "  ✅ github-actions bypass configured (CONTEXT.md direct push allowed)." -ForegroundColor Green
-} else {
-    Write-Host "  ℹ️  github-actions bypass not present — CONTEXT.md direct push may be rejected (non-blocking)." -ForegroundColor DarkGray
 }
 
 Write-Host ""

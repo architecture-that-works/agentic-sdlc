@@ -122,6 +122,21 @@ def test_any_feature_pr_close_reconciles_the_issue():
     assert "Complete-HeldPR" in job
 
 
+def test_the_pr_closed_job_stores_no_credentials_and_runs_no_model():
+    """Reconciling a closed PR only sets labels and posts comments through gh, so
+    the job never pushes (#349): every checkout is credential-free, and nothing that
+    existed only for the old post-merge CONTEXT.md update — a second credentialed
+    checkout, the Claude CLI, a git identity, the Claude token — is left."""
+    job = _job("pr-closed")
+    checkouts = job.count("actions/checkout@")
+    assert checkouts >= 1
+    assert job.count("persist-credentials: false") == checkouts
+    assert "token: ${{ secrets.GH_TOKEN }}" not in job
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in job
+    assert "npm install" not in job
+    assert "git config" not in job
+
+
 def test_a_comment_on_a_held_issue_does_not_trigger_refine():
     """The refine job no longer handles issue_comment events at all — the central
     comment router job is the sole issue_comment consumer. A comment on a
@@ -191,9 +206,8 @@ def test_installer_steps_precede_credentialed_checkouts():
     """Every uv or npm install step must appear before any actions/checkout step
     that stores credentials (i.e. one without persist-credentials: false).
 
-    pr-closed and reconcile intentionally do a credential-free first checkout
-    so their conditional install can run after the cheap pre-check without
-    exposing a PAT during package installation.
+    pr-closed and reconcile use a credential-free checkout, so their installs
+    never run with a PAT stored in git config.
     """
     text = WORKFLOW.read_text(encoding="utf-8")
 

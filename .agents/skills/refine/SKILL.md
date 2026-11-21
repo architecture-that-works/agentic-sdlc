@@ -119,7 +119,7 @@ Store ADRs in `docs/adr/`. Reference by number in `CONTEXT.md` Architectural Con
 
 | Artefact | Owner | When written |
 |---|---|---|
-| `CONTEXT.md` | `refine` | Start of session; updated by `ship` post-merge |
+| `CONTEXT.md` | `refine` | Start of session; Module Map / Index rows ride in the implementing PR |
 | `AGENTS.md` | `refine` | One-time setup; updated only in `refine` sessions |
 | ADR (MADR) | `refine` | One per architectural decision made during grilling |
 | Agent Brief | `refine` | End of grilling; input to `plan` |
