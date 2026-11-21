@@ -1,8 +1,8 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Apply branch-protection rules to the main branch, and switch on secret scanning and
-    push protection.
+    Apply branch-protection rules to the main branch, set the repository's merge settings,
+    and switch on secret scanning and push protection.
 
 .DESCRIPTION
     Configures branch protection on 'main' with:
@@ -14,17 +14,24 @@
         included, reaches the default branch through a pull request
       - Enforce all rules for admins too (no admin bypass)
 
-    It also switches on secret scanning and push protection, so GitHub refuses any push that holds a secret.
-    A private repository gets them only if its owner buys GitHub Secret Protection; the branch rules apply regardless.
+    It then sets the merge settings, in a call of its own, so a merge by hand lands like the
+    orchestrator's: squash merging only (no merge commits, no rebase merging), the pull
+    request's title as the squash commit's title with the commits' messages as its body,
+    merged branches deleted, and the "Update branch" button always offered.
 
-    Branch protection is a one-time setting. The owner runs this once from a terminal
+    Last it switches on secret scanning and push protection, so GitHub refuses any push that holds a secret.
+    A private repository gets them only if its owner buys GitHub Secret Protection; the branch rules
+    and the merge settings, which come first, apply regardless.
+
+    These are one-time settings. The owner runs this once from a terminal
     with their own `gh` login, which needs repository admin rights. No workflow applies
-    it, and no admin-capable token is stored as an Actions secret for it (SECURITY.md:
+    them, and no admin-capable token is stored as an Actions secret for it (SECURITY.md:
     GH_TOKEN never carries admin:* scope).
 
     Run via:  task protect
     Verify:   gh api repos/{owner}/{repo}/branches/main/protection
               gh api repos/{owner}/{repo} --jq .security_and_analysis
+              gh api repos/{owner}/{repo}   (merge settings: allow_squash_merge, …)
 
 .EXAMPLE
     task protect
@@ -93,6 +100,31 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "  ✅ Branch protection applied." -ForegroundColor Green
 
+# ── Merge settings ─────────────────────────────────────────────────────────────
+# A call of its own, after the branch rules and before secret scanning: a refusal of
+# secret scanning then leaves these applied. They depend on no plan, so a failure is an error.
+
+Write-Host ""
+Write-Host "🔒 Setting merge settings in '$Repo'..." -ForegroundColor Cyan
+
+$MergeSettings = [ordered]@{
+    allow_squash_merge          = $true
+    allow_merge_commit          = $false
+    allow_rebase_merge          = $false
+    squash_merge_commit_title   = 'PR_TITLE'
+    squash_merge_commit_message = 'COMMIT_MESSAGES'
+    delete_branch_on_merge      = $true
+    allow_update_branch         = $true
+}
+
+$MergeResult = $MergeSettings | ConvertTo-Json | gh api --method PATCH "repos/$Repo" --input - 2>&1 | Out-String
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to apply merge settings:`n$MergeResult"
+    exit 1
+}
+
+Write-Host "  ✅ Merge settings applied." -ForegroundColor Green
+
 # ── Secret scanning and push protection ────────────────────────────────────────
 # Applied after the branch rules, so even a refused run leaves main protected.
 
@@ -158,8 +190,23 @@ if ($Protection.enforce_admins.enabled) {
 
 $RepoSettingsJson = gh api "repos/$Repo" 2>&1 | Out-String
 $Security = $null
+$RepoSettings = $null
 if ($LASTEXITCODE -eq 0) {
-    try { $Security = ($RepoSettingsJson | ConvertFrom-Json).security_and_analysis } catch { $Security = $null }
+    try {
+        $RepoSettings = $RepoSettingsJson | ConvertFrom-Json
+        $Security = $RepoSettings.security_and_analysis
+    } catch { $Security = $null; $RepoSettings = $null }
+}
+foreach ($Key in $MergeSettings.Keys) {
+    $Want = $MergeSettings[$Key]
+    $Got  = if ($RepoSettings) { $RepoSettings.$Key } else { $null }
+    $Text  = { param($V) if ($V -is [bool]) { "$V".ToLowerInvariant() } else { "$V" } }
+    $Shown = if ($null -ne $Got) { & $Text $Got } else { 'unknown' }
+    if ($null -ne $Got -and $Got -eq $Want) {
+        Write-Host "  ✅ Merge setting ${Key}: $Shown." -ForegroundColor Green
+    } else {
+        Write-Host "  ⚠️  Merge setting ${Key}: $Shown (wanted $(& $Text $Want))." -ForegroundColor Yellow
+    }
 }
 foreach ($Feature in @(
         @{ Key = 'secret_scanning'; Name = 'Secret scanning' },
