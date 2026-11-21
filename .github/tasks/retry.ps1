@@ -16,14 +16,14 @@
     Issue number to resume. Required.
 
 .EXAMPLE
-    task retry ISSUE=25
+    pwsh -NoProfile -File .github/tasks/retry.ps1 -Issue 25
 #>
 param([int]$Issue = 0)
 
 $ErrorActionPreference = 'Stop'
 Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
 
-if ($Issue -eq 0) { throw "ISSUE is required. Usage: task retry ISSUE=N" }
+if ($Issue -eq 0) { throw "-Issue is required. Usage: pwsh -NoProfile -File .github/tasks/retry.ps1 -Issue N" }
 
 Write-Log "▶ Retry — resuming issue #$Issue" -Color Cyan
 

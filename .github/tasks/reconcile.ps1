@@ -25,10 +25,10 @@
     Report the verdicts and change nothing.
 
 .EXAMPLE
-    task reconcile
+    pwsh -NoProfile -File .github/tasks/reconcile.ps1
 
 .EXAMPLE
-    task reconcile -- -WhatIf
+    pwsh -NoProfile -File .github/tasks/reconcile.ps1 -WhatIf
 #>
 param(
     [int]$StuckAfterMinutes = -1,

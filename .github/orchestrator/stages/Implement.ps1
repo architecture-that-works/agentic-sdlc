@@ -148,9 +148,10 @@ INSTRUCTIONS:
 "@
 
     $sp       = Get-IssueEstimate -IssueNumber $Number
-    $devModel = Get-PhaseModel -Estimate $sp -Phase 'implement'
+    $devTask  = Get-ImplementTask -Estimate $sp
+    $devModel = Get-TaskModel -Task $devTask
     $devTurns = Get-ImplementMaxTurns -Estimate $sp
-    Write-Log "  Model: $devModel  SP=$sp  max-turns=$devTurns" -Color DarkGray
+    Write-Log "  Model: $devModel ($devTask)  SP=$sp  max-turns=$devTurns" -Color DarkGray
 
     $allText           = [System.Text.StringBuilder]::new()
     $streamEvents      = [System.Collections.Generic.List[object]]::new()
@@ -158,7 +159,7 @@ INSTRUCTIONS:
     $writingPosted     = $false
     $testedOnce        = $false
 
-    $stream = if ($KanbanEngine -eq 'gemini') {
+    $stream = if ($OrchestratorConfig.Engine -eq 'gemini') {
         $prompt | agy --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1
     } else {
         $prompt | claude --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1
@@ -349,10 +350,11 @@ function Invoke-CommitAndPR {
 
     if (git diff --cached --name-only 2>&1) {
         $diff    = git diff --staged 2>&1 | Out-String
-        $message = if ($KanbanEngine -eq 'gemini') {
-            Get-GeminiCommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title"
+        $commitModel = Get-TaskModel -Task 'CommitMessage'
+        $message = if ($OrchestratorConfig.Engine -eq 'gemini') {
+            Get-GeminiCommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title" -Model $commitModel
         } else {
-            Get-CommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title"
+            Get-CommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title" -Model $commitModel
         }
         $msgFile = New-TemporaryFile
         try {
@@ -463,7 +465,7 @@ function Invoke-Implement {
     # was dispatched manually or its state block was hand-edited.
     $state = Get-IssueState -IssueNumber $IssueNumber
     if (-not (Test-Readiness -State $state)) {
-        Write-Log "  ⚠️ Issue #$IssueNumber reached Implementing without full alignment (refined+architected+planned). Proceeding; run 'task refine' next time to align before backlog." -Color Yellow
+        Write-Log "  ⚠️ Issue #$IssueNumber reached Implementing without full alignment (refined+architected+planned). Proceeding; run 'pwsh -NoProfile -File .github/tasks/refine.ps1' next time to align before backlog." -Color Yellow
     }
 
     $meta           = gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json
@@ -488,7 +490,7 @@ function Invoke-Implement {
     # do real work here.
     #
     # The dirty-tree check matters for local runs: when the caller is ALREADY on the
-    # feature branch, New-FeatureBranch (and its auto-stash) never ran, so `task hitl`
+    # feature branch, New-FeatureBranch (and its auto-stash) never ran, so `hitl.ps1`
     # from a branch with uncommitted work would otherwise hit a hard
     # "cannot rebase: You have unstaged changes". Skipping is safe — Invoke-Ship still
     # rebases before merging, so this is an earlier opportunity, not the only one.

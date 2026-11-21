@@ -37,9 +37,9 @@
 
         # Recovery (lib/Reconcile.ps1). Invoke-Reconciliation is the hourly warden
         # over states nothing is working on; Restart-Issue is the single re-entry
-        # point it and task retry both use.
+        # point it and retry.ps1 both use.
         #
-        # Collapsing task retry onto Restart-Issue took five functions out of this
+        # Collapsing retry.ps1 onto Restart-Issue took five functions out of this
         # list — Set-AgentState, Add-Comment, Reset-AttemptCount, Get-IssueState and
         # Set-IssueLabel. retry.ps1 was their only external caller, and it had to
         # sequence all five by hand to do what Restart-Issue now does in one call.

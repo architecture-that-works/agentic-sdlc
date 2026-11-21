@@ -97,7 +97,7 @@ Audit like the senior developer who just inherited the repo and will be paged wh
 3. **Check** each finding the way `review` does: a concrete case or no finding; the smallest fix, preferably one that deletes.
 4. **Dedupe** against open issues (the research loop above) and `.out-of-scope.md`.
 5. **Report**, at most 20 findings, most important first, no severity tags: `What this repo does:` and the load assumed; the numbered three-part findings (defect / case / fix); `Verdict:` healthy, or the numbers to fix first; `Lean: -<N> lines, -<M> dependencies possible.`; `Not checked:`.
-6. **Write each finding as an ISSUES.md block** — except the small suggestions (INFO in `review`'s table), which stay in the report — one per finding, sized with the ISSUES.md scale; template in [REFERENCE.md](REFERENCE.md). `task sync` opens them; `refine` takes it from there.
+6. **Write each finding as an ISSUES.md block** — except the small suggestions (INFO in `review`'s table), which stay in the report — one per finding, sized with the ISSUES.md scale; template in [REFERENCE.md](REFERENCE.md). `.github/tasks/sync.ps1` opens them; `refine` takes it from there.
 
 ## Quick Reference
 
@@ -108,7 +108,7 @@ Audit like the senior developer who just inherited the repo and will be paged wh
 | Shallow module detected | Trigger REFACTOR phase in `implement` |
 | Pattern grade F | Block — raise with `refine` before `plan` |
 | Blast-radius crosses boundary | Post report, await explicit approval |
-| Audit finding (not a small suggestion) | One ISSUES.md block each; `task sync` |
+| Audit finding (not a small suggestion) | One ISSUES.md block each; `.github/tasks/sync.ps1` |
 
 **Context sensitivity:** Medium. Graph outputs go to filesystem; only summary metrics enter context. Safe to run in Transition Zone if raw outputs are offloaded.
 

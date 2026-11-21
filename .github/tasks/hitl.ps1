@@ -15,8 +15,8 @@
     Maximum implement→review cycles before marking agent:failed. Default: 3.
 
 .EXAMPLE
-    task hitl              # interactive picker
-    task hitl ISSUE=13     # run orchestration for issue #13 directly
+    pwsh -NoProfile -File .github/tasks/hitl.ps1              # interactive picker
+    pwsh -NoProfile -File .github/tasks/hitl.ps1 -Issue 13     # run orchestration for issue #13 directly
 #>
 param(
     [int]$Issue      = 0,

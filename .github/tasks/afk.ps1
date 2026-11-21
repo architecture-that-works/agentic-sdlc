@@ -21,8 +21,8 @@
     Skip the self-hosted confirmation prompt (for non-interactive use).
 
 .EXAMPLE
-    task afk             # dispatch the cloud backfill refine, then walk away
-    task afk -- -Force   # same, no prompt even on a self-hosted profile
+    pwsh -NoProfile -File .github/tasks/afk.ps1             # dispatch the cloud backfill refine, then walk away
+    pwsh -NoProfile -File .github/tasks/afk.ps1 -Force   # same, no prompt even on a self-hosted profile
 #>
 param([switch]$Force)
 

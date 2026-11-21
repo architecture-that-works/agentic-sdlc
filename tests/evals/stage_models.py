@@ -6,7 +6,6 @@ the orchestrator module and never from a literal in `tests/evals/`.
 
 import functools
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -15,19 +14,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ORCHESTRATOR = REPO_ROOT / ".github" / "orchestrator" / "Orchestrator.psd1"
 STAGES = ("review", "implement")
 
-# Loads the module the way tests/orchestrator/test_phase_model.py does. Both stages come
-# from the stage selector; implement above OpusImplementThreshold, the Opus tier (#341).
-# KANBAN_MODEL_* overrides pass through from the environment.
+# Loads the module the way tests/orchestrator/test_task_model.py does. Both models come
+# from Get-TaskModel on the engine the orchestrator runs (its Engine setting): review is
+# the Review task, and implement the ImplementLarge task (#341).
 _SCRIPT = f"""
 $env:GITHUB_REPOSITORY = 'octocat/sandbox'
 $env:GITHUB_DEFAULT_BRANCH = 'main'
 Import-Module '{ORCHESTRATOR}' -Force -DisableNameChecking
 & (Get-Module Orchestrator) {{
     function script:Write-Log {{ param($Message, $Color) }}
-    $above = $OrchestratorConfig.OpusImplementThreshold + 1
     @{{
-        review    = Get-PhaseModel -Estimate 0 -Phase 'review'
-        implement = Get-PhaseModel -Estimate $above -Phase 'implement'
+        review    = Get-TaskModel -Task 'Review'
+        implement = Get-TaskModel -Task 'ImplementLarge'
     }} | ConvertTo-Json -Compress
 }}
 """
@@ -37,8 +35,7 @@ Import-Module '{ORCHESTRATOR}' -Force -DisableNameChecking
 def stage_models() -> dict[str, str]:
     """The models the pipeline's stages use: keys `review` and `implement`.
 
-    Read from the orchestrator module in one pwsh call, once per process, with the
-    Claude engine forced. Raises RuntimeError rather than fall back to a literal: an
+    Read from the orchestrator module in one pwsh call, once per process. Raises RuntimeError rather than fall back to a literal: an
     eval that cannot tell which model it tests must fail, not skip.
     """
     pwsh = shutil.which("pwsh")
@@ -52,7 +49,6 @@ def stage_models() -> dict[str, str]:
             capture_output=True,
             text=True,
             encoding="utf-8",
-            env={**os.environ, "KANBAN_ENGINE": "claude"},
             timeout=120,
             check=False,
         )

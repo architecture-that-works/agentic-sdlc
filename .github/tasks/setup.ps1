@@ -321,7 +321,7 @@ if ($LASTEXITCODE -ne 0 -or -not $_LabelRepo) {
 }
 
 Write-Host ""
-Write-Host "✅ Setup complete. Run 'task hitl' to pick up backlog issues." -ForegroundColor Green
+Write-Host "✅ Setup complete. Run 'pwsh -NoProfile -File .github/tasks/hitl.ps1' to pick up backlog issues." -ForegroundColor Green
 Write-Host ""
 Write-Host "ℹ️  Runner profile: KANBAN_RUNNER_PROFILE set to 'hosted' (GHA ubuntu-latest)." -ForegroundColor Cyan
 Write-Host "   To switch to a self-hosted runner: gh variable set KANBAN_RUNNER_PROFILE --body 'self-hosted'" -ForegroundColor DarkGray

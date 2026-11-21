@@ -3,8 +3,9 @@
     Gemini.ps1 — generic Gemini (LLM) helpers, shared across the orchestrator.
 
     Provider-generic: streaming agentic invocation with live tool/text rendering,
-    and a commit-message generator. NOT kanban-specific — callers pass -Model
-    (e.g. from the kanban Get-PhaseModel selector). Depends only on Write-Log.
+    and a commit-message generator. NOT kanban-specific — callers pass -Model,
+    the model of the task they run (Get-TaskModel); no parameter has a model
+    default. Depends only on Write-Log.
 #>
 
 # Formats a single tool_use event from Gemini's stream for terminal display.
@@ -23,13 +24,13 @@ function Format-GeminiToolLine {
 
 # Invoke Gemini with streaming JSON output, printing tool use and text to the
 # terminal. Returns the full text response as a string. Callers must pass -Model
-# (use Get-PhaseModel) and -MaxTurns explicitly.
+# (use Get-TaskModel) and -MaxTurns explicitly.
 function Invoke-GeminiStreaming {
     param(
         [string]$Prompt,
         [string]$AllowedTools = 'Read,Glob,Grep',
         [string]$Label = 'Gemini',
-        [string]$Model = 'gemini-3.5-flash',
+        [Parameter(Mandatory)][string]$Model,
         [int]$MaxTurns = 30,
         [int]$MaxAttempts = 3
     )
@@ -101,7 +102,7 @@ function Remove-GeminiNoise {
 
 # Commit message — Gemini primary, fallback to the supplied message.
 function Get-GeminiCommitMessage {
-    param([string]$Diff, [string]$FallbackMessage, [string]$Model = 'gemini-3.5-flash')
+    param([string]$Diff, [string]$FallbackMessage, [Parameter(Mandatory)][string]$Model)
 
     $prompt = @"
 Generate a conventional commit message for the following staged diff.

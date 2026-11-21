@@ -48,6 +48,17 @@ def _ps(script: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+# Invoke-Grill reads its model (Get-TaskModel) and turn budget from lib/Config.ps1, so a
+# run past -DryRun needs the module, not the library alone. The fakes are global so the
+# module's functions find them.
+_MODULE = (
+    "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
+    "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
+    f"Import-Module '{(REPO_ROOT / '.github' / 'orchestrator' / 'Orchestrator.psd1').as_posix()}'"
+    " -Force -DisableNameChecking\n"
+)
+
+
 def _ps_file(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [PWSH, "-NoProfile", "-File", str(GRILL_SCRIPT), *args],
@@ -253,8 +264,8 @@ _PAYLOAD = {
 def _grill_with_output(lines: list[str]) -> subprocess.CompletedProcess[str]:
     fake = "; ".join(f"'{ln.replace(chr(39), chr(39) * 2)}'" for ln in lines)
     return _ps(
-        f". '{GRILL_LIB.as_posix()}'\n"
-        f"function claude {{ $input | Out-Null; $global:LASTEXITCODE = 0; {fake} }}\n"
+        _MODULE
+        + f"function global:claude {{ $input | Out-Null; $global:LASTEXITCODE = 0; {fake} }}\n"
         "try { $r = Invoke-Grill -Title 'T' -Body 'B'; 'OK:' + $r.agent_brief.feature_name }\n"
         "catch { 'ERR:' + $_.Exception.Message }"
     )
@@ -304,12 +315,12 @@ def test_grill_trace_lists_the_tools_it_called_in_order() -> None:
     ]
     fake = "; ".join(f"'{ln.replace(chr(39), chr(39) * 2)}'" for ln in lines)
     out = _ps(
-        f". '{GRILL_LIB.as_posix()}'\n"
-        "function claude { $input | Out-Null; $script:Args = $args; $global:LASTEXITCODE = 0; "
+        _MODULE
+        + "function global:claude { $input | Out-Null; $global:GrillArgs = $args; $global:LASTEXITCODE = 0; "
         f"{fake} }}\n"
         "$r = Invoke-Grill -Title 'T' -Body 'B' -Trace\n"
         "[pscustomobject]@{ tools = $r.tools_called; brief = $r.result.agent_brief.feature_name;"
-        " args = ($script:Args -join ' ') } | ConvertTo-Json -Compress"
+        " args = ($global:GrillArgs -join ' ') } | ConvertTo-Json -Compress"
     )
     data = json.loads(out.stdout.strip().splitlines()[-1])
     assert data["tools"] == ["Read", "Glob", "Grep"], out.stderr
@@ -341,13 +352,12 @@ def test_grill_fetches_the_issue_even_with_gh_stderr_noise() -> None:
     JSON stdout via 2>&1, so any incidental notice/warning on stderr broke the
     strict ConvertFrom-Json with a cryptic error instead of fetching cleanly."""
     out = _ps(
-        f". '{GRILL_LIB.as_posix()}'\n"
-        "function gh {\n"
+        _MODULE + "function global:gh {\n"
         "  Write-Error -Message 'a notice gh prints to stderr' -ErrorAction Continue\n"
         "  $global:LASTEXITCODE = 0\n"
         '  \'{"title":"T","body":"B"}\'\n'
         "}\n"
-        f"function claude {{ $input | Out-Null; $global:LASTEXITCODE = 0; "
+        f"function global:claude {{ $input | Out-Null; $global:LASTEXITCODE = 0; "
         f"'{_envelope('success', json.dumps(_PAYLOAD))}' }}\n"
         "try { $r = Invoke-Grill -Issue 42; 'OK:' + $r.agent_brief.feature_name }\n"
         "catch { 'ERR:' + $_.Exception.Message }"
@@ -359,8 +369,7 @@ def test_grill_issue_fetch_failure_names_the_issue_and_stderr() -> None:
     """A genuine gh failure (non-zero exit) must raise a clear, actionable error —
     not an opaque JSON-conversion exception."""
     out = _ps(
-        f". '{GRILL_LIB.as_posix()}'\n"
-        "function gh {\n"
+        _MODULE + "function global:gh {\n"
         "  Write-Error -Message 'HTTP 404: Not Found' -ErrorAction Continue\n"
         "  $global:LASTEXITCODE = 1\n"
         "}\n"
