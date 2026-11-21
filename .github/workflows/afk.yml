@@ -23,6 +23,12 @@ name: AFK
 #                                                  a comment, nothing pushed; closed unmerged →
 #                                                  agent:failed, your comment retries. Skipped
 #                                                  only if the issue is already terminal.
+#   any feature/{n}-* PR merges                 → conflict check: every other held PR
+#                                                  (human:approval) that now conflicts with the
+#                                                  default branch gets a round (implement →
+#                                                  review → ship, which holds it again) and one
+#                                                  comment naming the merge; a clean one is
+#                                                  left alone (#374)
 #   hourly schedule                             → reconcile: re-enter any agent-held state
 #                                                  nothing is working on, and resume
 #                                                  agent:paused once the Claude usage limit
@@ -401,6 +407,48 @@ jobs:
         run: |
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           Complete-HeldPR -PRNumber ([int]$env:PR_NUMBER) -Branch $env:PR_BRANCH -Merged ($env:PR_MERGED -eq 'true')
+
+  # ── Feature-branch PR merged — start a round for each held PR that now conflicts ─
+  # A job of its own, not a step behind pr-closed's shipped-issue gate: it must run
+  # after every merge, the pipeline's own included (#374). Concurrency is per job,
+  # and a shared group on pr-closed would let a newer pending run replace an older
+  # one and drop its Complete-HeldPR; here a replaced pending run loses nothing,
+  # because each run checks every held PR. One group for all PRs serialises the
+  # checks, so two merges close together cannot start two rounds for one issue.
+  conflict-rounds:
+    name: Start a round for held PRs that now conflict
+    needs: pr-closed
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'feature/')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: conflict-rounds
+      cancel-in-progress: false
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      # Credential-free checkout of every branch (fetch-depth 0): the conflict probe
+      # is an in-memory git merge-tree over these refs and never pushes (#349).
+      # GH_TOKEN is used only by gh — labels, the comment and the implement dispatch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Start a round for each held PR that now conflicts
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
+          $rows = @(Start-ConflictRounds -MergedPR ([int]$env:PR_NUMBER))
+          if ($rows.Count -eq 0) { Write-Output "No held PR to check after PR #$($env:PR_NUMBER)." }
+          $rows | Format-Table IssueNumber, PRNumber, Conflicts, RoundStarted -AutoSize | Out-String | Write-Output
 
   # ── Reconcile (hourly) — states nothing is working on ───────────────────────
   # The warden. Every other recovery path runs inside the conductor's try/catch,

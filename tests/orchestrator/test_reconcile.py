@@ -651,7 +651,7 @@ def test_revise_route_dispatches_implement_job() -> None:
         "    if ($a -like '*issue view*') {\n"
         '        return \'{"title":"T","labels":[{"name":"human:approval"}],"state":"OPEN"}\' }\n'
         "    if ($a -like '*pr list*') { return '[{\"number\":1}]' }\n"
-        "    if ($a -like '*workflow run*') { $script:workflowDispatched = $true }\n"
+        "    if ($a -like '*workflow run*') { $script:workflowDispatched = $a }\n"
         "    return '' }\n"
         "$null = Invoke-Orchestration -IssueNumber 42 -From comment -MaxRetries 1\n"
         "[pscustomobject]@{ stateSet = $script:stateSet; dispatched = $script:workflowDispatched } | ConvertTo-Json -Compress\n"
@@ -673,6 +673,10 @@ def test_revise_route_dispatches_implement_job() -> None:
         "Expected gh workflow run to be dispatched for the revise route.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
+    # The shared dispatch (Start-ImplementRound) — the one the conflict rounds use too.
+    assert "afk.yml" in out["dispatched"]
+    assert "stage=implement" in out["dispatched"]
+    assert "issue_number=42" in out["dispatched"]
 
 
 def test_revise_route_skipped_when_no_open_pr() -> None:

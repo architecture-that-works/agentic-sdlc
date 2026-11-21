@@ -176,6 +176,32 @@ function Complete-BranchUpdate {
     return [pscustomobject]@{ MarkerFiles = @() }
 }
 
+# True when merging the default branch into origin/<Branch> would conflict — the
+# merge Update-Branch runs at the start of an attempt, done in memory (#374). Reads
+# only refs that are already fetched: it checks nothing out, commits nothing, moves
+# no ref and pushes nothing, so git needs no credentials (#349). Any outcome other
+# than "merges cleanly" (exit 0) or "conflicts" (exit 1) throws.
+function Test-BranchConflict {
+    param([Parameter(Mandatory)][string]$Branch)
+    # merge-tree exits 1 for an unknown ref as well as for a conflict, so both refs
+    # are resolved first: a branch that was never fetched must not start a round.
+    foreach ($ref in "origin/$Branch", "origin/$KanbanDefaultBranch") {
+        git rev-parse --quiet --verify "$ref^{commit}" 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            $global:LASTEXITCODE = 0
+            throw "Could not test $Branch for a conflict: $ref is not fetched."
+        }
+    }
+    $out  = git merge-tree --write-tree --name-only "origin/$Branch" "origin/$KanbanDefaultBranch" 2>&1 | Out-String
+    $exit = $LASTEXITCODE
+    $global:LASTEXITCODE = 0
+    switch ($exit) {
+        0 { return $false }
+        1 { return $true }
+        default { throw "Could not test origin/$Branch against origin/${KanbanDefaultBranch} for a conflict:`n$($out.Trim())" }
+    }
+}
+
 # True while a merge is in progress (MERGE_HEAD exists).
 function Test-MergeInProgress {
     git rev-parse -q --verify MERGE_HEAD 2>$null | Out-Null
@@ -521,4 +547,53 @@ function Complete-HeldPR {
     Add-Comment -Number $issue -Body ("🤖⏸ PR #$PRNumber closed without merging`n`n" +
         'Comment on this issue with what should change; the next attempt starts from your comment.')
     Write-Log "⏸ Issue #$issue — PR #$PRNumber closed unmerged; waiting on the owner's comment." -Color Yellow
+}
+
+# ── Held pull requests after a merge (#374) ───────────────────────────────────
+# A merge can make a PR held for the owner (human:approval) conflict, and GitHub then
+# refuses its merge. Run after every merged feature-branch PR (afk.yml conflict-rounds
+# job, whoever merged it): every other open same-repo feature/{n}-* PR whose issue is
+# at human:approval is probed (Test-BranchConflict), and each one that conflicts gets
+# a round — agent:implementing (the hold moves into the carrier as approval_required,
+# so ship holds it again), one signal comment naming the merge, and the implement
+# dispatch. The round settles the conflict as any attempt does. A clean PR is not
+# touched. The label is the only idempotency (ADR-011): a repeated check sees
+# agent:implementing and skips the issue, so one conflict never starts two rounds.
+# Returns one row per held PR examined: IssueNumber, PRNumber, Conflicts, RoundStarted.
+function Start-ConflictRounds {
+    param([Parameter(Mandatory)][int]$MergedPR)
+
+    $raw = gh pr list --repo $KanbanRepo --state open --limit 200 --json number,headRefName,isCrossRepository 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "Could not list the open pull requests:`n$($raw.Trim())" }
+
+    foreach ($pr in @($raw | ConvertFrom-Json)) {
+        if ($pr.number -eq $MergedPR -or $pr.isCrossRepository) { continue }
+        if ($pr.headRefName -notmatch '^feature/(\d+)-') { continue }
+        $issue    = [int]$Matches[1]
+        $pipeline = @(Get-IssueLabel -IssueNumber $issue | Where-Object { $PipelineStates.Contains($_) })
+        if (($pipeline -join ',') -ne 'human:approval') { continue }
+
+        # One PR that cannot be probed (e.g. opened after this job fetched) does not
+        # stop the check for the others; the next merge checks it again.
+        try {
+            $conflicts = Test-BranchConflict -Branch $pr.headRefName
+        } catch {
+            Write-Log "  ⚠️ PR #$($pr.number) (issue #$issue) skipped: $($_.Exception.Message)" -Color Yellow
+            continue
+        }
+        $started   = $false
+        if ($conflicts) {
+            # Label first: a check that runs while this round does skips the issue.
+            Set-AgentState -IssueNumber $issue -Label 'agent:implementing'
+            Add-Comment -Number $issue -Body ("🤖⚠️ Merge conflict after PR #$MergedPR merged — a round is starting`n`n" +
+                "PR #$($pr.number) now conflicts with ``$KanbanDefaultBranch``. The agent merges ``$KanbanDefaultBranch`` " +
+                "into ``$($pr.headRefName)`` and settles the conflict; the PR is then held for you again, or the " +
+                "files it could not settle are named here.")
+            $started = Start-ImplementRound -IssueNumber $issue
+            Write-Log "  PR #$($pr.number) (issue #$issue) conflicts after PR #$MergedPR — round started: $started." -Color Yellow
+        } else {
+            Write-Log "  PR #$($pr.number) (issue #$issue) still merges cleanly." -Color DarkGray
+        }
+        [pscustomobject]@{ IssueNumber = $issue; PRNumber = [int]$pr.number; Conflicts = $conflicts; RoundStarted = $started }
+    }
 }

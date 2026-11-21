@@ -816,6 +816,25 @@ function Add-Comment {
     }
 }
 
+# Dispatches the implement job for one issue (afk.yml stage=implement), so every
+# implement run waits in the one implement-pipeline queue. The caller has already
+# moved the issue to agent:implementing, which the job's resolve step accepts.
+# Shared by the owner-comment revision route and the conflict rounds a merge starts
+# (Start-ConflictRounds, #374). True when the dispatch was accepted.
+function Start-ImplementRound {
+    param([Parameter(Mandatory)][int]$IssueNumber)
+    $out = gh workflow run afk.yml `
+        --repo $KanbanRepo `
+        --ref $KanbanDefaultBranch `
+        --field stage=implement `
+        --field issue_number=$IssueNumber 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not dispatch the implement job for #${IssueNumber}: $($out.Trim())" -Color Yellow
+        return $false
+    }
+    return $true
+}
+
 # ── Branch helpers ────────────────────────────────────────────────────────────
 
 function Get-BranchName {
