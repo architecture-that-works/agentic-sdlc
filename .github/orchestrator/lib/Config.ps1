@@ -3,8 +3,9 @@
     Config.ps1 — settings, run context, and model selection for the Kanban module.
 
     Single source for "what are the settings for this run": loads .env, defines the
-    orchestrator defaults, resolves the $Kanban* constants (project IDs, lanes,
-    models, turn budgets) with env overrides, resolves the repo slug and default
+    orchestrator defaults (incl. the engine, its models per tier and each task's
+    tier, read through Get-TaskModel), resolves the $Kanban* constants (project
+    IDs, lanes, turn budgets) with env overrides, resolves the repo slug and default
     branch WITHOUT GraphQL, and exposes Get-OrchestratorContext — the per-run object
     (issue, retries, repo, branch, runtime) hydrated from the KANBAN_* env
     transport (ADR-013). Loaded first by Orchestrator.psm1.
@@ -26,23 +27,58 @@ if (Test-Path $_EnvPath) {
 $KanbanLogFile = "$_Root\logs\kanban.log"
 
 # ── Orchestrator defaults ─────────────────────────────────────────────────────
-# All values are overridable per-machine via .env (KANBAN_* env vars take
-# precedence). Estimate (Fibonacci SP) drives model + turn-budget selection:
-#   Refine, its questioning, plan : always Opus
-#   Implement                     : SP > OpusImplementThreshold → Opus; else Sonnet
-#   Review                        : always Opus
-#   Commit messages, engine check : always Haiku
+# The turn budgets and the run limits below are overridable per-machine via .env
+# (KANBAN_* env vars take precedence). The engine and the models are not: they
+# are set here and nowhere else.
 $OrchestratorConfig = @{
-    # Models — Source: Anthropic models overview, checked 2026-11-20
-    ModelSonnet = 'claude-sonnet-5-5'  # implement (low-SP)
-    ModelOpus   = 'claude-opus-5-5'   # refine, its questioning, plan, implement (high-SP), review
-    ModelHaiku  = 'claude-haiku-5-5'  # commit messages, auxiliary one-shot calls
+    # ── Models ────────────────────────────────────────────────────────────────
+    # Every model call is a named task. TaskTiers gives each task a tier, a class
+    # of work; each Engines row gives that engine's model for each tier. The tiers
+    # are the same for every engine:
+    #
+    #   routine   mechanical, one-shot text in a fixed format
+    #   standard  bounded work against a clear specification
+    #   complex   judgement on open or wide work: questions, design, trade-offs, a verdict
+    #
+    # Changing a model is one line in Engines; moving a task to another tier is one
+    # line in TaskTiers. Get-TaskModel reads both and stops the run, naming the key
+    # to fill, when a value is missing — it never falls back to a default model.
 
-    ModelGeminiPro   = 'gemini-3.1-pro'
-    ModelGeminiFlash = 'gemini-3.5-flash'
+    # The engine this orchestrator runs on. The only thing that chooses it.
+    Engine = 'claude'
 
-    # Model tier threshold (story points): SP > threshold → Opus for implement
-    OpusImplementThreshold = 2   # 1–2 → Sonnet implement  |  3+ → Opus implement
+    # One row per engine: its model for each tier.
+    # Model IDs — Source: Anthropic models overview and Google Gemini models page,
+    # checked 2026-11-20.
+    # The gemini row is not yet compatible with the flow and must not be selected;
+    # how an engine is enabled is decided in "Start every engine through one function".
+    Engines = @{
+        claude = @{
+            routine  = 'claude-haiku-5-5'
+            standard = 'claude-sonnet-5-5'
+            complex  = 'claude-opus-5-5'
+        }
+        gemini = @{
+            routine  = 'gemini-3.5-flash'
+            standard = 'gemini-3.5-flash'
+            complex  = 'gemini-3.1-pro'
+        }
+    }
+
+    # Task → tier. A task is one named model call.
+    TaskTiers = @{
+        Refine         = 'complex'    # refine, its questioning, judging the answers to its questions
+        Plan           = 'complex'    # the plan, and splitting an epic into child issues
+        ImplementLarge = 'complex'    # implement, estimate >= ImplementLargeFrom
+        ImplementSmall = 'standard'   # implement, a smaller estimate or none
+        Review         = 'complex'    # review
+        CommitMessage  = 'routine'    # the commit message
+        EngineCheck    = 'routine'    # the check before a run that the engine answers
+    }
+
+    # Story points from which implement is the ImplementLarge task (Get-ImplementTask):
+    # 1–2 or no estimate → ImplementSmall  |  3+ → ImplementLarge
+    ImplementLargeFrom = 3
 
     # Plan-step routing (story points): SP >= threshold → the issue is an epic and
     # the Plan step decomposes it into child issues (Lean PRD synthesis, Plan.ps1)
@@ -57,7 +93,7 @@ $OrchestratorConfig = @{
     }
 
     # Turn budgets — other phases (flat)
-    MaxTurns_Refine        = 15   # structured output + label assignment — lightweight
+    MaxTurns_Refine        = 40   # refine's questioning: reading CONTEXT, AGENTS, the skill, ADRs and sources takes turns
     MaxTurns_Review        = 30   # read-only: inspect code + signal history, no writes; formula base
     MaxTurns_Review_Cap    = 90   # ceiling for the per-PR scaled formula (base + changed files)
 
@@ -102,7 +138,7 @@ $OrchestratorConfig = @{
     # Reconciliation (the hourly warden, lib/Reconcile.ps1). An agent-held label
     # claims work in progress; when nothing has touched the issue for this long,
     # no runner is doing that work and the state is stale. Must stay comfortably
-    # above the longest silent stretch of a live run — an Opus implement can go a
+    # above the longest silent stretch of a live run — a complex-tier implement can go a
     # while between its `·` progress comments — or the warden re-enters live work.
     StuckAfterMinutes = 90
 
@@ -282,17 +318,8 @@ if (-not $KanbanDefaultBranch) {
     throw "Cannot resolve the default branch — set GITHUB_DEFAULT_BRANCH, configure an 'origin' remote, or check 'gh auth status'."
 }
 
-# ── Models + turn budgets (env overrides over $OrchestratorConfig) ────────────
-$KanbanEngine = if ($env:KANBAN_ENGINE) { $env:KANBAN_ENGINE } else { 'claude' }
-
-$KanbanModel_Sonnet = if ($env:KANBAN_MODEL_SONNET) { $env:KANBAN_MODEL_SONNET } else { $OrchestratorConfig.ModelSonnet }
-$KanbanModel_Opus   = if ($env:KANBAN_MODEL_OPUS)   { $env:KANBAN_MODEL_OPUS   } else { $OrchestratorConfig.ModelOpus   }
-$KanbanModel_Aux    = if ($env:KANBAN_MODEL_AUX)     { $env:KANBAN_MODEL_AUX    } else { $OrchestratorConfig.ModelHaiku  }
-
-$KanbanModel_GeminiPro   = if ($env:KANBAN_MODEL_GEMINI_PRO)   { $env:KANBAN_MODEL_GEMINI_PRO   } else { $OrchestratorConfig.ModelGeminiPro   }
-$KanbanModel_GeminiFlash = if ($env:KANBAN_MODEL_GEMINI_FLASH) { $env:KANBAN_MODEL_GEMINI_FLASH } else { $OrchestratorConfig.ModelGeminiFlash }
-
-$KanbanMaxTurns_Review        = if ($env:KANBAN_MAX_TURNS_REVIEW)  { [int]$env:KANBAN_MAX_TURNS_REVIEW  } else { $OrchestratorConfig.MaxTurns_Review        }
+# ── Turn budgets + run limits (env overrides over $OrchestratorConfig) ────────
+$KanbanMaxTurns_Review       = if ($env:KANBAN_MAX_TURNS_REVIEW)  { [int]$env:KANBAN_MAX_TURNS_REVIEW  } else { $OrchestratorConfig.MaxTurns_Review        }
 $KanbanMaxTurns_Refine        = if ($env:KANBAN_MAX_TURNS_REFINE)  { [int]$env:KANBAN_MAX_TURNS_REFINE  } else { $OrchestratorConfig.MaxTurns_Refine         }
 $KanbanMaxRetries             = if ($env:KANBAN_MAX_RETRIES)       { [int]$env:KANBAN_MAX_RETRIES       } else { $OrchestratorConfig.MaxRetries              }
 $KanbanStuckAfterMinutes      = if ($env:KANBAN_STUCK_AFTER_MINUTES) { [int]$env:KANBAN_STUCK_AFTER_MINUTES } else { $OrchestratorConfig.StuckAfterMinutes   }
@@ -330,12 +357,12 @@ function Get-OrchestratorContext {
         DefaultBranch = $KanbanDefaultBranch
         ProjectNumber = $KanbanProjectNumber
         Runtime       = Get-RuntimeName
-        Engine        = $KanbanEngine
+        Engine        = $OrchestratorConfig.Engine
     }
     return $script:_KanbanContext
 }
 
-# ── Model + turn-budget selectors (estimate-driven) ──────────────────────────
+# ── Model + turn-budget selectors ────────────────────────────────────────────
 
 function Get-IssueEstimate {
     param([int]$IssueNumber)
@@ -346,25 +373,37 @@ function Get-IssueEstimate {
     return 0
 }
 
-function Get-PhaseModel {
-    param([int]$Estimate, [string]$Phase)
-    if ($KanbanEngine -eq 'gemini') {
-        switch ($Phase) {
-            'implement' { if ($Estimate -gt $OrchestratorConfig.OpusImplementThreshold) { return $KanbanModel_GeminiPro } else { return $KanbanModel_GeminiFlash } }
-            'review'    { return $KanbanModel_GeminiPro }
-            'refine'    { return $KanbanModel_GeminiPro }
-            'plan'      { return $KanbanModel_GeminiPro }
-            default     { return $KanbanModel_GeminiFlash }
-        }
-    } else {
-        switch ($Phase) {
-            'implement' { if ($Estimate -gt $OrchestratorConfig.OpusImplementThreshold) { return $KanbanModel_Opus } else { return $KanbanModel_Sonnet } }
-            'review'    { return $KanbanModel_Opus }
-            'refine'    { return $KanbanModel_Opus }
-            'plan'      { return $KanbanModel_Opus }
-            default     { return $KanbanModel_Aux }
-        }
+# Which model does this task run on? The one answer to that question: the task's
+# tier from TaskTiers, then that tier's model in the engine's Engines row. A
+# missing value stops the run with the key to fill — never a fallback model, which
+# once ran a mistyped phase on the smallest model without a word.
+function Get-TaskModel {
+    param(
+        [Parameter(Mandatory)][string]$Task,
+        [string]$Engine = $OrchestratorConfig.Engine
+    )
+    $cfg = 'lib/Config.ps1 $OrchestratorConfig'
+    $row = $OrchestratorConfig.Engines[$Engine]
+    if (-not $row) {
+        throw "Get-TaskModel: task '$Task' runs on engine '$Engine', which has no row — fill Engines.$Engine in $cfg."
     }
+    $tier = $OrchestratorConfig.TaskTiers[$Task]
+    if (-not $tier) {
+        throw "Get-TaskModel: task '$Task' has no tier — fill TaskTiers.$Task in $cfg."
+    }
+    $model = $row[$tier]
+    if (-not $model) {
+        throw "Get-TaskModel: task '$Task' is tier '$tier', and engine '$Engine' has no model for it — fill Engines.$Engine.$tier in $cfg."
+    }
+    return $model
+}
+
+# Implement is two tasks, split by the estimate: ImplementLarge from
+# ImplementLargeFrom story points up, ImplementSmall below it and with no estimate (0).
+function Get-ImplementTask {
+    param([int]$Estimate)
+    if ($Estimate -ge $OrchestratorConfig.ImplementLargeFrom) { return 'ImplementLarge' }
+    return 'ImplementSmall'
 }
 
 function Get-ImplementMaxTurns {

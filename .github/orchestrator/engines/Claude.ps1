@@ -3,9 +3,9 @@
     Claude.ps1 — generic Claude (LLM) helpers, shared across the orchestrator.
 
     Provider-generic: streaming agentic invocation with live tool/text rendering,
-    and a commit-message generator. Callers pass -Model explicitly (e.g. from
-    Get-PhaseModel); the defaults fall back to the tier variables from Config.ps1
-    when loaded through the module. Depends only on Write-Log.
+    and a commit-message generator. Callers pass -Model, the model of the task
+    they run (Get-TaskModel); no parameter has a model default. Depends only on
+    Write-Log.
 #>
 
 # Formats a single tool_use event from Claude's stream for terminal display.
@@ -24,7 +24,7 @@ function Format-ToolLine {
 
 # Invoke Claude with streaming JSON output, printing tool use and text to the
 # terminal. Returns the full text response as a string. Callers must pass -Model
-# (use Get-PhaseModel) and -MaxTurns explicitly.
+# (use Get-TaskModel) and -MaxTurns explicitly.
 #
 # Retries on a non-zero exit (transient Claude API errors — overloaded 529, rate
 # limit, network blips — exit the CLI non-zero after its own internal retries).
@@ -36,7 +36,7 @@ function Invoke-ClaudeStreaming {
         [string]$Prompt,
         [string]$AllowedTools = 'Read,Glob,Grep',
         [string]$Label = 'Claude',
-        [string]$Model = $KanbanModel_Sonnet,
+        [Parameter(Mandatory)][string]$Model,
         [int]$MaxTurns = 30,
         [int]$MaxAttempts = 3
     )
@@ -124,7 +124,7 @@ function Remove-ClaudeNoise {
 # Commit message — Claude primary, fallback to the supplied message.
 # Future: add Gemini as secondary between Claude and fallback.
 function Get-CommitMessage {
-    param([string]$Diff, [string]$FallbackMessage, [string]$Model = $KanbanModel_Aux)
+    param([string]$Diff, [string]$FallbackMessage, [Parameter(Mandatory)][string]$Model)
 
     $prompt = @"
 Generate a conventional commit message for the following staged diff.

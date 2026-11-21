@@ -8,6 +8,7 @@ with the tools it called. The check reads both: every tool the case expects was 
 """
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -43,6 +44,14 @@ def grill(title: str, body: str) -> dict:
         text=True,
         encoding="utf-8",
         cwd=REPO_ROOT,
+        # grill.ps1 imports the orchestrator module, which needs a repository slug and
+        # a default branch; a run without an 'origin' remote has neither.
+        env={
+            **os.environ,
+            "GITHUB_REPOSITORY": os.environ.get("GITHUB_REPOSITORY")
+            or "octocat/sandbox",
+            "GITHUB_DEFAULT_BRANCH": os.environ.get("GITHUB_DEFAULT_BRANCH") or "main",
+        },
         timeout=900,
         check=False,
     )

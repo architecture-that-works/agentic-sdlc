@@ -115,8 +115,8 @@ free. Apply these one-time repository settings before you change the visibility:
 - **Fork-PR approval gate:** Settings → Actions → General → "Approval for running fork pull request workflows from contributors" is set to "Require approval for all external contributors" — prevents untrusted code from running in the pipeline without review.
 - **Hosted-only runner profile:** `KANBAN_RUNNER_PROFILE` is not `self-hosted` (`gh variable set KANBAN_RUNNER_PROFILE --body hosted`) — a self-hosted runner on a public repo lets fork pull requests execute code on the owner's machine.
 - **No registered self-hosted runner:** no runner is registered under Settings → Actions → Runners — reinforces the hosted-only constraint even if the variable is misconfigured.
-- **Merge settings:** `task protect` also sets them with the owner's own `gh` login, in a call of its own after the branch rules: squash merging only (no merge commits, no rebase merging), the pull request's title as the squash commit's title with the commits' messages as its body, merged branches deleted, and the "Update branch" button always offered. A merge by hand then lands like the orchestrator's. No workflow or `GH_TOKEN` applies them.
-- **Secret scanning and push protection:** `task protect` switches both on with the owner's own `gh` login, next to the branch rules. Secret scanning finds secrets already in the repository and its history; push protection refuses a push that holds a secret, so the secret never reaches GitHub. Both are free on a public repository; a private repository has no secret scan unless its owner buys GitHub Secret Protection.
+- **Merge settings:** `pwsh -NoProfile -File .github/tasks/protect.ps1` also sets them with the owner's own `gh` login, in a call of its own after the branch rules: squash merging only (no merge commits, no rebase merging), the pull request's title as the squash commit's title with the commits' messages as its body, merged branches deleted, and the "Update branch" button always offered. A merge by hand then lands like the orchestrator's. No workflow or `GH_TOKEN` applies them.
+- **Secret scanning and push protection:** `pwsh -NoProfile -File .github/tasks/protect.ps1` switches both on with the owner's own `gh` login, next to the branch rules. Secret scanning finds secrets already in the repository and its history; push protection refuses a push that holds a secret, so the secret never reaches GitHub. Both are free on a public repository; a private repository has no secret scan unless its owner buys GitHub Secret Protection.
 - **Commit email privacy:** in your GitHub account, Settings → Emails → "Keep my email addresses private" and "Block command line pushes that expose my email" are on, and local commits use your `noreply` address — every commit's author email becomes public with the history.
 
 ---
@@ -152,8 +152,8 @@ in the pipeline decides it.
 
 A cancelled run leaves the issue on `agent:implementing` or `agent:reviewing`. The hourly
 reconciliation pass re-enters it on its own within the hour, so cancelling is safe to do and
-safe to forget. To resume it immediately instead of waiting, run `task retry ISSUE=<n>` (one
-issue) or `task reconcile` (everything stuck); `task reconcile -- -WhatIf` reports what it
+safe to forget. To resume it immediately instead of waiting, run `pwsh -NoProfile -File .github/tasks/retry.ps1 -Issue <n>` (one
+issue) or `pwsh -NoProfile -File .github/tasks/reconcile.ps1` (everything stuck); `pwsh -NoProfile -File .github/tasks/reconcile.ps1 -WhatIf` reports what it
 would do and changes nothing.
 
 Note the asymmetry, and that it is deliberate: **halting by cancelling a run is temporary** —
@@ -175,7 +175,7 @@ owes and picks it up again. To stop an issue for good, close it, or disable the 
     `agent:backlog` issue.
   - `ship` — merge the issue's PR now; your dispatch is the approval. A governance change is
     still held for you to merge by hand.
-  Locally, `task hitl ISSUE=<n>` runs implement → review → ship in your terminal. When GitHub
+  Locally, `pwsh -NoProfile -File .github/tasks/hitl.ps1 -Issue <n>` runs implement → review → ship in your terminal. When GitHub
   Actions cannot run, set `KANBAN_LOCAL_CI=1` first: ship then runs `checks.yml`'s jobs locally
   and holds every PR at `human:approval` — nothing merges on local CI alone (#314).
 - **Reject the agent's work.** Close the PR without merging and comment on the issue with what
@@ -190,7 +190,7 @@ reverts all of it.
 1. On the merged PR, click **Revert** and merge the revert PR (or `git revert <squash-sha>`
    through a PR).
 2. Reopen the issue (`gh issue reopen <n>`) and remove `agent:shipped`.
-3. To redo it, run `task retry ISSUE=<n>` — the refine/architect/plan state in the issue body
+3. To redo it, run `pwsh -NoProfile -File .github/tasks/retry.ps1 -Issue <n>` — the refine/architect/plan state in the issue body
    is kept, so it re-enters `agent:backlog` and implementation starts. Otherwise close it as not
    planned.
 

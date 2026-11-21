@@ -102,16 +102,19 @@ anything, see [`SECURITY.md` § Human Oversight](SECURITY.md#human-oversight).
 
 ### Commands
 
-Nothing needs a command day to day. These are for setup, backfill and local runs:
+Nothing needs a command day to day. These are for setup, backfill and local runs. Each is
+one runnable in `.github/tasks/`, run with `pwsh -NoProfile -File .github/tasks/<name>.ps1`;
+only setup has a `Taskfile.yml` target, because it also runs `src/tools/setup.py`:
 
 ```bash
-task afk               # cloud backfill: refine every issue with no agent:* label
-task sync              # push ISSUES.md blocks to GitHub Issues (each is then refined)
-task refine [ISSUE=N]  # local: refine one issue, or every issue with no agent:* label
-task hitl [ISSUE=N]    # local: pick a backlog issue and run it in this terminal
-task retry ISSUE=N     # resume a failed issue (same as commenting on it)
 task setup             # one-time board, label and variable setup
-task protect           # apply branch protection to main; set merge settings (squash only, PR title, branch deleted); switch on secret scanning and push protection
+afk.ps1                # cloud backfill: refine every issue with no agent:* label
+sync.ps1               # push ISSUES.md blocks to GitHub Issues (each is then refined)
+refine.ps1 [-Issue N]  # local: refine one issue, or every issue with no agent:* label
+hitl.ps1 [-Issue N]    # local: pick a backlog issue and run it in this terminal
+retry.ps1 -Issue N     # resume a failed issue (same as commenting on it)
+reconcile.ps1          # re-enter every state nothing is working on (-WhatIf to preview)
+protect.ps1            # apply branch protection to main; set merge settings (squash only, PR title, branch deleted); switch on secret scanning and push protection
 ```
 
 Actions → **AFK** → **Run workflow** runs one stage — `refine` (issue `0` = backfill),
@@ -122,7 +125,7 @@ Actions → **AFK** → **Run workflow** runs one stage — `refine` (issue `0` 
 `KANBAN_RUNNER_PROFILE` (a repository variable) selects where the refine and implement jobs run:
 `hosted` (default, `ubuntu-latest`) or `self-hosted` (a runner you register with the label
 `gha-project`, with `uv`, `claude`, `git`, `gh` and `pwsh` installed). Switch with
-`gh variable set KANBAN_RUNNER_PROFILE --body self-hosted`. `task afk` dispatches work — it does not
+`gh variable set KANBAN_RUNNER_PROFILE --body self-hosted`. `afk.ps1` dispatches work — it does not
 start a self-hosted runner. While the repository is public, do not switch to self-hosted — a self-hosted runner on a public repo allows fork pull request workflows to execute code on your machine.
 
 ---

@@ -28,13 +28,13 @@
     them, and no admin-capable token is stored as an Actions secret for it (SECURITY.md:
     GH_TOKEN never carries admin:* scope).
 
-    Run via:  task protect
+    Run via:  pwsh -NoProfile -File .github/tasks/protect.ps1
     Verify:   gh api repos/{owner}/{repo}/branches/main/protection
               gh api repos/{owner}/{repo} --jq .security_and_analysis
               gh api repos/{owner}/{repo}   (merge settings: allow_squash_merge, …)
 
 .EXAMPLE
-    task protect
+    pwsh -NoProfile -File .github/tasks/protect.ps1
 #>
 
 $ErrorActionPreference = 'Stop'

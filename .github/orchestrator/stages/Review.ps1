@@ -47,7 +47,7 @@ function Invoke-Review {
     }
 
     $sp          = Get-IssueEstimate -IssueNumber $IssueNumber
-    $reviewModel = Get-PhaseModel -Estimate $sp -Phase 'review'
+    $reviewModel = Get-TaskModel -Task 'Review'
     Write-Log "▶ Review — issue #$IssueNumber / PR #$PRNumber  model=$reviewModel  SP=$sp" -Color Cyan
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:reviewing'
     Add-Comment -Number $IssueNumber -Body "· reviewing PR #$PRNumber"
@@ -97,7 +97,7 @@ review in the skill's § Report shape.
 "@
 
     try {
-        if ($KanbanEngine -eq 'gemini') {
+        if ($OrchestratorConfig.Engine -eq 'gemini') {
             $review = Invoke-GeminiStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $scaledTurns
         } else {
             $review = Invoke-ClaudeStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $scaledTurns

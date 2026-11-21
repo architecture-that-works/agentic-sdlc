@@ -2,14 +2,14 @@
 
 Local improvement backlog. Add improvements as Agile User Story blocks below the ISSUES sentinel.
 
-Run `task sync` to push pending blocks to GitHub Issues and the project board.
-Run `task sync -- -DryRun` to preview without making changes.
+Run `pwsh -NoProfile -File .github/tasks/sync.ps1` to push pending blocks to GitHub Issues and the project board.
+Run `pwsh -NoProfile -File .github/tasks/sync.ps1 -DryRun` to preview without making changes.
 
 ---
 
 ## Block Format
 
-Every block must follow this structure exactly so `task sync` can parse it:
+Every block must follow this structure exactly so `pwsh -NoProfile -File .github/tasks/sync.ps1` can parse it:
 
 ```
 ISSUE: [Action-oriented Issue Title]
@@ -32,7 +32,7 @@ Header fields — all optional, must appear before the body, in any order:
 - `ESTIMATE:` — Fibonacci story point integer (see scale below). Synced to the **Estimate** field on the GitHub Project board. **Do not use the project board's Size field** (XS/S/M/L/XL) — it is not populated by any script and conflicts with Estimate as the single sizing signal.
 - `PRIORITY:` — one of `P0 | P1 | P2 | P3 | P4` (see definitions below). Synced to the **Priority** field on the GitHub Project board.
 
-After `task sync`, each processed block is removed from this file and lives as a GitHub Issue on the project board.
+After `pwsh -NoProfile -File .github/tasks/sync.ps1`, each processed block is removed from this file and lives as a GitHub Issue on the project board.
 
 ---
 

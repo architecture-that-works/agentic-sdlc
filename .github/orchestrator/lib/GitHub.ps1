@@ -604,7 +604,7 @@ function Suspend-ForUsageLimit {
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:paused'
     Add-Comment -Number $IssueNumber -Body ("🤖⏳ Paused — the Claude usage limit is reached. $Stage resumes " +
         "after $($Until.ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC, on the next pipeline run or the hourly check " +
-        "(``task reconcile`` resumes it now). No attempt was counted; nothing for you to do.")
+        "(``pwsh -NoProfile -File .github/tasks/reconcile.ps1`` resumes it now). No attempt was counted; nothing for you to do.")
     Write-Log "⏳ Issue #$IssueNumber paused at $Stage until $($Until.ToString('o'))." -Color Yellow
 }
 
@@ -1093,7 +1093,7 @@ function Move-ToLane {
 }
 
 # An issue opened in the GitHub UI or through the API never went through
-# `task sync`, so it is not on the board: every lane move would skip it and refine
+# `sync.ps1`, so it is not on the board: every lane move would skip it and refine
 # could not set its estimate. Add it once, and record it in the item cache so the
 # same pass sees it (with empty estimate/priority, which refine then fills in).
 # It lands in Backlog — not started: being refined, or waiting on the owner — so it
