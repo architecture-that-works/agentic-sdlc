@@ -159,25 +159,25 @@ jobs:
       - if: steps.cli-cache.outputs.cache-hit != 'true'
         run: sudo npm install -g @anthropic-ai/claude-code@${{ env.CLAUDE_CODE_VERSION }}
       - name: Run commit eval
-        if: needs.eval-scope.outputs.run_commit == 'true'
+        if: ${{ !cancelled() && needs.eval-scope.outputs.run_commit == 'true' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         run: uv run pytest tests/evals/test_commit_eval.py -m eval --junitxml=logs/evals/junit-commit.xml
       - name: Run refine eval
-        if: needs.eval-scope.outputs.run_refine == 'true'
+        if: ${{ !cancelled() && needs.eval-scope.outputs.run_refine == 'true' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         run: uv run pytest tests/evals/test_refine_eval.py -m eval --junitxml=logs/evals/junit-refine.xml
       - name: Run review eval
-        if: needs.eval-scope.outputs.run_review == 'true'
+        if: ${{ !cancelled() && needs.eval-scope.outputs.run_review == 'true' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
         run: uv run pytest tests/evals/test_review_eval.py -m eval --junitxml=logs/evals/junit-review.xml
       - name: Run implement eval
-        if: needs.eval-scope.outputs.run_implement == 'true'
+        if: ${{ !cancelled() && needs.eval-scope.outputs.run_implement == 'true' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}

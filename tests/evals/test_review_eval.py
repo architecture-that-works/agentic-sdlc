@@ -83,6 +83,12 @@ def review_report(judge) -> GEval:
                 "concrete input with the wrong result it produces. An approved report "
                 "with no findings needs no parts. Do not deduct for formatting."
             ),
+            (
+                "Only the findings the verdict line names block. A numbered finding the "
+                "verdict line does not name, or a proposed follow-up issue, is a "
+                "recommendation the skill allows for points the issue did not ask for: "
+                "it never deducts, even when the expected output says `no findings`."
+            ),
         ],
         evaluation_params=[
             SingleTurnParams.INPUT,
