@@ -62,7 +62,7 @@ Navigation index for agents — how to use it is the Context Protocol in `AGENTS
 | checks | `.github/checks/` | `.github/checks/` | `check-module-map.ps1`, `check-references.ps1`, `check-orchestrator-api.ps1`, `check-token-scope.ps1` — the `checks` job of `checks.yml` runs every `check-*.ps1` in the folder, so a new check is a new file |
 | skills | `.agents/skills/` | `.agents/skills/` | one directory per skill, each with `SKILL.md` |
 | ADRs (this project) | `docs/adr/` | `docs/adr/` | ADR-000 is the blank form; this project's ADRs start at ADR-001 |
-| CI | `.github/workflows/` | (cross-cutting) | `checks.yml` (lint/typecheck/test/audit/checks), `afk.yml` (the pipeline, driven by issue events; hourly reconcile of states nothing is working on, incl. usage-limit resume; `stage` dispatch for overrides), `build.yml`, `deploy.yml`, `branch-protection.yml` |
+| CI | `.github/workflows/` | (cross-cutting) | `checks.yml` (lint/typecheck/test/audit/checks), `afk.yml` (the pipeline, driven by issue events; hourly reconcile of states nothing is working on, incl. usage-limit resume; `stage` dispatch for overrides), `build.yml`, `deploy.yml` |
 | `<domain>` | `src/<domain>/` | declared on first feature | declared on first feature |
 
 ## Issue-Type → Files Index

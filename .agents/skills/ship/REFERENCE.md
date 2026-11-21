@@ -98,27 +98,28 @@ gh pr merge <number> --squash --delete-branch
 
 ---
 
-## Post-Merge Knowledge Persistence
+## Knowledge Persistence — In the PR, Before Merge
 
-### CONTEXT.md update rules
+Nothing is committed or pushed to the default branch after the merge: branch protection
+requires a PR for every change, with no bypass for any user, team or app. Every knowledge
+update is a commit on the feature branch, reviewed and merged with the rest of the PR.
 
-After every merge, write at least one sentence of architectural learning. If no insight
-was discovered, write "no architectural lessons this merge" and commit that sentence.
-Skipping the update is not allowed.
+### CONTEXT.md rules
 
-1. **New glossary term discovered?** Add to `## Glossary`.
-2. **New bounded context added?** Add to `## Bounded Contexts` and `## Module Map`.
-3. **Architectural constraint changed?** Update `## Architectural Constraints`.
-4. **An invariant was violated then fixed?** Document the violation and the fix.
+1. **New `src/<domain>/` or a file the Map does not list?** Add the Module Map row.
+2. **New kind of work?** Add the Issue-Type Index entry.
+3. **New glossary term, bounded context or constraint?** Not in this PR — AGENTS.md Rule 2
+   reserves those sections for a `refine` session. Open a follow-up issue naming the change.
 
-### .out-of-scope.md update rules
+### .out-of-scope.md rules
 
-For every concept explicitly deferred during this PR's `review` or `plan`:
+For every concept explicitly deferred during this PR's `review` or `plan`, append a section on
+the feature branch:
 
 ```bash
 cat >> .out-of-scope.md << EOF
 
-## <Concept Name>
+## <Concept>
 
 **Date:** $(date +%Y-%m-%d)
 **Reason:** <why deferred — deferred in PR #<number>>
@@ -142,12 +143,15 @@ Force-pushing `main` destroys the squash commit history. Use a revert commit ins
 # Identify the breaking commit
 git log --oneline main | head -5
 
-# Revert it
+# Revert it on a branch, through a PR — protection refuses a direct push to main
+git switch -c revert/<pr-number> origin/main
 git revert <squash-commit-hash> --no-edit
-git push origin main
+git push -u origin revert/<pr-number>
+gh pr create --fill
 ```
 
-This adds a new "Revert" commit to history, preserving the original commit.
+(Or click **Revert** on the merged PR.) Merging the revert PR adds a new "Revert" commit to
+history, preserving the original commit.
 
 ### Step 2 — Re-open the linked issue
 

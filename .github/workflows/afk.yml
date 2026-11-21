@@ -20,7 +20,7 @@ name: AFK
 #                                                  no label → refine an un-refined issue
 #   any feature/{n}-* PR closes                 → reconciles the issue regardless of who
 #                                                  merged it: merged → agent:shipped +
-#                                                  CONTEXT.md update; closed unmerged →
+#                                                  a comment, nothing pushed; closed unmerged →
 #                                                  agent:failed, your comment retries. Skipped
 #                                                  only if the issue is already terminal.
 #   hourly schedule                             → reconcile: re-enter any agent-held state
@@ -374,9 +374,8 @@ jobs:
         with:
           enable-cache: true
 
-      # Credential-free checkout so the pre-check and tooling install below run
-      # without a stored PAT in git config. A second credentialed checkout follows
-      # only when work is actually needed.
+      # Credential-free checkout: this job only sets labels and posts comments
+      # through gh — it never pushes, so git stores no credentials (#349).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
@@ -385,7 +384,7 @@ jobs:
 
       # Cheap check first: skip only if Test-IssueShipped already says so — the
       # pipeline's own in-process merge path almost always wins that race (see
-      # Ship.ps1), so by the time this job's tooling install would finish, the
+      # Ship.ps1), so by the time this job has cold-started, the
       # common case is already done. Calls the exact same function Complete-HeldPR
       # itself calls (#275) — no second, hand-synced copy of the rule to drift from.
       - name: Does the issue still need reconciling?
@@ -399,29 +398,11 @@ jobs:
           $pending = $issue -gt 0 -and -not (Test-IssueShipped -IssueNumber $issue)
           "pending=$($pending.ToString().ToLower())" >> $env:GITHUB_OUTPUT
 
-      - name: Install tooling
-        if: steps.reconcile.outputs.pending == 'true'
-        shell: bash
-        run: |
-          sudo npm install -g @anthropic-ai/claude-code@${{ env.CLAUDE_CODE_VERSION }}
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      # Credentialed checkout for git pushes (CONTEXT.md update commits on top of
-      # the default branch). Runs only when work is pending.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.reconcile.outputs.pending == 'true'
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 0
-          token: ${{ secrets.GH_TOKEN }}
-
       - name: Ship or fail the issue
         if: steps.reconcile.outputs.pending == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           Import-Module "$env:GITHUB_WORKSPACE/.github/orchestrator/Orchestrator.psd1" -Force
           Complete-HeldPR -PRNumber ([int]$env:PR_NUMBER) -Branch $env:PR_BRANCH -Merged ($env:PR_MERGED -eq 'true')

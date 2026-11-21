@@ -50,37 +50,17 @@ gh pr view 42 --json body | jq -r '.body' | grep -iE 'closes\s+#[0-9]+'
 
 Confirmed: `Closes #38` is present. Issue #38 will auto-close on merge.
 
-### Step 5 — Merge
+### Step 5 — Knowledge in the PR, before merge
 
-```bash
-gh pr merge 42 --squash --delete-branch
-# → ✓ Squashed and merged pull request #42
-# → ✓ Deleted branch feature/38-order-total
-```
-
-### Step 6 — Post-merge: CONTEXT.md update
-
-New bounded context `src/orders/` was added. Update `CONTEXT.md`:
+New bounded context `src/orders/` was added, and multi-currency support was explicitly
+deferred during review. Both go into the PR on the feature branch — nothing is pushed to
+`main` after the merge. The Module Map row (added during implement, confirmed in Step 1):
 
 ```markdown
-## Bounded Contexts addition
-| src/orders/ | Domain model: Order, Item, tax calculation | Does not own: HTTP endpoints, persistence |
-
-## Module Map addition
 | orders | src/orders/ | src/orders/ | Order (domain model), Item (value object) |
 ```
 
-Commit:
-
-```bash
-git add CONTEXT.md
-git commit -m "docs: update CONTEXT.md after PR #42 — add orders bounded context"
-git push origin main
-```
-
-### Step 7 — Post-merge: .out-of-scope.md update
-
-During review, multi-currency support was explicitly deferred:
+The deferral:
 
 ```bash
 cat >> .out-of-scope.md << 'EOF'
@@ -96,9 +76,22 @@ tracer bullet. Multi-currency requires a new refine session to agree on rounding
 EOF
 
 git add .out-of-scope.md
-git commit -m "docs: record multi-currency deferral after PR #42"
-git push origin main
+git commit -m "docs: record multi-currency deferral for #38"
+git push   # feature/38-order-total — the PR carries it
 ```
+
+The new bounded context itself belongs in `## Bounded Contexts`, which only a `refine`
+session edits — open a follow-up issue for it rather than editing that section here.
+
+### Step 6 — Merge
+
+```bash
+gh pr merge 42 --squash --delete-branch
+# → ✓ Squashed and merged pull request #42
+# → ✓ Deleted branch feature/38-order-total
+```
+
+One squash commit carries the code, the Module Map row and the deferral. Nothing follows it.
 
 ---
 
@@ -119,15 +112,17 @@ git log --oneline main | head -5
 
 Breaking commit: `d4f8a1b`.
 
-### Step 2 — Revert (do not force-push)
+### Step 2 — Revert through a PR (do not force-push)
 
 ```bash
+git switch -c revert/55 origin/main
 git revert d4f8a1b --no-edit
-# → [main e9f1234] Revert "feat(config): add DEFAULT_TIMEOUT setting (#55)"
-git push origin main
+# → [revert/55 e9f1234] Revert "feat(config): add DEFAULT_TIMEOUT setting (#55)"
+git push -u origin revert/55
+gh pr create --fill && gh pr merge --squash --delete-branch
 ```
 
-CI re-runs on the revert commit and passes. `main` is stable again.
+CI runs on the revert PR and passes; once it merges, `main` is stable again.
 
 ### Step 3 — Re-open the linked issue
 

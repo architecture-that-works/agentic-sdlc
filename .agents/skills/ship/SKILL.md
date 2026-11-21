@@ -1,23 +1,23 @@
 ---
 name: ship
-description: Use when merging a reviewed PR, running pre-merge security checks, closing the linked GitHub Issue, or updating CONTEXT.md and out-of-scope records after merge
+description: Use when merging a reviewed PR, running pre-merge security checks, closing the linked GitHub Issue, or adding CONTEXT.md Module Map rows and out-of-scope records to the PR before merge
 ---
 
 # Ship
 
 ## Overview
 
-Prevents insecure or incomplete merges by running mandatory security gates, enforcing squash-merge discipline, and committing architectural lessons back to `CONTEXT.md` after every merge.
+Prevents insecure or incomplete merges by running mandatory security gates, enforcing squash-merge discipline, and making sure the PR itself carries its Module Map rows and deferrals — nothing is pushed to the default branch after the merge.
 
 **Primary artifact:** Squash-merged PR with clean history, closed GitHub Issue, and updated knowledge base.
 
 See [REFERENCE.md](REFERENCE.md) for the expanded pre-merge checklist, squash strategy
-rules, post-merge persistence rules, and rollback procedure. See [EXAMPLES.md](EXAMPLES.md)
+rules, knowledge persistence rules, and rollback procedure. See [EXAMPLES.md](EXAMPLES.md)
 for a standard patch release walkthrough and a rollback scenario.
 
 ## Scope
 
-**Owns:** Pre-merge security gates (sandboxing verification, supply chain review), `gh pr merge --squash` execution, auto-close enforcement (`Closes #N`), `.out-of-scope.md` updates, `CONTEXT.md` post-merge update.
+**Owns:** Pre-merge security gates (sandboxing verification, supply chain review), `gh pr merge --squash` execution, auto-close enforcement (`Closes #N`), `.out-of-scope.md` and `CONTEXT.md` Module Map entries carried in the PR.
 
 **Does not own:** Code review findings (→ `review`), branch and commit operations (→ `version-control`), container and environment teardown (`.devcontainer/`).
 
@@ -41,8 +41,7 @@ for a standard patch release walkthrough and a rollback scenario.
 
 - Squash-merged PR with deleted branch
 - Closed GitHub Issue (via `Closes #N` auto-close)
-- Updated `CONTEXT.md` with architectural lessons
-- Updated `.out-of-scope.md` with deferred improvements
+- `CONTEXT.md` Module Map / Index rows and `.out-of-scope.md` deferrals, merged as part of the PR
 
 ## Core Pattern
 
@@ -87,14 +86,19 @@ gh pr merge <number> --squash --delete-branch
 
 Squash merge only. No merge commits, no rebase. `--delete-branch` keeps the remote clean.
 
-### Post-Merge Cleanup
+### Knowledge Rides in the PR
 
-Run once after merge is confirmed.
+Nothing is committed or pushed to the default branch after the merge — branch protection
+has no exception for it, the orchestrator's included. Knowledge reaches the default branch
+inside the reviewed PR, before `gh pr merge`:
 
-**Update `.out-of-scope.md`**
-Any improvement deferred during `review` or `plan` that was explicitly not included in this PR:
+- **`CONTEXT.md`** — Module Map rows and Issue-Type Index entries the change needs (Context
+  Protocol step 3). Glossary, Bounded Contexts and Architectural Constraints change only in a
+  `refine` session (AGENTS.md Rule 2) — raise those as a follow-up issue.
+- **`.out-of-scope.md`** — a new `## ` section for every improvement deferred during `review`
+  or `plan` that this PR does not include:
+
 ```bash
-# Append new ## section to .out-of-scope.md
 cat >> .out-of-scope.md << EOF
 
 ## <Concept>
@@ -105,15 +109,13 @@ cat >> .out-of-scope.md << EOF
 
 ---
 EOF
-```
-
-**Update `CONTEXT.md`**
-Commit new architectural lessons, revised glossary terms, or boundary clarifications discovered during this task back to `CONTEXT.md`. This is not optional — every merge that produced an architectural insight must update `CONTEXT.md`.
-
-```bash
 git add CONTEXT.md .out-of-scope.md
-git commit -m "docs: update CONTEXT.md and out-of-scope after PR #<number>"
+git commit -m "docs: record Module Map rows and deferrals for #<issue>"
+git push   # to the feature branch — the PR carries it
 ```
+
+Both files are governance paths, so a PR that touches them is held at `human:approval` for
+the owner's merge.
 
 ## Quick Reference
 
@@ -123,8 +125,8 @@ git commit -m "docs: update CONTEXT.md and out-of-scope after PR #<number>"
 | Sandboxing verification | BLOCK | Investigate, do not merge |
 | Supply chain review | BLOCK | Pin or remove package, do not merge |
 | Auto-close `Closes #N` | BLOCK | Add to PR body |
-| `CONTEXT.md` update | Required | Commit before closing session |
-| `.out-of-scope.md` update | Required | Commit before closing session |
+| `CONTEXT.md` Module Map / Index | Required | Commit to the feature branch before merge |
+| `.out-of-scope.md` deferrals | Required | Commit to the feature branch before merge |
 
 **Context sensitivity:** Low. Merge and knowledge persistence operations are stateless and safe at any context fill level.
 
@@ -133,8 +135,8 @@ git commit -m "docs: update CONTEXT.md and out-of-scope after PR #<number>"
 **Merging without running the security checklist.**
 The checklist is not optional for "small" PRs. Supply chain and sandboxing checks take minutes and prevent hard-to-reverse incidents.
 
-**Skipping `CONTEXT.md` update after merge.**
-Lessons not written to `CONTEXT.md` are lost. The next session starts without them. Every merge with an architectural insight must update `CONTEXT.md`.
+**Committing to the default branch after the merge.**
+Branch protection refuses a direct push, with no exception. A Module Map row or deferral left out of the PR is lost — the next session starts without it. Put it in the PR before merging.
 
 **Using merge commit instead of squash.**
 Merge commits pollute history. `--squash` is the only permitted merge strategy. If the repository has a branch protection rule requiring a different strategy, update the rule — do not bypass the skill.

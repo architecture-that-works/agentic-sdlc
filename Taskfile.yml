@@ -43,6 +43,6 @@ tasks:
       - pwsh -NoProfile -File .github/tasks/reconcile.ps1 {{.CLI_ARGS}}
 
   protect:
-    desc: "Governance — apply branch-protection rules to main (requires GH_TOKEN with repo/admin scope)"
+    desc: "Governance — apply branch-protection rules to main, once, with your own gh login (needs repository admin rights)"
     cmds:
       - pwsh -NoProfile -File .github/tasks/protect.ps1

@@ -9,7 +9,7 @@
     dispatch (afk.yml stage=ship), so it does not re-derive approval. It rebases the
     branch, waits for CI (or, with KANBAN_LOCAL_CI, runs it locally and always holds
     the PR — #314), and then either holds a PR that touches a governance file
-    (human:approval) or squash-merges it, deletes the branch and updates CONTEXT.md
+    (human:approval) or squash-merges it and deletes the branch
     (Complete-Ship). Complete-HeldPR reconciles the issue on every feature-branch PR
     close (afk.yml, pull_request closed) — merged ships it, closed-unmerged fails it —
     skipping only an issue already agent:shipped, so a direct `gh pr merge` that
@@ -20,147 +20,6 @@
 $ErrorActionPreference = 'Stop'
 # Module-internal library — loaded by Orchestrator.psm1 (which loads Config.ps1 first).
 # Not dot-sourced individually; see ADR-013.
-
-function Invoke-ContextUpdate {
-    param([int]$IssueNumber)
-
-    $contextPath = "$_Root\CONTEXT.md"
-
-    # Collect inputs
-    $issueData  = gh issue view $IssueNumber --repo $KanbanRepo --json title,body 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
-    $issueTitle = if ($issueData -and $issueData.title) { $issueData.title.Trim() } else { "issue #$IssueNumber" }
-    $issueBody  = if ($issueData -and $issueData.body)  { $issueData.body }          else { '' }
-
-    $diff = git diff HEAD~1 HEAD -- src/ 2>&1 | Out-String
-
-    if (-not (Test-Path $contextPath)) {
-        Write-Log "  ⚠️ CONTEXT.md not found — skipping context update." -Color Yellow
-        return
-    }
-    $contextContent = Get-Content $contextPath -Raw
-
-    $prompt = @"
-You are updating CONTEXT.md for a software project after a PR was merged.
-
-Analyse the merged diff (src/ only), the issue body, and the current CONTEXT.md.
-Produce targeted patches to either section below if new content is warranted:
-  1. Glossary         — new domain terms introduced by this change
-  2. Bounded Contexts — ownership changes if new modules or contexts were added
-Deferred or rejected decisions belong in .out-of-scope.md, not CONTEXT.md — do not add them here.
-
-STRICT OUTPUT RULES:
-- Return ONLY a valid unified diff for CONTEXT.md, starting with "--- a/CONTEXT.md" and "+++ b/CONTEXT.md".
-- OR return the exact string NO_CHANGES (and nothing else) if no section needs updating.
-- Do NOT include markdown code fences, explanations, or any other text.
-- Do NOT reword or duplicate existing entries.
-- The patch MUST be directly applicable via: git apply
-
-MERGED DIFF (src/ only):
-$diff
-
-ISSUE BODY:
-$issueBody
-
-CURRENT CONTEXT.md:
-$contextContent
-"@
-
-    Write-Log "  Calling Claude for CONTEXT.md update (issue #$IssueNumber)..." -Color DarkGray
-    $response = if ($KanbanEngine -eq 'gemini') {
-        Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String)
-    } else {
-        Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
-    }
-    # This whole function is best-effort (the merge already happened) — every branch
-    # below returns normally after logging, never throws. But a handled native-command
-    # failure (claude, git apply, git commit) still leaves $LASTEXITCODE non-zero, and
-    # the workflow step that calls Complete-HeldPR/Invoke-Ship reports THAT as its own
-    # exit code even though nothing actually failed. Reset it on every early return.
-    if ($LASTEXITCODE -ne 0) {
-        Write-Log "  ⚠️ Claude invocation failed — skipping context update." -Color Yellow
-        $global:LASTEXITCODE = 0
-        return
-    }
-    $response = $response.Trim()
-
-    if ($response -eq 'NO_CHANGES') {
-        Write-Log "  CONTEXT.md — no changes needed." -Color DarkGray
-        return
-    }
-
-    # Detect which sections are being updated and collect added content per section
-    $updatedSections = [System.Collections.Generic.List[string]]::new()
-    $sectionLines    = @{}   # section name -> list of added lines (leading '+' stripped)
-    $currentSection  = ''
-    foreach ($line in ($response -split '\r?\n')) {
-        $content = $line -replace '^[ +]', ''
-        if     ($content -match '^## Glossary')         { $currentSection = 'Glossary' }
-        elseif ($content -match '^## Bounded Contexts') { $currentSection = 'Bounded Contexts' }
-        elseif ($content -match '^## Out of Scope')     { $currentSection = 'Out of Scope' }
-        elseif ($content -match '^## ')                 { $currentSection = '' }
-
-        if ($line -match '^\+[^\+]' -and $currentSection) {
-            if (-not $updatedSections.Contains($currentSection)) {
-                $updatedSections.Add($currentSection)
-                $sectionLines[$currentSection] = [System.Collections.Generic.List[string]]::new()
-            }
-            $added = $line.Substring(1).Trim()
-            if ($added) { $sectionLines[$currentSection].Add($added) }
-        }
-    }
-
-    # Apply the patch
-    $patchFile = [System.IO.Path]::GetTempFileName()
-    try {
-        [System.IO.File]::WriteAllText($patchFile, $response, [System.Text.Encoding]::UTF8)
-        git apply $patchFile 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Log "  ⚠️ git apply failed — malformed Claude response. Logging raw output." -Color Yellow
-            Write-Log "  [RAW CLAUDE RESPONSE] $response" -Color DarkGray
-            $global:LASTEXITCODE = 0
-            return
-        }
-    } finally {
-        if (Test-Path $patchFile) { Remove-Item $patchFile -ErrorAction SilentlyContinue }
-    }
-
-    # Stage and commit
-    git add CONTEXT.md 2>&1 | Out-Null
-    $commitMsg = "chore(context): update after merge of #$IssueNumber — $issueTitle"
-    git commit -m $commitMsg 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Log "  ⚠️ Context update commit failed — original merge unaffected." -Color Yellow
-        $global:LASTEXITCODE = 0
-        return
-    }
-
-    # Push to default branch
-    $defaultBranch = $KanbanDefaultBranch
-    git push origin $defaultBranch 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Log "  ⚠️ Push failed for context update — reverting local commit to keep $defaultBranch in sync." -Color Yellow
-        git reset --hard --quiet "origin/$defaultBranch" 2>&1 | Out-Null
-        $global:LASTEXITCODE = 0
-    } else {
-        Write-Log "  ✅ CONTEXT.md updated — $commitMsg" -Color Green
-    }
-
-    # Post comment listing updated sections and what was added
-    $sectionsText = if ($updatedSections.Count -gt 0) { $updatedSections -join ', ' } else { 'CONTEXT.md' }
-    $commentParts = [System.Collections.Generic.List[string]]::new()
-    $commentParts.Add("· CONTEXT.md updated — $sectionsText")
-    foreach ($section in $updatedSections) {
-        if ($sectionLines.ContainsKey($section) -and $sectionLines[$section].Count -gt 0) {
-            $commentParts.Add("")
-            $commentParts.Add("**$section**")
-            foreach ($entry in $sectionLines[$section]) {
-                $commentParts.Add("- $entry")
-            }
-        }
-    }
-    $commentBody = $commentParts -join "`n"
-    Add-Comment -Number $IssueNumber -Body $commentBody
-}
 
 # The last lines of each failed CI job's log, as a Markdown block ('' when none can
 # be read). Job links from `gh pr checks` carry the run id; `gh run view --log-failed`
@@ -531,28 +390,16 @@ function Invoke-Ship {
 
 # ── After the merge ───────────────────────────────────────────────────────────
 # Shared by the pipeline's own merge and the owner's merge of a held PR: the issue
-# reaches agent:shipped and CONTEXT.md learns what changed. The merge has already
-# happened, so the CONTEXT.md update is best-effort.
+# reaches agent:shipped and gets its signal comment — nothing else. Ship makes no
+# commit, push or branch switch after the merge: knowledge reaches the default branch
+# only inside the reviewed PR (#349), and returning to a clean default branch is the
+# conductor's final cleanup and New-FeatureBranch's job.
 function Complete-Ship {
     param([int]$IssueNumber, [int]$PRNumber, [string]$How)
 
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:shipped'
     Add-Comment -Number $IssueNumber -Body "🤖✅ Merged`n`nPR #$PRNumber $How. Issue closed."
 
-    $default = $KanbanDefaultBranch
-    git checkout --quiet $default
-    if ($LASTEXITCODE -ne 0) {
-        Write-Log "  ⚠️ Could not switch to $default after merge — context update skipped." -Color Yellow
-        return
-    }
-    git fetch --quiet origin $default 2>$null
-    git reset --hard --quiet "origin/$default" 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Log "  ⚠️ Could not sync $default with origin — context update skipped." -Color Yellow
-        return
-    }
-
-    Invoke-ContextUpdate -IssueNumber $IssueNumber
     Write-Log "✅ Merged PR #$PRNumber — issue #$IssueNumber complete." -Color Green
 }
 
@@ -566,8 +413,8 @@ function Complete-Ship {
 # The only skip is an issue already agent:shipped. That is not a "was this held" check
 # — it is an idempotency guard against the race with Invoke-Ship's own in-process
 # Complete-Ship call, which runs synchronously right after its own `gh pr merge` and in
-# practice always wins: this handler's job has to cold-start (checkout, install uv,
-# install the Claude CLI) before it ever reads a label. Whichever path gets there first
+# practice always wins: this handler's job has to cold-start (checkout, install uv)
+# before it ever reads a label. Whichever path gets there first
 # wins; the other is a no-op. agent:failed is deliberately NOT a skip condition (#266):
 # issues #223/#251/#256 all reached agent:failed from the pipeline's own blocked
 # attempts, were then fixed hands-on and merged on the matching branch — exactly the

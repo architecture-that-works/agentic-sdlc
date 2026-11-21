@@ -31,11 +31,10 @@ $KanbanLogFile = "$_Root\logs\kanban.log"
 #   Refine, its questioning, plan : always Opus
 #   Implement                     : SP > OpusImplementThreshold → Opus; else Sonnet
 #   Review                        : always Opus
-#   CONTEXT.md update after merge : always Sonnet
 #   Commit messages, engine check : always Haiku
 $OrchestratorConfig = @{
     # Models — Source: Anthropic models overview, checked 2026-11-20
-    ModelSonnet = 'claude-sonnet-5-5'  # implement (low-SP), context-update after merge
+    ModelSonnet = 'claude-sonnet-5-5'  # implement (low-SP)
     ModelOpus   = 'claude-opus-5-5'   # refine, its questioning, plan, implement (high-SP), review
     ModelHaiku  = 'claude-haiku-5-5'  # commit messages, auxiliary one-shot calls
 
@@ -61,7 +60,6 @@ $OrchestratorConfig = @{
     MaxTurns_Refine        = 15   # structured output + label assignment — lightweight
     MaxTurns_Review        = 30   # read-only: inspect code + signal history, no writes; formula base
     MaxTurns_Review_Cap    = 90   # ceiling for the per-PR scaled formula (base + changed files)
-    MaxTurns_ContextUpdate = 15   # diff analysis + generate a unified patch
 
     # Governance files: a PR touching any of these is held for the owner's merge
     # (human:approval), never auto-merged — the agent's own review cannot be the last
@@ -296,7 +294,6 @@ $KanbanModel_GeminiFlash = if ($env:KANBAN_MODEL_GEMINI_FLASH) { $env:KANBAN_MOD
 
 $KanbanMaxTurns_Review        = if ($env:KANBAN_MAX_TURNS_REVIEW)  { [int]$env:KANBAN_MAX_TURNS_REVIEW  } else { $OrchestratorConfig.MaxTurns_Review        }
 $KanbanMaxTurns_Refine        = if ($env:KANBAN_MAX_TURNS_REFINE)  { [int]$env:KANBAN_MAX_TURNS_REFINE  } else { $OrchestratorConfig.MaxTurns_Refine         }
-$KanbanMaxTurns_ContextUpdate = if ($env:KANBAN_MAX_TURNS_CONTEXT) { [int]$env:KANBAN_MAX_TURNS_CONTEXT } else { $OrchestratorConfig.MaxTurns_ContextUpdate  }
 $KanbanMaxRetries             = if ($env:KANBAN_MAX_RETRIES)       { [int]$env:KANBAN_MAX_RETRIES       } else { $OrchestratorConfig.MaxRetries              }
 $KanbanStuckAfterMinutes      = if ($env:KANBAN_STUCK_AFTER_MINUTES) { [int]$env:KANBAN_STUCK_AFTER_MINUTES } else { $OrchestratorConfig.StuckAfterMinutes   }
 $KanbanMaxReconcile           = if ($env:KANBAN_MAX_RECONCILE)     { [int]$env:KANBAN_MAX_RECONCILE     } else { $OrchestratorConfig.MaxReconcile            }
