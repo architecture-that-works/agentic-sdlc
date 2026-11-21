@@ -363,9 +363,6 @@ function Invoke-CommitAndPR {
         } finally {
             Remove-Item $msgFile.FullName -ErrorAction SilentlyContinue
         }
-    } elseif ($NoPR) {
-        Write-Log "  No changes to commit — nothing to push." -Color DarkGray
-        return @{ PrUrl = $null; Commands = $commands.ToArray(); Pushed = $false }
     } else {
         # No new changes this run. Determine whether the branch as a whole has any
         # commits vs the default branch — if not, there is nothing to PR. This is
@@ -378,6 +375,8 @@ function Invoke-CommitAndPR {
         git fetch --quiet origin $defaultBranch 2>$null
         $aheadCount = [int]((git rev-list --count "origin/${defaultBranch}..HEAD" 2>$null) | Out-String).Trim()
 
+        # -NoPR: commits the agent made during the run still need the push below (#346).
+        if ($aheadCount -eq 0 -and $NoPR) { return @{ PrUrl = $null; Commands = $commands.ToArray(); Pushed = $false } }
         if ($aheadCount -eq 0) {
             Write-Log "  ✅ Already implemented — branch has no commits ahead of $defaultBranch. Skipping PR." -Color Green
             Add-Comment -Number $Number -Body "🤖✅ Already Implemented`n`nAll acceptance criteria are satisfied without code changes — branch ``$Branch`` has no commits ahead of ``$defaultBranch``. Tests pass. Closing as merged without raising a PR."

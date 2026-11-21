@@ -209,6 +209,50 @@ $pushed = & $script:RealGit log -1 --name-status --format=%s feature/346-use-pro
     assert not any("Implement Failed" in c or "🤖🔁" in c for c in out["comments"])
 
 
+# ── Invoke-CommitAndPR -NoPR: the attempt's work reaches the branch ───────────
+
+
+_NOPR = r"""
+$script:Log      = [System.Collections.Generic.List[string]]::new()
+$script:Comments = [System.Collections.Generic.List[string]]::new()
+$script:RealGit  = (Get-Command git -CommandType Application | Select-Object -First 1).Source
+function script:uv { $global:LASTEXITCODE = 0; '' }
+function script:Add-Comment { param($Number, $Body) $script:Comments.Add($Body) }
+function script:Test-RemoteBranch { param($Branch) $false }
+function script:gh { $script:Log.Add('gh'); $global:LASTEXITCODE = 0; '[]' }
+function script:git {
+    if ($args[0] -eq 'push')  { $script:Log.Add('push'); $global:LASTEXITCODE = 0; return }
+    if ($args[0] -eq 'fetch') { $global:LASTEXITCODE = 0; return }
+    & $script:RealGit @args
+}
+$r = Invoke-CommitAndPR -Number 346 -Title 't' -Branch 'feature/346-t' -NoPR
+[pscustomobject]@{
+    pushed   = [bool]$r.Pushed
+    log      = @($script:Log)
+    comments = @($script:Comments)
+} | ConvertTo-Json -Compress
+"""
+
+
+@pytest.mark.parametrize("agent_committed", [True, False])
+def test_no_pr_pushes_commits_the_agent_made_during_the_run(
+    tmp_path: Path, agent_committed: bool
+) -> None:
+    repo = _repo(tmp_path)
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    if agent_committed:
+        # Nothing is staged after the run, but HEAD is ahead of the default branch.
+        (repo / "keep.py").write_text("x = 2\n")
+        _git(repo, "commit", "-qam", "agent committed by mistake")
+
+    out = _run(_NOPR, cwd=repo)
+
+    assert out["pushed"] is agent_committed
+    assert ("push" in out["log"]) is agent_committed
+    assert "gh" not in out["log"]  # no PR lookup or creation
+    assert not any("Already Implemented" in c for c in out["comments"])
+
+
 # ── Get-RefusedFiles: what the engine reports, nothing else ───────────────────
 
 
