@@ -26,6 +26,13 @@ function Format-ToolLine {
 # terminal. Returns the full text response as a string. Callers must pass -Model
 # (use Get-TaskModel) and -MaxTurns explicitly.
 #
+# -JsonSchema (the schema's JSON text) asks the engine for a checked answer: the CLI
+# runs in print mode with --json-schema, and the call returns the final result
+# event's structured_output object instead of the text. A run that ends without one
+# (error_max_structured_output_retries, or no structured_output) throws once, naming
+# the cause — an outcome of the run, not a transient error, so it is not retried.
+# The engine's own StructuredOutput tool call is neither shown nor counted.
+#
 # Retries on a non-zero exit (transient Claude API errors — overloaded 529, rate
 # limit, network blips — exit the CLI non-zero after its own internal retries).
 # Without this, a single transient blip in a read-only phase (e.g. Review) failed
@@ -38,17 +45,22 @@ function Invoke-ClaudeStreaming {
         [string]$Label = 'Claude',
         [Parameter(Mandatory)][string]$Model,
         [int]$MaxTurns = 30,
-        [int]$MaxAttempts = 3
+        [int]$MaxAttempts = 3,
+        [string]$JsonSchema = ''
     )
 
     Write-Log "  ▶ $Label — model=$Model turns=$MaxTurns" -Color DarkGray
 
+    $cliArgs = @('--model', $Model, '--allowedTools', $AllowedTools, '--max-turns', $MaxTurns)
+    if ($JsonSchema) { $cliArgs = @('-p') + $cliArgs + @('--json-schema', $JsonSchema) }
+    $cliArgs += @('--output-format', 'stream-json', '--verbose')
+
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         $allText   = [System.Text.StringBuilder]::new()
         $toolCalls = [System.Collections.Generic.List[string]]::new()
-        $state     = @{ MaxTurnsReached = $false }
+        $state     = @{ MaxTurnsReached = $false; Result = $null }
 
-        $Prompt | claude --model $Model --allowedTools $AllowedTools --max-turns $MaxTurns --output-format stream-json --verbose 2>&1 |
+        $Prompt | claude @cliArgs 2>&1 |
         ForEach-Object {
             $raw = [string]$_
             try {
@@ -63,16 +75,15 @@ function Invoke-ClaudeStreaming {
                         'text' {
                             Write-Host $block.text -NoNewline
                             # Append a trailing newline so consecutive text blocks
-                            # (separated by tool_use in the stream) are not joined
-                            # flush. Without this, downstream regex like
-                            # "(?im)^APPROVED" miss verdicts that started a block
-                            # because they end up mid-line in $allText.
+                            # (separated by tool_use in the stream) are not joined flush.
                             $null = $allText.Append($block.text)
                             $null = $allText.Append("`n")
                         }
                         'tool_use' {
+                            # StructuredOutput is how the engine returns a checked
+                            # answer — not a tool the agent chose.
                             $inputReady = ($block.input.PSObject.Properties | Measure-Object).Count -gt 0
-                            if ($inputReady) {
+                            if ($inputReady -and $block.name -ne 'StructuredOutput') {
                                 $line = Format-ToolLine -Name $block.name -ToolInput $block.input
                                 Write-Host "`n  $line" -ForegroundColor DarkCyan
                                 $toolCalls.Add($line)
@@ -83,6 +94,7 @@ function Invoke-ClaudeStreaming {
 
                 if ($ev.type -eq 'result') {
                     if ($ev.subtype -eq 'error_max_turns') { $state.MaxTurnsReached = $true }
+                    $state.Result = $ev
                     Write-Host ''
                 }
             } catch {
@@ -92,7 +104,19 @@ function Invoke-ClaudeStreaming {
 
         if ($state.MaxTurnsReached) { throw "$Label ran out of turns ($MaxTurns)" }
 
-        if ($LASTEXITCODE -eq 0) {
+        if ($JsonSchema) {
+            $result = $state.Result
+            if ($result -and $result.subtype -eq 'error_max_structured_output_retries') {
+                throw "$Label produced no checked answer: error_max_structured_output_retries"
+            }
+            if ($LASTEXITCODE -eq 0 -or $result.subtype -eq 'success') {
+                if (-not $result -or $null -eq $result.structured_output) {
+                    throw "$Label produced no checked answer: the result holds no structured_output"
+                }
+                Write-Log "  ✓ $Label — $($toolCalls.Count) tool call(s). Checked answer received." -Color DarkGray
+                return $result.structured_output
+            }
+        } elseif ($LASTEXITCODE -eq 0) {
             $summary = if ($allText.Length -gt 0) { ($allText.ToString() -split "`n")[0].Trim() } else { '(no text output)' }
             Write-Log "  ✓ $Label — $($toolCalls.Count) tool call(s). First line: $summary" -Color DarkGray
             return $allText.ToString()

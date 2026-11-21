@@ -10,8 +10,10 @@
     Claude Code to review the implementation, and posts the verdict as a
     comment on both the PR and the issue.
 
-    APPROVED → label agent:reviewing; item stays in Review lane.
-    REJECTED → post feedback; label agent:implementing; move item back to Implementing for re-pickup.
+    The answer is checked by the engine against .agents/skills/review/answer.schema.json:
+    verdict approved → label agent:reviewing; item stays in Review lane.
+    verdict rejected → post the report; label agent:implementing; back to Implementing.
+    No checked answer → throws; the conductor records a failed attempt.
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -44,6 +46,11 @@ function Invoke-Review {
     if ($IssueNumber -eq 0) {
         $prBody = gh pr view $PRNumber --json body --jq '.body' 2>&1
         if ($prBody -match '#(\d+)') { $IssueNumber = [int]$Matches[1] }
+    }
+
+    # The verdict is a checked field (answer.schema.json); only Claude's --json-schema gives one.
+    if ($OrchestratorConfig.Engine -ne 'claude') {
+        throw "the review needs a checked answer and the $($OrchestratorConfig.Engine) engine cannot give one"
     }
 
     $sp          = Get-IssueEstimate -IssueNumber $IssueNumber
@@ -92,28 +99,33 @@ Test and check results come from the signal history (look for robot emoji Tests 
 - Check that the conventions in AGENTS.md and .agents/skills/ are followed.
 - Lint and format are CI's job — report no style findings.
 
-First line of your response MUST be exactly APPROVED or REJECTED (all caps), followed by the
-review in the skill's § Report shape.
+Your answer has two fields, checked against the skill's answer.schema.json:
+- ``verdict``: ``approved`` or ``rejected``, by the skill's verdict rule.
+- ``report``: the review in markdown, in the shape of the skill's § Step 4 — Report. A rejected
+  report opens by naming every finding that must be fixed (for example ``Fix 1 and 3.``).
 "@
 
+    $schema = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '../../../.agents/skills/review/answer.schema.json') |
+              ConvertFrom-Json | ConvertTo-Json -Depth 20 -Compress
+
     try {
-        if ($OrchestratorConfig.Engine -eq 'gemini') {
-            $review = Invoke-GeminiStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $scaledTurns
-        } else {
-            $review = Invoke-ClaudeStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $scaledTurns
-        }
+        $answer = Invoke-ClaudeStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $scaledTurns -JsonSchema $schema
     } catch {
         if ($_.Exception.Message -match 'ran out of turns') {
             throw "Review ran out of turns on $changedFileCount changed file(s) — retry needs a larger budget or a smaller PR."
         }
         throw
     }
-    $approved = $review -match '(?im)^APPROVED'
+    if ($answer.verdict -notin 'approved', 'rejected') {
+        throw "Review produced no checked answer: verdict '$($answer.verdict)' is not approved or rejected"
+    }
+    $approved = $answer.verdict -eq 'approved'
+    $report   = $answer.report
 
     $issueComment = if ($approved) {
-        "🤖✅ Review Approved`n`n$review`n`n*Proceeding to merge.*"
+        "🤖✅ Review Approved`n`n$report`n`n*Proceeding to merge.*"
     } else {
-        "🤖❌ Review Rejected`n`n$review`n`n*Returning to Implementing for fixes.*"
+        "🤖❌ Review Rejected`n`n$report`n`n*Returning to Implementing for fixes.*"
     }
 
     Add-Comment -Number $IssueNumber -Body $issueComment

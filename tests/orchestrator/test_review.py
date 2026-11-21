@@ -1,10 +1,13 @@
-"""Tests for the review stage's error_max_turns handling, budget scaling, and prompt content.
+"""Tests for the review stage's error_max_turns handling, budget scaling, prompt content and
+checked verdict.
 
 - engines/Claude.ps1 — Invoke-ClaudeStreaming: a stream ending in error_max_turns throws
-  once with 'ran out of turns'; any other non-zero exit retries per MaxAttempts.
+  once with 'ran out of turns'; any other non-zero exit retries per MaxAttempts. With
+  -JsonSchema it returns the result's structured_output, throws once when there is none,
+  and neither shows nor counts the engine's StructuredOutput tool call.
 - stages/Review.ps1 — Invoke-Review: the scaled turn budget (base + changed files, capped
   at MaxTurns_Review_Cap); the prompt names the read-only tools and the signal history as
-  the source of test results.
+  the source of test results; the verdict is the checked `verdict` field.
 
 gh, claude and helpers are replaced by in-memory fakes at module script scope.
 """
@@ -137,10 +140,10 @@ function script:Get-CurrentIssueNumber { 1 }
 $script:CapturedPrompt = ''
 $script:CapturedTurns  = 0
 function script:Invoke-ClaudeStreaming {
-    param($Prompt, $AllowedTools, $Label, $Model, $MaxTurns, $MaxAttempts)
+    param($Prompt, $AllowedTools, $Label, $Model, $MaxTurns, $MaxAttempts, $JsonSchema)
     $script:CapturedPrompt = $Prompt
     $script:CapturedTurns  = $MaxTurns
-    'APPROVED'
+    [pscustomobject]@{ verdict = 'approved'; report = 'Looks good.' }
 }
 function script:gh {
     param()
@@ -232,3 +235,224 @@ Invoke-Orchestration -IssueNumber 50 -MaxRetries 3
     assert not any(e.startswith("attempt:") for e in out["log"]), (
         "ran-out-of-turns must not increment the attempt counter"
     )
+
+
+# ── (f) the verdict is the checked field of the result's structured_output ───
+
+_SCHEMA = REPO_ROOT / ".agents" / "skills" / "review" / "answer.schema.json"
+
+
+def test_answer_schema_has_two_required_fields() -> None:
+    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    assert schema["required"] == ["verdict", "report"]
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["verdict"]["enum"] == ["approved", "rejected"]
+    assert schema["properties"]["report"]["type"] == "string"
+
+
+def test_answer_schema_declares_no_meta_schema_the_engine_cannot_load() -> None:
+    # The CLI's --json-schema validator rejects a "$schema" it has not loaded
+    # (draft 2020-12 failed every review eval run before the model was called).
+    # The schema uses only keywords every draft shares, so it declares none.
+    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    assert "$schema" not in schema
+
+
+def _result_event(**fields) -> str:
+    return json.dumps({"type": "result", **fields})
+
+
+def _stage_fakes(events: list[str], exit_code: int = 0) -> str:
+    """Fakes for Invoke-Review that stub the claude CLI itself with stored stream events."""
+    lines = "\n".join(f"    '{e}'" for e in events)
+    return (
+        r"""
+$script:Comments = [System.Collections.Generic.List[string]]::new()
+$script:States   = [System.Collections.Generic.List[string]]::new()
+$script:CliArgs  = @()
+$script:CallCount = 0
+function script:Set-AgentState    { param($IssueNumber, $Label) $script:States.Add($Label) }
+function script:Add-Comment       { param($Number, $Body) $script:Comments.Add($Body) }
+function script:Format-OwnerComments { param($IssueNumber) '' }
+function script:Get-SignalComments { param($IssueNumber) @() }
+function script:Get-IssueEstimate { param($IssueNumber) 3 }
+function script:Get-TaskModel     { param($Task, $Engine) 'mock-model' }
+function script:Start-Sleep { param([int]$Seconds) }
+function script:gh {
+    $global:LASTEXITCODE = 0
+    $argsStr = $args -join ' '
+    if ($argsStr -match 'pr diff') { "diff --git a/a.py b/a.py" }
+    elseif ($argsStr -match 'issue view') { '{"title":"My Issue","body":"**Goal**: X"}' }
+    else { $null }
+}
+function script:claude {
+    $script:CallCount++
+    $script:CliArgs = $args
+"""
+        + lines
+        + f"\n    $global:LASTEXITCODE = {exit_code}\n}}\n"
+    )
+
+
+_REPORT_STAGE = r"""
+$ret = $null; $err = $null
+try { $ret = Invoke-Review -IssueNumber 1 -PRNumber 1 } catch { $err = $_.Exception.Message }
+[pscustomobject]@{
+    ret      = $ret
+    err      = $err
+    calls    = $script:CallCount
+    comments = @($script:Comments)
+    states   = @($script:States)
+    args     = @($script:CliArgs)
+} | ConvertTo-Json -Compress -Depth 5
+"""
+
+
+def test_approved_verdict_approves_and_posts_the_report() -> None:
+    out = _run(
+        _stage_fakes(
+            [
+                _result_event(
+                    subtype="success",
+                    structured_output={"verdict": "approved", "report": "Looks good."},
+                )
+            ]
+        )
+        + _REPORT_STAGE
+    )
+    assert out["ret"] is True
+    assert out["err"] is None
+    verdict = [c for c in out["comments"] if c.startswith("🤖")]
+    assert verdict == ["🤖✅ Review Approved\n\nLooks good.\n\n*Proceeding to merge.*"]
+    assert "agent:implementing" not in out["states"]
+    schema_arg = out["args"][out["args"].index("--json-schema") + 1]
+    assert json.loads(schema_arg) == json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    assert "-p" in out["args"]
+
+
+def test_rejected_verdict_rejects_even_with_an_approved_line() -> None:
+    report = "Fix 1.\n\nAPPROVED\n\n1. **Bug**"
+    out = _run(
+        _stage_fakes(
+            [
+                _result_event(
+                    subtype="success",
+                    structured_output={"verdict": "rejected", "report": report},
+                )
+            ]
+        )
+        + _REPORT_STAGE
+    )
+    assert out["ret"] is False
+    assert (
+        f"🤖❌ Review Rejected\n\n{report}\n\n*Returning to Implementing for fixes.*"
+        in (out["comments"])
+    )
+    assert out["states"][-1] == "agent:implementing"
+
+
+@pytest.mark.parametrize(
+    ("event", "exit_code", "cause"),
+    [
+        (
+            _result_event(subtype="success", is_error=False, result="APPROVED"),
+            0,
+            "no structured_output",
+        ),
+        (
+            _result_event(subtype="error_max_structured_output_retries", is_error=True),
+            1,
+            "error_max_structured_output_retries",
+        ),
+    ],
+    ids=["no-structured-output", "max-structured-output-retries"],
+)
+def test_run_without_a_checked_answer_fails_the_attempt(
+    event: str, exit_code: int, cause: str
+) -> None:
+    """No valid answer is a thrown failure naming the cause — never a rejection, never
+    retried by the engine helper, never the out-of-turns fast-fail."""
+    out = _run(_stage_fakes([event], exit_code) + _REPORT_STAGE)
+    assert out["ret"] is None
+    assert cause in out["err"]
+    assert "ran out of turns" not in out["err"]
+    assert out["calls"] == 1, "must not retry a run that produced no checked answer"
+    assert not any(c.startswith("🤖") for c in out["comments"]), "no verdict comment"
+    assert "agent:implementing" not in out["states"]
+
+
+def test_structured_output_tool_call_is_not_shown_or_counted() -> None:
+    events = [
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Read",
+                            "input": {"file_path": "a.py"},
+                        },
+                        {
+                            "type": "tool_use",
+                            "name": "StructuredOutput",
+                            "input": {"verdict": "approved", "report": "ok"},
+                        },
+                    ]
+                },
+            }
+        ),
+        _result_event(
+            subtype="success", structured_output={"verdict": "approved", "report": "ok"}
+        ),
+    ]
+    lines = "\n".join(f"    '{e}'" for e in events)
+    script = (
+        r"""
+$script:Logs = [System.Collections.Generic.List[string]]::new()
+function script:Write-Log { param($Message, $Color) $script:Logs.Add($Message) }
+function script:claude {
+"""
+        + lines
+        + r"""
+    $global:LASTEXITCODE = 0
+}
+$shown = Invoke-ClaudeStreaming -Prompt 't' -Label 'Review' -Model 'm' -JsonSchema '{}' 6>&1 |
+    Where-Object { $_ -is [System.Management.Automation.InformationRecord] } | Out-String
+$answer = Invoke-ClaudeStreaming -Prompt 't' -Label 'Review' -Model 'm' -JsonSchema '{}' 6>$null
+[pscustomobject]@{ shown = $shown; logs = @($script:Logs); verdict = $answer.verdict } |
+    ConvertTo-Json -Compress
+"""
+    )
+    out = _run(script)
+    assert out["verdict"] == "approved"
+    assert "Read:" in out["shown"]
+    assert "StructuredOutput" not in out["shown"]
+    assert any("1 tool call(s)" in m for m in out["logs"]), out["logs"]
+
+
+def test_non_claude_engine_fails_the_review_with_an_explicit_reason() -> None:
+    out = _run(
+        _stage_fakes([]) + "$OrchestratorConfig.Engine = 'gemini'\n" + _REPORT_STAGE
+    )
+    assert out["err"] == (
+        "the review needs a checked answer and the gemini engine cannot give one"
+    )
+    assert out["calls"] == 0
+    assert out["comments"] == []
+
+
+def test_no_checked_answer_is_a_counted_failed_attempt(tmp_path: Path) -> None:
+    out = _run(
+        _CONDUCTOR_FAKES
+        + r"""
+function script:Invoke-Review {
+    param($IssueNumber, $PRNumber)
+    throw 'Review produced no checked answer: error_max_structured_output_retries'
+}
+Invoke-Orchestration -IssueNumber 50 -MaxRetries 3
+[pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
+""",
+        cwd=tmp_path,
+    )
+    assert any(e.startswith("attempt:") for e in out["log"]), out["log"]
