@@ -5,7 +5,7 @@
     agent:backlog when an issue is ready for processing.
 
 .DESCRIPTION
-    The Backlog-gate counterpart to `task hitl` / `task afk`. Imports the
+    The Backlog-gate counterpart to `hitl.ps1` / `afk.ps1`. Imports the
     Orchestrator module and calls Invoke-Orchestration -From refine, which structures the issue body,
     writes the architectural impact and an implementation plan INTO the issue
     (ADR-014 — no .planning/), and labels agent:backlog only when the readiness
@@ -24,8 +24,8 @@
     Issue number to align directly. 0 (default) aligns the whole un-aligned backlog.
 
 .EXAMPLE
-    task refine ISSUE=87     # align one issue
-    task refine              # align every un-aligned open issue
+    pwsh -NoProfile -File .github/tasks/refine.ps1 -Issue 87     # align one issue
+    pwsh -NoProfile -File .github/tasks/refine.ps1              # align every un-aligned open issue
 #>
 param([int]$Issue = 0)
 

@@ -11,7 +11,7 @@
     Load order (dependencies first):
 
         lib/Config     settings, run context (Get-OrchestratorContext), the
-                       $PipelineStates label table, model selection
+                       $PipelineStates label table, model selection (Get-TaskModel)
         lib/Util       logging, runtime, lock, ISSUES.md reader, engine ping, usage limit
         lib/GitHub     labels, lanes, comments, board, issue-body carrier sections
         lib/Reconcile  re-entry (Restart-Issue) and the hourly warden over stuck states
@@ -28,7 +28,7 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\lib\Util.ps1"
 . "$PSScriptRoot\lib\GitHub.ps1"
 
-# engines — LLM provider adapters, selected by KANBAN_ENGINE
+# engines — LLM provider adapters; $OrchestratorConfig.Engine says which one runs
 . "$PSScriptRoot\engines\Claude.ps1"
 . "$PSScriptRoot\engines\Gemini.ps1"
 

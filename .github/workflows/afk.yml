@@ -85,11 +85,6 @@ env:
   KANBAN_PRIORITY_OPT_P2: ${{ vars.KANBAN_PRIORITY_OPT_P2 }}
   KANBAN_PRIORITY_OPT_P3: ${{ vars.KANBAN_PRIORITY_OPT_P3 }}
   KANBAN_PRIORITY_OPT_P4: ${{ vars.KANBAN_PRIORITY_OPT_P4 }}
-  # Pinned, not read from vars.KANBAN_ENGINE: the runners below install only the
-  # Claude CLI (headless Gemini was dropped — Gemini is HITL-only). The repository
-  # variable still selects the engine for local `task hitl` runs; reading it here
-  # made every cloud run die at the engine check with "agy: not recognized".
-  KANBAN_ENGINE: claude
 
 jobs:
 
@@ -289,7 +284,7 @@ jobs:
           $labels = gh issue view $env:RESOLVED_ISSUE --repo $env:GITHUB_REPOSITORY `
             --json labels --jq '[.labels[].name] | join(",")' 2>$null
           if (",$labels," -like '*,agent:paused,*') {
-            Write-Output "Paused on the Claude usage limit — resumes on the next pipeline run or the hourly check; task reconcile resumes it now."
+            Write-Output "Paused on the Claude usage limit — resumes on the next pipeline run or the hourly check; pwsh -NoProfile -File .github/tasks/reconcile.ps1 resumes it now."
             exit 0
           }
           if (",$labels," -like '*,agent:backlog,*') {

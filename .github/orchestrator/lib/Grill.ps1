@@ -6,9 +6,11 @@
 .DESCRIPTION
     Function library for the `refine` skill's AFK alignment phase. Defines
     Invoke-Grill and its helpers with NO top-level param() block, so dot-sourcing
-    it (from implement.ps1 / Invoke-Refine, or the grill.ps1 CLI wrapper) only
-    registers functions and never pollutes or clobbers the caller's scope
-    (see ADR-013). The standalone CLI lives in grill.ps1.
+    it (from Orchestrator.psm1) only registers functions and never pollutes or
+    clobbers the caller's scope (see ADR-013). Its model (Get-TaskModel) and turn
+    budget ($KanbanMaxTurns_Refine) come from lib/Config.ps1, so it runs inside the
+    module. The standalone CLI, .agents/skills/refine/scripts/grill.ps1, imports the
+    module and calls Invoke-Grill.
 
     Rules 1-5 from refine/SKILL.md are enforced by the system prompt below:
         1. Codebase first — read before asking
@@ -134,23 +136,8 @@ TASK:
 "@
 }
 
-function Resolve-GrillModel {
-    param([string]$Requested)
-    if ($Requested) { return $Requested }
-    if ($env:KANBAN_MODEL_OPUS) { return $env:KANBAN_MODEL_OPUS }
-    if ($KanbanModel_Opus) { return $KanbanModel_Opus }
-    # Config.ps1 not loaded (standalone/eval context): read ModelOpus directly from
-    # the config file without dot-sourcing it — dot-sourcing runs git operations that
-    # are unavailable outside the full module context and would throw.
-    $configPath = Join-Path $PSScriptRoot 'Config.ps1'
-    $m = Select-String -Path $configPath -Pattern "ModelOpus\s*=\s*'([^']+)'" |
-        Select-Object -First 1
-    if ($m) { return $m.Matches[0].Groups[1].Value }
-    throw "Resolve-GrillModel: cannot determine the Opus model tier — set KANBAN_MODEL_OPUS or verify '$configPath' contains a ModelOpus entry."
-}
-
 # Strips Markdown code fences from a Claude response. The subagent is told to
-# emit raw JSON but Sonnet occasionally wraps it; trim defensively so the
+# emit raw JSON but a model occasionally wraps it; trim defensively so the
 # pydantic validator never sees fence garbage.
 function ConvertFrom-ClaudeJsonResponse {
     param([string]$Raw)
@@ -214,8 +201,6 @@ function Invoke-Grill {
         [string]$Title    = '',
         [string]$Body     = '',
         [switch]$DryRun,
-        [string]$Model    = '',
-        [int]   $MaxTurns = 40,  # reading CONTEXT, AGENTS, the skill, ADRs and sources takes turns
         # Also return the tools the subagent called, in order: { result; tools_called }.
         # The refine eval's Tool Correctness metric reads it (#155); refine does not.
         [switch]$Trace
@@ -261,7 +246,11 @@ function Invoke-Grill {
         }
     }
 
-    $resolvedModel = Resolve-GrillModel -Requested $Model
+    # The questioning is the Refine task. It starts only the Claude CLI, whatever the
+    # Engine setting, until "Start every engine through one function" lands — so it
+    # asks for the claude row's model, never one the Claude CLI cannot run.
+    $resolvedModel = Get-TaskModel -Task 'Refine' -Engine 'claude'
+    $MaxTurns      = $KanbanMaxTurns_Refine   # MaxTurns_Refine — the one questioning budget
 
     # The subagent is read-only — restrict tools so it cannot accidentally write
     # to the working tree. The orchestrator alone owns mutations. The result event

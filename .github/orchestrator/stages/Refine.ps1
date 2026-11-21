@@ -122,10 +122,10 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 {"body":"<full issue body>","estimate":<number or null>,"priority":"<one of the allowed values or null>"}
 "@
 
-        $raw = if ($KanbanEngine -eq 'gemini') {
-            Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiPro 2>&1 | Out-String)
+        $raw = if ($OrchestratorConfig.Engine -eq 'gemini') {
+            Remove-GeminiNoise -Text ($prompt | agy --model (Get-TaskModel -Task 'Refine') 2>&1 | Out-String)
         } else {
-            Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Opus 2>&1 | Out-String)
+            Remove-ClaudeNoise -Text ($prompt | claude --model (Get-TaskModel -Task 'Refine') 2>&1 | Out-String)
         }
         if ($LASTEXITCODE -ne 0) { throw "Claude refinement failed: $raw" }
 
@@ -277,10 +277,10 @@ Return ONLY JSON, no fences:
 {"answers":[{"id":1,"status":"answered","decision":"..."},{"id":2,"status":"open","follow_up":"..."}],"new_questions":[{"text":"...","recommendation":"...","alternatives":["...","..."]}]}
 "@
 
-    $raw = if ($KanbanEngine -eq 'gemini') {
-        Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiPro 2>&1 | Out-String)
+    $raw = if ($OrchestratorConfig.Engine -eq 'gemini') {
+        Remove-GeminiNoise -Text ($prompt | agy --model (Get-TaskModel -Task 'Refine') 2>&1 | Out-String)
     } else {
-        Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Opus 2>&1 | Out-String)
+        Remove-ClaudeNoise -Text ($prompt | claude --model (Get-TaskModel -Task 'Refine') 2>&1 | Out-String)
     }
     $parsed = $null
     if ($LASTEXITCODE -eq 0) {
@@ -394,10 +394,10 @@ Return ONLY valid JSON — no fences, no prose — matching this shape:
 "@
 
     # No plan, no readiness: a failure fails this attempt and the conductor retries.
-    $raw = if ($KanbanEngine -eq 'gemini') {
-        Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiPro 2>&1 | Out-String)
+    $raw = if ($OrchestratorConfig.Engine -eq 'gemini') {
+        Remove-GeminiNoise -Text ($prompt | agy --model (Get-TaskModel -Task 'Plan') 2>&1 | Out-String)
     } else {
-        Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Opus 2>&1 | Out-String)
+        Remove-ClaudeNoise -Text ($prompt | claude --model (Get-TaskModel -Task 'Plan') 2>&1 | Out-String)
     }
     if ($LASTEXITCODE -ne 0 -or -not "$raw".Trim()) {
         throw "Plan: the engine returned no implementation plan (exit code $LASTEXITCODE):`n$("$raw".Trim())"
@@ -419,7 +419,7 @@ Return ONLY valid JSON — no fences, no prose — matching this shape:
         -BeginMarker $KanbanPlanBeginMarker -EndMarker $KanbanPlanEndMarker -Markdown $section
     if ($ok) { Write-Log "  Implementation Plan written to issue #$Number body." -Color DarkGray }
 
-    Set-PlanningReadiness -IssueNumber $Number -Stage 'planned' -StageLabel 'plan' -PopulatedBy "plan ($KanbanEngine)"
+    Set-PlanningReadiness -IssueNumber $Number -Stage 'planned' -StageLabel 'plan' -PopulatedBy "plan ($($OrchestratorConfig.Engine))"
 
     # Writable-path gate: a plan that touches a path outside WritablePaths cannot be
     # auto-implemented. readiness.planned still goes true (the plan was written) —

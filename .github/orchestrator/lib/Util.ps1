@@ -217,9 +217,9 @@ function Invoke-EnginePing {
     $ctx = Get-OrchestratorContext
     try {
         $out = if ($ctx.Engine -eq 'gemini') {
-            "ping" | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String
+            "ping" | agy --model (Get-TaskModel -Task 'EngineCheck') 2>&1 | Out-String
         } else {
-            "ping" | claude --model $KanbanModel_Aux 2>&1 | Out-String
+            "ping" | claude --model (Get-TaskModel -Task 'EngineCheck') 2>&1 | Out-String
         }
         return [pscustomobject]@{ Output = $out; Failed = ($LASTEXITCODE -ne 0) }
     } catch {

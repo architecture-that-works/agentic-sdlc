@@ -64,7 +64,7 @@ function script:claude {
 function script:Start-Sleep { param([int]$Seconds) }
 $err = $null
 try {
-    Invoke-ClaudeStreaming -Prompt 'test' -Label 'Review' -MaxTurns 30 -MaxAttempts 3
+    Invoke-ClaudeStreaming -Prompt 'test' -Label 'Review' -Model 'mock-model' -MaxTurns 30 -MaxAttempts 3
 } catch {
     $err = $_.Exception.Message
 }
@@ -92,7 +92,7 @@ function script:claude {
 function script:Start-Sleep { param([int]$Seconds) }
 $err = $null
 try {
-    Invoke-ClaudeStreaming -Prompt 'test' -Label 'Review' -MaxTurns 30 -MaxAttempts 3
+    Invoke-ClaudeStreaming -Prompt 'test' -Label 'Review' -Model 'mock-model' -MaxTurns 30 -MaxAttempts 3
 } catch {
     $err = $_.Exception.Message
 }
@@ -132,7 +132,7 @@ function script:Set-AgentState    { param($IssueNumber, $Label) }
 function script:Add-Comment       { param($Number, $Body) }
 function script:Format-OwnerComments { param($IssueNumber) '' }
 function script:Get-IssueEstimate { param($IssueNumber) 3 }
-function script:Get-PhaseModel    { param($Estimate, $Phase) 'mock-model' }
+function script:Get-TaskModel     { param($Task, $Engine) 'mock-model' }
 function script:Get-CurrentIssueNumber { 1 }
 $script:CapturedPrompt = ''
 $script:CapturedTurns  = 0

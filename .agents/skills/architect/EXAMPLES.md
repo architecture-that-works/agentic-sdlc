@@ -174,7 +174,7 @@ The audit reports eleven findings, most important first. One of them:
      `if name in done: continue`. Four lines.
 ```
 
-Written as the block `task sync` turns into the issue:
+Written as the block `sync.ps1` turns into the issue:
 
 ```
 ISSUE: Skip already-ingested files in the nightly ingest job

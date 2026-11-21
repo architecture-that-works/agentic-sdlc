@@ -8,7 +8,7 @@
     a cancelled job, an Actions timeout, or a drain step whose `gh workflow run`
     re-dispatch failed all leave an issue holding a label that claims work nobody
     is doing — and until this file, nothing noticed. Recovery was a human running
-    `task retry` after spotting it.
+    `retry.ps1` after spotting it.
 
     What counts as stuck is read from $PipelineStates (lib/Config.ps1), not decided
     here: a label whose Holder is 'agent' means the pipeline owes progress, so an
@@ -36,7 +36,7 @@
 # ── Re-entry ──────────────────────────────────────────────────────────────────
 
 # The one implementation of "start this issue again from where it got to".
-# `task retry` calls it, the owner's comment on an agent:failed issue reaches it
+# `retry.ps1` calls it, the owner's comment on an agent:failed issue reaches it
 # through retry.ps1, and the warden calls it for a state that stalled.
 #
 # Readiness decides the entry point, not failed_at. A runner killed mid-stage
@@ -212,7 +212,7 @@ function Set-ReconcileCount {
 }
 
 # The warden's pass over the whole repository. Called hourly by afk.yml's schedule
-# job, and runnable by hand (`task reconcile`) to see the verdicts without waiting.
+# job, and runnable by hand (`reconcile.ps1`) to see the verdicts without waiting.
 #
 # -WhatIf reports what it would do and changes nothing — the intended way to check
 # the grace period against real activity before trusting it unattended.

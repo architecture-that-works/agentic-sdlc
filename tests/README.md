@@ -177,8 +177,11 @@ against fixed cases. Neither repeats the other.
 | `test_commit_eval.py` | `src/tools/commit.py` on a staged diff | The first line is `<type>(<scope>): <description>` or `<type>: <description>` with a listed type, at most 72 characters, no trailing period; no markdown fence, no Co-Authored-By or Signed-off-by trailer |
 
 The skill under test runs on its stage's model, read from the orchestrator by
-`stage_models()` in `tests/evals/stage_models.py` (one `pwsh` call that imports the
-module). Never write a model ID in `tests/evals/`. Without `pwsh`, an eval fails rather
+`stage_models()` in `tests/evals/stage_models.py`: one `pwsh` call that imports the
+module and asks `Get-TaskModel` for the tasks `Review` and `ImplementLarge` on the engine
+the `Engine` setting names. The refine eval's grill probe imports the module too, so it
+runs on the `Refine` task's model and the `MaxTurns_Refine` budget, as the stage does.
+Never write a model ID in `tests/evals/`. Without `pwsh`, an eval fails rather
 than skips: a skipped gate reports green.
 
 **Review cases come in twins.** A case with a defect is added together with a clean twin
@@ -216,7 +219,7 @@ The Claude CLI must be installed and signed in (in CI, with `CLAUDE_CODE_OAUTH_T
 
 **In CI** — the `eval` job runs only on a PR that changes a file an eval reads, and then
 only the evals whose files changed; skipped, it reports success, so it can be a required
-check (`task protect`). The pipeline's ship stage never merges a PR with a red check.
+check (`pwsh -NoProfile -File .github/tasks/protect.ps1`). The pipeline's ship stage never merges a PR with a red check.
 
 ## The local gate
 

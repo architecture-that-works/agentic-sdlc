@@ -1,8 +1,8 @@
 version: '3'
 
-vars:
-  ISSUE: '{{default "0" .ISSUE}}'
-  RETRIES: '{{default "-1" .RETRIES}}' # -1 = read from .github/orchestrator/lib/Config.ps1
+# Only setup has a target: it runs two commands (the runnable and src/tools/setup.py).
+# Every other command is one runnable in .github/tasks/, run directly:
+#   pwsh -NoProfile -File .github/tasks/<name>.ps1 [args]
 
 tasks:
 
@@ -11,38 +11,3 @@ tasks:
     cmds:
       - pwsh -NoProfile -File .github/tasks/setup.ps1
       - uv run python src/tools/setup.py
-
-  sync:
-    desc: "Sync ISSUES.md — push pending ISSUE blocks to GitHub Issues + Project board (lands un-aligned)"
-    cmds:
-      - pwsh -NoProfile -File .github/tasks/sync.ps1 {{.CLI_ARGS}}
-
-  refine:
-    desc: "Backlog gate — refine→architect→plan an issue and grant agent:backlog when ready (ISSUE=N for one; no arg = all un-aligned)"
-    cmds:
-      - pwsh -NoProfile -File .github/tasks/refine.ps1 -Issue {{.ISSUE}}
-
-  hitl:
-    desc: "HITL — interactive Backlog picker; runs full orchestration in this terminal (ISSUE=N to skip picker)"
-    cmds:
-      - pwsh -NoProfile -File .github/tasks/hitl.ps1 -Issue {{.ISSUE}} -MaxRetries {{.RETRIES}}
-
-  afk:
-    desc: "AFK backfill — refine every issue with no agent:* label in the cloud; ready ones start implementing on their own"
-    cmds:
-      - pwsh -NoProfile -File .github/tasks/afk.ps1 {{.CLI_ARGS}}
-
-  retry:
-    desc: "Recovery — re-enter one stuck or failed issue from where it got to (ISSUE=N required)"
-    cmds:
-      - pwsh -NoProfile -File .github/tasks/retry.ps1 -Issue {{.ISSUE}}
-
-  reconcile:
-    desc: "Recovery — re-enter every pipeline state nothing is working on (afk.yml runs this hourly; -- -WhatIf to preview)"
-    cmds:
-      - pwsh -NoProfile -File .github/tasks/reconcile.ps1 {{.CLI_ARGS}}
-
-  protect:
-    desc: "Governance — apply branch-protection rules to main, once, with your own gh login (needs repository admin rights)"
-    cmds:
-      - pwsh -NoProfile -File .github/tasks/protect.ps1
