@@ -250,6 +250,14 @@ def test_answer_schema_has_two_required_fields() -> None:
     assert schema["properties"]["report"]["type"] == "string"
 
 
+def test_answer_schema_declares_no_meta_schema_the_engine_cannot_load() -> None:
+    # The CLI's --json-schema validator rejects a "$schema" it has not loaded
+    # (draft 2020-12 failed every review eval run before the model was called).
+    # The schema uses only keywords every draft shares, so it declares none.
+    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    assert "$schema" not in schema
+
+
 def _result_event(**fields) -> str:
     return json.dumps({"type": "result", **fields})
 

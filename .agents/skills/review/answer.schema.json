@@ -1,5 +1,4 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Review answer",
   "description": "The review's answer: the verdict the pipeline reads, and the report posted to the issue.",
   "type": "object",
