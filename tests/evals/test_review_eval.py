@@ -3,10 +3,11 @@
 Each golden is an issue's criterion plus a diff. Claude reviews it with the skill's
 SKILL.md as its system prompt and no tools, on the model the review stage uses. The
 exact parts of § Step 4 — Report are checked in code first (`check_review_format`):
-the verdict line the pipeline reads, and no severity label. Only what needs judgement
-goes to the judge (G-Eval): the verdict agrees with the expected one, and a named
-defect is a three-part finding with a concrete case. The format check is proven by a
-model-free test over stored bad reports, which runs in the default suite.
+the verdict line the pipeline reads, and no severity label. Then, also in code, the
+verdict agrees with the expected one. Only what needs judgement goes to the judge
+(G-Eval): when the expected output names a defect, the report has it as a three-part
+finding with a concrete case. The format check is proven by a model-free test over
+stored bad reports, which runs in the default suite.
 """
 
 import re
@@ -30,10 +31,20 @@ VERDICT_LINE = re.compile(r"APPROVED|REJECTED — fix \d+(?:(?:, | and )\d+)*")
 SEVERITY_LABEL = re.compile(r"\b(?:BLOCK|WARN|INFO)\b|\b(?i:severity):")
 
 
+def _first_line(text: str) -> str:
+    return next((line.strip() for line in text.splitlines() if line.strip()), "")
+
+
+def verdict(text: str) -> str:
+    """`APPROVED` or `REJECTED` — the first word of a report or an expected output."""
+    words = _first_line(text).split()
+    return words[0] if words else ""
+
+
 def check_review_format(report: str) -> list[str]:
     """The exact-format violations in a review report; empty when it passes."""
     violations = []
-    first = next((line.strip() for line in report.splitlines() if line.strip()), "")
+    first = _first_line(report)
     if not VERDICT_LINE.fullmatch(first):
         violations.append(
             f"first line is not `APPROVED` or `REJECTED — fix <numbers>`: {first!r}"
@@ -116,7 +127,13 @@ def test_review_report(golden, judge, evaluate) -> None:
     report = review(golden["input"])
     violations = check_review_format(report)
     assert violations == [], f"{violations}\n--- report ---\n{report}"
-    evaluate(_case(golden, report), [review_report(judge)])
+    # Exact once the format holds, so checked in code: a judge weighing the verdict
+    # against an expected `APPROVED — no findings` marks down the recommendations
+    # the skill is told to list, and scored the same clean report 0.3 to 0.9 (#341).
+    expected = verdict(golden["expected_output"])
+    assert verdict(report) == expected, f"verdict is not {expected}\n{report}"
+    if expected == "REJECTED":  # only a named defect is left for judgement
+        evaluate(_case(golden, report), [review_report(judge)])
 
 
 FINDING = """
@@ -161,3 +178,10 @@ STORED_REPORTS = {
 def test_review_format_check(report: str, passes: bool) -> None:
     violations = check_review_format(report)
     assert (violations == []) is passes, violations
+
+
+def test_every_golden_expects_a_verdict() -> None:
+    # A golden whose verdict parses to neither would skip the judge unnoticed.
+    assert {verdict(g["expected_output"]) for g in GOLDENS} <= {"APPROVED", "REJECTED"}
+    assert verdict("REJECTED — fix 1 and 3\n1. ...") == "REJECTED"
+    assert verdict("\nAPPROVED\nLooks good.") == "APPROVED"

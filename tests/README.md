@@ -206,7 +206,10 @@ disabled: evals are plain pytest, with no Confident AI login.
    judge runs; the judge weighs everything into one score, so a wrong format costs it only
    a few tenths. Prove the check with an unmarked test over stored bad outputs — real ones
    the model produced — and one good output, so it runs in the default suite with no model
-   call (`test_review_format_check`). Only judgement goes to the judge; a judged canary
+   call (`test_review_format_check`). An exact match against the golden (the verdict word)
+   is code too, and a golden with nothing left to judge skips the judge: compared with an
+   expected "no findings", it marks down the recommendations a valid output may carry.
+   Only judgement goes to the judge; a judged canary
    that degrades the prompt is a gate only when its runs show it fails reliably.
 7. **Run on the pipeline's models** — the skill under test runs on its stage's model and
    the judge on the Sonnet tier, both from `orchestrator_models()` in `claude_judge.py`,
