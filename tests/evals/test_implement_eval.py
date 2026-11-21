@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from claude_judge import DEFAULT_MODEL
+from claude_judge import orchestrator_models
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, SingleTurnParams
 from eval_goldens import load_goldens
@@ -29,7 +29,7 @@ def closing_note(task: str, skill: str = SKILL) -> str:
             "claude",
             "-p",
             "--model",
-            DEFAULT_MODEL,
+            orchestrator_models()["implement"],
             "--tools",
             "",
             "--system-prompt",

@@ -93,6 +93,8 @@ Nothing found: the verdict, `What this change does:`, `Looks good.` and one line
 
 **Verdict rule.** A finding's severity (REFERENCE § Finding categories) is the reviewer's rule, never printed: `REJECTED` names every BLOCK and every WARN that is not waived. A WARN is waived only when the fix would be larger than the problem; the waiver is one line inside the finding. INFO never changes the verdict.
 
+**Do not reject for what the issue did not ask for.** A finding built on an input the acceptance criteria rule out (an empty list when the criterion says the list is never empty), or one asking for a test the criteria do not require, never changes the verdict: keep it as a numbered finding the verdict line does not name, or propose it in the report as a follow-up issue — never file one yourself. Two kinds still block: a breach of a `CONTEXT.md` Architectural Constraint, and a Risk finding (security or data loss) on input that comes from users, because criteria cannot rule out what an attacker sends.
+
 ### Step 5 — Fix loop and escalation
 
 A rejection hands the numbered findings to `implement`, which fixes the root cause and pushes; the next review re-reads the *current* diff — a fix may already have resolved an earlier finding. Each rejection is one attempt. After `MaxRetries` (3) the issue lands on `agent:failed` with every attempt listed and a human takes over; no label is set by hand (ADR-015). Do not attempt a fourth round.

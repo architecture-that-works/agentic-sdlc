@@ -78,7 +78,7 @@ For each kind of work, read these files before opening anything else. If an unex
 | sync-issues change | `.github/tasks/sync.ps1`, `tests/orchestrator/test_sync_issues.py` |
 | `src/utils/` change | `src/utils/m_*.py`, matching `tests/utils/test_*.py` |
 | `src/tools/` change | `src/tools/*.py`, matching `tests/tools/test_*.py` |
-| eval change | `tests/evals/conftest.py` (the `evaluate` fixture), `tests/evals/claude_judge.py`, `tests/evals/eval_results.py`, the target's `tests/evals/test_*_eval.py` + `goldens/*.jsonl`, `tests/README.md` § Evals |
+| eval change | `tests/evals/conftest.py` (the `evaluate` fixture), `tests/evals/claude_judge.py`, `tests/evals/eval_results.py`, the target's `tests/evals/test_*_eval.py` + `goldens/*.jsonl`, `tests/README.md` § Evals, `.github/orchestrator/lib/Config.ps1` (the models, via `orchestrator_models()`), `.github/workflows/checks.yml` (`eval-scope` `PATHS_*`) |
 | ADR addition (this project's application) | `docs/adr/ADR-000-template-architecture-decision.md` (the blank form) |
 | CI workflow change | `.github/workflows/*.yml`, `Taskfile.yml`, `pyproject.toml` |
 | skill change | `.agents/skills/<name>/SKILL.md`, `.agents/skills/<name>/REFERENCE.md`, `.agents/skills/<name>/EXAMPLES.md`, `AGENTS.md` skill index |

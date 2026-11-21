@@ -1,10 +1,12 @@
 """Eval: the review skill's report — the shape `review` must produce.
 
 Each golden is an issue's criterion plus a diff. Claude reviews it with the skill's
-SKILL.md as its system prompt and no tools; the judge scores the report against the
-skill's § Report contract (G-Eval): the verdict line, three-part findings with a
-concrete case, no severity tag. The canary proves the gate has teeth: with § Report
-removed from the skill, the planted-bug review must fail the same rubric.
+SKILL.md as its system prompt and no tools, on the model the review stage uses. The
+exact parts of § Step 4 — Report are checked in code first (`check_review_format`):
+the verdict line the pipeline reads, and no severity label. Only what needs judgement
+goes to the judge (G-Eval): the verdict agrees with the expected one, and a named
+defect is a three-part finding with a concrete case. The format check is proven by a
+model-free test over stored bad reports, which runs in the default suite.
 """
 
 import re
@@ -12,16 +14,34 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from claude_judge import DEFAULT_MODEL
+from claude_judge import orchestrator_models
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, SingleTurnParams
 from eval_goldens import load_goldens
 
-pytestmark = pytest.mark.eval
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL = (REPO_ROOT / ".agents/skills/review/SKILL.md").read_text(encoding="utf-8")
 GOLDENS = load_goldens("review")
+
+# review/SKILL.md § Step 4 — Report: `APPROVED`, or `REJECTED — fix 1`, `fix 1 and 3`,
+# `fix 1, 2 and 4`. The review stage reads this line; anything else is a rejection.
+VERDICT_LINE = re.compile(r"APPROVED|REJECTED — fix \d+(?:(?:, | and )\d+)*")
+# The skill's internal severities are never printed (§ Quick Reference).
+SEVERITY_LABEL = re.compile(r"\b(?:BLOCK|WARN|INFO)\b|\b(?i:severity):")
+
+
+def check_review_format(report: str) -> list[str]:
+    """The exact-format violations in a review report; empty when it passes."""
+    violations = []
+    first = next((line.strip() for line in report.splitlines() if line.strip()), "")
+    if not VERDICT_LINE.fullmatch(first):
+        violations.append(
+            f"first line is not `APPROVED` or `REJECTED — fix <numbers>`: {first!r}"
+        )
+    labels = sorted(set(SEVERITY_LABEL.findall(report)))
+    if labels:
+        violations.append(f"severity label printed: {', '.join(labels)}")
+    return violations
 
 
 def review(change: str, skill: str = SKILL) -> str:
@@ -30,7 +50,7 @@ def review(change: str, skill: str = SKILL) -> str:
             "claude",
             "-p",
             "--model",
-            DEFAULT_MODEL,
+            orchestrator_models()["review"],
             "--tools",
             "",
             "--system-prompt",
@@ -51,22 +71,17 @@ def review(change: str, skill: str = SKILL) -> str:
 def review_report(judge) -> GEval:
     return GEval(
         name="Review report",
-        # Mirrors review/SKILL.md § Step 4 — Report.
+        # Mirrors review/SKILL.md § Step 4 — Report; the exact format is checked in code.
         evaluation_steps=[
             (
-                "The first line is the verdict: `APPROVED`, or `REJECTED — fix <numbers>` "
-                "naming the findings that must be fixed. It is the verdict the expected "
-                "output gives."
+                "The report's verdict — APPROVED or REJECTED — is the verdict the "
+                "expected output gives."
             ),
             (
                 "When the expected output names a defect, the report has it as a numbered "
                 "finding with three labelled parts — Defect, Case, Fix — and the Case is a "
                 "concrete input with the wrong result it produces. An approved report "
-                "with no findings needs no parts."
-            ),
-            (
-                "No finding carries a severity label such as BLOCK, WARN, INFO, critical "
-                "or high; the verdict line alone says which findings block."
+                "with no findings needs no parts. Do not deduct for formatting."
             ),
         ],
         evaluation_params=[
@@ -87,21 +102,56 @@ def _case(golden: dict, report: str) -> LLMTestCase:
     )
 
 
+@pytest.mark.eval
 @pytest.mark.parametrize(
     "golden", GOLDENS, ids=[g["additional_metadata"]["id"] for g in GOLDENS]
 )
 def test_review_report(golden, judge, evaluate) -> None:
-    evaluate(_case(golden, review(golden["input"])), [review_report(judge)])
+    report = review(golden["input"])
+    violations = check_review_format(report)
+    assert violations == [], f"{violations}\n--- report ---\n{report}"
+    evaluate(_case(golden, report), [review_report(judge)])
 
 
-def test_a_skill_without_its_report_section_fails_the_eval(judge) -> None:
-    degraded = re.sub(
-        r"### Step 4 — Report.*?(?=### Step 5)", "", SKILL, flags=re.DOTALL
-    )
-    assert degraded != SKILL, "§ Step 4 — Report not found in the review skill"
-    golden = GOLDENS[1]  # planted-bug
-    metric = review_report(judge)
-    metric.measure(_case(golden, review(golden["input"], skill=degraded)))
-    assert not metric.success, (
-        f"degraded skill passed: {metric.score} — {metric.reason}"
-    )
+FINDING = """
+What this change does: adds paginate(), which slices one page out of a list.
+
+1. **The first page is skipped** (`src/orders.py:L6`)
+   - **Defect:** `start = page * size` treats `page` as 0-based.
+   - **Case:** paginate(list(range(10)), 1, 3) returns [3, 4, 5] instead of [0, 1, 2].
+   - **Fix:** `start = (page - 1) * size`.
+"""
+
+# The first lines reviews really produced with § Step 4 — Report removed (#341).
+STORED_REPORTS = {
+    "decorated-rejected": ("## Verdict: REJECTED (BLOCK)\n" + FINDING, False),
+    "severity-as-verdict": ("## Verdict: BLOCK\n" + FINDING, False),
+    "count-not-numbers": ("REJECTED — 1 BLOCK finding\n" + FINDING, False),
+    "severity-on-finding": (
+        "REJECTED — fix 1\n" + FINDING.replace("**Defect:**", "**Defect (WARN):**"),
+        False,
+    ),
+    "severity-label": ("REJECTED — fix 1\n" + FINDING + "   - Severity: high\n", False),
+    "decorated-approved": ("**APPROVED**\n\nLooks good.\n", False),
+    "correct-rejected": ("REJECTED — fix 1\n" + FINDING, True),
+    "correct-rejected-list": (
+        "\nREJECTED — fix 1, 2 and 3\n" + FINDING + FINDING.replace("1.", "2."),
+        True,
+    ),
+    "correct-approved": (
+        (
+            "APPROVED\nWhat this change does: adds paginate().\nLooks good.\n"
+            "Checked page 1 and page 2 against the criterion; the info in the "
+            "docstring matches.\n"
+        ),
+        True,
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("report", "passes"), STORED_REPORTS.values(), ids=STORED_REPORTS.keys()
+)
+def test_review_format_check(report: str, passes: bool) -> None:
+    violations = check_review_format(report)
+    assert (violations == []) is passes, violations

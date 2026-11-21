@@ -15,6 +15,7 @@ os.environ["DEEPEVAL_TELEMETRY_OPT_OUT"] = "1"
 from claude_judge import (  # imported after the opt-out, on purpose
     JUDGE_TIMEOUT_SECONDS,
     ClaudeJudge,
+    orchestrator_models,
 )
 
 # DeepEval's default per-attempt timeout (~88 s) suits an HTTP API; the CLI judge
@@ -47,7 +48,7 @@ def _session_results(config: pytest.Config) -> list[EvalResult]:
 
 @pytest.fixture(scope="session")
 def judge() -> ClaudeJudge:
-    return ClaudeJudge()
+    return ClaudeJudge(orchestrator_models()["judge"])
 
 
 @pytest.fixture

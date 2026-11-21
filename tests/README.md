@@ -179,7 +179,8 @@ disabled: evals are plain pytest, with no Confident AI login.
 **Writing an eval**
 
 1. **Pick the component** and the behaviour to protect. One eval file per component:
-   `tests/evals/test_<component>_eval.py` with `pytestmark = pytest.mark.eval`.
+   `tests/evals/test_<component>_eval.py` with `pytestmark = pytest.mark.eval`, or
+   `@pytest.mark.eval` on each model-calling test when the file also holds model-free ones.
 2. **Write goldens** — 3–5 representative inputs in `tests/evals/goldens/<component>.jsonl`,
    one DeepEval golden per line (`input`, and optionally `expected_output`, `context`,
    `expected_tools`, `additional_metadata`). Load them with `eval_goldens.load_goldens`.
@@ -200,10 +201,20 @@ disabled: evals are plain pytest, with no Confident AI login.
    to just below the observed scores. If the judge consistently scores compliant outputs
    at ~0.60, set the threshold at 0.6, not 0.7 — a threshold set above the judge's
    empirical scoring floor for valid outputs is a flake, not a gate.
-6. **Prove the gate has teeth** — add a canary that degrades the prompt and asserts the
-   metric fails (`test_a_degraded_prompt_fails_the_eval`).
-7. **Gate it in CI** — add the component's path to `MODEL_FACING` in the `eval-scope` job of
-   `.github/workflows/checks.yml`.
+6. **Check exact formats in code, not with the judge** — a rule with one right form (a
+   verdict line a parser reads, a forbidden label) is a plain function asserted before the
+   judge runs; the judge weighs everything into one score, so a wrong format costs it only
+   a few tenths. Prove the check with an unmarked test over stored bad outputs — real ones
+   the model produced — and one good output, so it runs in the default suite with no model
+   call (`test_review_format_check`). Only judgement goes to the judge; a judged canary
+   that degrades the prompt is a gate only when its runs show it fails reliably.
+7. **Run on the pipeline's models** — the skill under test runs on its stage's model and
+   the judge on the Sonnet tier, both from `orchestrator_models()` in `claude_judge.py`,
+   which reads the orchestrator. Never write a model ID in `tests/evals/`.
+8. **Gate it in CI** — give the target a `PATHS_<TARGET>` regex in the `eval-scope` job of
+   `.github/workflows/checks.yml` naming exactly the files the eval reads: the component's
+   entry file or prompt source, its eval test and its goldens. `PATHS_SHARED` (the harness
+   and `.github/orchestrator/lib/Config.ps1`) fires every target.
 
 **Results** — every metric score becomes one OpenTelemetry GenAI `gen_ai.evaluation.result`
 record, following a local-first, OTLP-opt-in egress pattern: by default they land in
@@ -212,7 +223,7 @@ over OTLP instead (one span per eval case, one event per metric), which MLflow �
 OTel backend ingests. CI also uploads a JUnit report
 (`eval-results` artifact).
 
-**In CI** — the `eval` job runs only on PRs that change a model-facing path; skipped, it
+**In CI** — the `eval` job runs only on PRs that change a file an eval reads; skipped, it
 reports success, so it can be a required check (`task protect`). The pipeline's ship stage
 never merges a PR with a red check.
 

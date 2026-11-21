@@ -80,6 +80,7 @@ initial severity. Constraints established in `refine` are not negotiable.
 | Any BLOCK | `REJECTED — fix <numbers>` |
 | A WARN that is not waived | `REJECTED — fix <numbers>` |
 | Only waived WARN and INFO | `APPROVED` |
+| Only findings on what the issue did not ask for (SKILL § Step 4) | `APPROVED`; they stay unnamed findings or proposed follow-ups |
 | None | `APPROVED` + `Looks good.` |
 
 A waiver is one line inside the finding — `Waived: the fix is a new module for a two-line

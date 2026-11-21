@@ -25,7 +25,7 @@ def _cli(stdout: str, returncode: int = 0, stderr: str = "") -> MagicMock:
 
 def test_generate_returns_the_cli_answer() -> None:
     with patch("claude_judge.subprocess.run", return_value=_cli("  judged  \n")) as run:
-        assert ClaudeJudge().generate("rate this") == "judged"
+        assert ClaudeJudge("test-model").generate("rate this") == "judged"
     args, kwargs = run.call_args
     assert args[0][:2] == ["claude", "-p"]
     assert kwargs["input"] == "rate this"
@@ -43,7 +43,7 @@ def test_generate_falls_back_to_the_sdk_when_the_cli_is_missing() -> None:
         patch("anthropic.Anthropic", return_value=client),
         patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
     ):
-        assert ClaudeJudge().generate("rate this") == "from sdk"
+        assert ClaudeJudge("test-model").generate("rate this") == "from sdk"
 
 
 def test_generate_falls_back_to_the_sdk_when_the_cli_fails() -> None:
@@ -58,7 +58,7 @@ def test_generate_falls_back_to_the_sdk_when_the_cli_fails() -> None:
         patch("anthropic.Anthropic", return_value=client),
         patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
     ):
-        assert ClaudeJudge().generate("rate this") == "from sdk"
+        assert ClaudeJudge("test-model").generate("rate this") == "from sdk"
 
 
 def test_generate_raises_when_no_claude_is_available() -> None:
@@ -68,13 +68,13 @@ def test_generate_raises_when_no_claude_is_available() -> None:
         patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
         pytest.raises(RuntimeError, match="Claude"),
     ):
-        ClaudeJudge().generate("rate this")
+        ClaudeJudge("test-model").generate("rate this")
 
 
 def test_generate_with_a_schema_returns_the_validated_model() -> None:
     answer = 'Here you go:\n```json\n{"score": 0.8, "reason": "clear"}\n```'
     with patch("claude_judge.subprocess.run", return_value=_cli(answer)):
-        verdict = ClaudeJudge().generate("rate this", schema=Verdict)
+        verdict = ClaudeJudge("test-model").generate("rate this", schema=Verdict)
     assert verdict == Verdict(score=0.8, reason="clear")
 
 
@@ -83,12 +83,14 @@ def test_generate_with_a_schema_raises_on_an_answer_without_json() -> None:
         patch("claude_judge.subprocess.run", return_value=_cli("no idea")),
         pytest.raises(ValueError, match="no idea"),
     ):
-        ClaudeJudge().generate("rate this", schema=Verdict)
+        ClaudeJudge("test-model").generate("rate this", schema=Verdict)
 
 
 def test_a_generate_matches_generate() -> None:
     with patch("claude_judge.subprocess.run", return_value=_cli("judged")):
-        assert asyncio.run(ClaudeJudge().a_generate("rate this")) == "judged"
+        assert (
+            asyncio.run(ClaudeJudge("test-model").a_generate("rate this")) == "judged"
+        )
 
 
 def test_cli_timeout_counts_as_unavailable() -> None:
@@ -106,11 +108,11 @@ def test_cli_timeout_counts_as_unavailable() -> None:
         patch("anthropic.Anthropic", return_value=client),
         patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
     ):
-        assert ClaudeJudge().generate("rate this") == "from sdk"
+        assert ClaudeJudge("test-model").generate("rate this") == "from sdk"
 
 
 def test_model_name_names_claude() -> None:
-    assert "claude" in ClaudeJudge(model="claude-sonnet-5").get_model_name()
+    assert "claude" in ClaudeJudge(model="test-model").get_model_name()
 
 
 def test_deepeval_waits_as_long_as_the_judge_may_take() -> None:
@@ -132,7 +134,7 @@ def test_non_zero_exit_with_usage_limit_names_the_line() -> None:
         patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
         pytest.raises(RuntimeError) as exc_info,
     ):
-        ClaudeJudge().generate("rate this")
+        ClaudeJudge("test-model").generate("rate this")
     msg = str(exc_info.value)
     assert "usage limit reached" in msg
     assert "install the Claude CLI" not in msg
@@ -145,7 +147,7 @@ def test_missing_cli_raises_install_hint() -> None:
         patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
         pytest.raises(RuntimeError) as exc_info,
     ):
-        ClaudeJudge().generate("rate this")
+        ClaudeJudge("test-model").generate("rate this")
     assert "install the Claude CLI" in str(exc_info.value)
 
 
@@ -159,5 +161,5 @@ def test_timeout_names_the_duration() -> None:
         patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
         pytest.raises(RuntimeError) as exc_info,
     ):
-        ClaudeJudge().generate("rate this")
+        ClaudeJudge("test-model").generate("rate this")
     assert "timeout after" in str(exc_info.value)

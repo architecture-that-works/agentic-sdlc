@@ -81,12 +81,13 @@ jobs:
           if ($failed) { Write-Host "Failed checks: $($failed -join ', ')"; exit 1 }
 
   # ── Evals (tests/README.md § Evals) ──────────────────────────────────────────
-  # Evals call Claude, so they run only on a PR that changes a model-facing path.
+  # Evals call Claude, so they run only on a PR that changes a file an eval reads.
   # The skip is a job-level `if:` rather than a `paths:` filter: a job skipped by
   # `if:` reports success, so `eval` can be a required check without blocking
-  # unrelated PRs. Each target has its own PATHS_<TARGET> regex so a PR that
-  # touches one target's inputs skips the others; shared harness paths
-  # (conftest, judge, results, goldens loader) fire every target.
+  # unrelated PRs. One rule for every PATHS_<TARGET>: an eval fires when a file
+  # it reads changes — the component's entry file or prompt source, its eval test
+  # and its goldens. PATHS_SHARED (the harness, plus the orchestrator's model
+  # configuration every eval reads through orchestrator_models) fires every target.
   eval-scope:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
@@ -106,11 +107,11 @@ jobs:
         shell: bash
         env:
           BASE_REF: ${{ github.base_ref }}
-          PATHS_SHARED: '^tests/evals/(conftest\.py|claude_judge\.py|eval_goldens\.py|eval_results\.py)$'
+          PATHS_SHARED: '^(tests/evals/(conftest\.py|claude_judge\.py|eval_goldens\.py|eval_results\.py)|\.github/orchestrator/lib/Config\.ps1)$'
           PATHS_COMMIT: '^(src/tools/commit\.py|tests/evals/test_commit_eval\.py|tests/evals/goldens/commit\.jsonl)$'
-          PATHS_REFINE: '^(\.agents/skills/refine/|\.github/orchestrator/(stages/|lib/Grill\.ps1)|tests/evals/test_refine_eval\.py|tests/evals/goldens/refine\.jsonl)'
-          PATHS_REVIEW: '^(\.agents/skills/review/(SKILL|EXAMPLES)\.md|\.agents/skills/review/scripts/|tests/evals/test_review_eval\.py|tests/evals/goldens/review\.jsonl)'
-          PATHS_IMPLEMENT: '^(\.agents/skills/implement/|tests/evals/test_implement_eval\.py|tests/evals/goldens/implement\.jsonl)'
+          PATHS_REFINE: '^(\.agents/skills/refine/(SKILL\.md|scripts/grill\.ps1)|\.github/orchestrator/lib/Grill\.ps1|tests/evals/test_refine_eval\.py|tests/evals/goldens/refine\.jsonl)$'
+          PATHS_REVIEW: '^(\.agents/skills/review/SKILL\.md|tests/evals/test_review_eval\.py|tests/evals/goldens/review\.jsonl)$'
+          PATHS_IMPLEMENT: '^(\.agents/skills/implement/SKILL\.md|tests/evals/test_implement_eval\.py|tests/evals/goldens/implement\.jsonl)$'
         run: |
           changed=$(git diff --name-only "origin/$BASE_REF...HEAD")
           shared=false
