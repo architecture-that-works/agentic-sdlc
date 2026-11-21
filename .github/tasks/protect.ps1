@@ -1,7 +1,8 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Apply branch-protection rules to the main branch.
+    Apply branch-protection rules to the main branch, and switch on secret scanning and
+    push protection.
 
 .DESCRIPTION
     Configures branch protection on 'main' with:
@@ -13,6 +14,9 @@
         included, reaches the default branch through a pull request
       - Enforce all rules for admins too (no admin bypass)
 
+    It also switches on secret scanning and push protection, so GitHub refuses any push that holds a secret.
+    A private repository gets them only if its owner buys GitHub Secret Protection; the branch rules apply regardless.
+
     Branch protection is a one-time setting. The owner runs this once from a terminal
     with their own `gh` login, which needs repository admin rights. No workflow applies
     it, and no admin-capable token is stored as an Actions secret for it (SECURITY.md:
@@ -20,6 +24,7 @@
 
     Run via:  task protect
     Verify:   gh api repos/{owner}/{repo}/branches/main/protection
+              gh api repos/{owner}/{repo} --jq .security_and_analysis
 
 .EXAMPLE
     task protect
@@ -29,12 +34,19 @@ $ErrorActionPreference = 'Stop'
 
 # ── Resolve repo ───────────────────────────────────────────────────────────────
 
-$Repo = gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>&1 | Out-String
-$Repo = $Repo.Trim()
-if ($LASTEXITCODE -ne 0 -or -not $Repo) {
+$RepoJson = gh repo view --json nameWithOwner,visibility 2>&1 | Out-String
+$RepoInfo = $null
+if ($LASTEXITCODE -eq 0) {
+    try { $RepoInfo = $RepoJson | ConvertFrom-Json } catch { $RepoInfo = $null }
+}
+$Repo = if ($RepoInfo) { "$($RepoInfo.nameWithOwner)".Trim() } else { '' }
+if (-not $Repo) {
     Write-Error "Could not determine repo name. Ensure 'gh auth login' has been run."
     exit 1
 }
+# Only a public repository has secret scanning at no cost; private and internal ones need
+# GitHub Secret Protection, so a refusal there is reported rather than treated as an error.
+$IsPublic = "$($RepoInfo.visibility)" -eq 'PUBLIC'
 
 $Branch         = "main"
 # Job names in checks.yml. Every .github/checks/check-*.ps1 runs inside the `checks`
@@ -81,10 +93,34 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "  ✅ Branch protection applied." -ForegroundColor Green
 
+# ── Secret scanning and push protection ────────────────────────────────────────
+# Applied after the branch rules, so even a refused run leaves main protected.
+
+Write-Host ""
+Write-Host "🔒 Switching on secret scanning and push protection in '$Repo'..." -ForegroundColor Cyan
+
+$SecurityJson = [ordered]@{
+    security_and_analysis = [ordered]@{
+        secret_scanning                 = [ordered]@{ status = 'enabled' }
+        secret_scanning_push_protection = [ordered]@{ status = 'enabled' }
+    }
+} | ConvertTo-Json -Depth 5
+
+$SecurityResult = $SecurityJson | gh api --method PATCH "repos/$Repo" --input - 2>&1 | Out-String
+if ($LASTEXITCODE -ne 0) {
+    if ($IsPublic) {
+        Write-Error "Failed to switch on secret scanning and push protection:`n$SecurityResult"
+        exit 1
+    }
+    Write-Host "  ⚠️  This repository has no secret scanning: GitHub Secret Protection provides it for a private repository." -ForegroundColor Yellow
+} else {
+    Write-Host "  ✅ Secret scanning and push protection switched on." -ForegroundColor Green
+}
+
 # ── Verify ─────────────────────────────────────────────────────────────────────
 
 Write-Host ""
-Write-Host "🔍 Verifying branch protection..." -ForegroundColor Cyan
+Write-Host "🔍 Verifying branch protection and secret scanning..." -ForegroundColor Cyan
 
 $VerifyJson = gh api "repos/$Repo/branches/$Branch/protection" 2>&1 | Out-String
 if ($LASTEXITCODE -ne 0) {
@@ -118,6 +154,24 @@ if ($Protection.enforce_admins.enabled) {
     Write-Host "  ✅ Admin bypass disabled (enforce_admins: true)." -ForegroundColor Green
 } else {
     Write-Host "  ⚠️  Admin bypass not disabled — enforce_admins may be false." -ForegroundColor Yellow
+}
+
+$RepoSettingsJson = gh api "repos/$Repo" 2>&1 | Out-String
+$Security = $null
+if ($LASTEXITCODE -eq 0) {
+    try { $Security = ($RepoSettingsJson | ConvertFrom-Json).security_and_analysis } catch { $Security = $null }
+}
+foreach ($Feature in @(
+        @{ Key = 'secret_scanning'; Name = 'Secret scanning' },
+        @{ Key = 'secret_scanning_push_protection'; Name = 'Push protection' }
+    )) {
+    $Status = if ($Security) { "$($Security.($Feature.Key).status)" } else { '' }
+    if ($Status -eq 'enabled') {
+        Write-Host "  ✅ $($Feature.Name) enabled ($($Feature.Key): enabled)." -ForegroundColor Green
+    } else {
+        $Shown = if ($Status) { $Status } else { 'unknown' }
+        Write-Host "  ⚠️  $($Feature.Name) not enabled ($($Feature.Key): $Shown)." -ForegroundColor Yellow
+    }
 }
 
 Write-Host ""
