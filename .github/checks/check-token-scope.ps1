@@ -1,8 +1,8 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Assert that no workflow-level env in afk.yml holds a secret and that no
-    installer step runs after a credentialed checkout in the same job.
+    Guards the pipeline's tokens: no secret sits in the workflow-level env of afk.yml, and no
+    installer step runs after a checkout that stored credentials in the same job.
 
 .DESCRIPTION
     Two checks:
@@ -23,7 +23,7 @@ if (-not $repo) { $repo = $PSScriptRoot | Split-Path -Parent | Split-Path -Paren
 $workflowPath = Join-Path $repo '.github' 'workflows' 'afk.yml'
 
 if (-not (Test-Path $workflowPath)) {
-    Write-Error "afk.yml not found at $workflowPath"
+    Write-Error "afk.yml not found at $workflowPath — restore .github/workflows/afk.yml."
     exit 1
 }
 
@@ -44,7 +44,7 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
         if ($line -match '^[a-zA-Z]') { $inTopEnv = $false; continue }
         foreach ($secret in $secretNames) {
             if ($line -match "^\s+${secret}\s*:") {
-                $failures.Add("workflow-level env contains '$secret' at line $($i + 1)")
+                $failures.Add("workflow-level env contains '$secret' at line $($i + 1) — move it to the env of the step that uses it")
             }
         }
     }
@@ -100,7 +100,7 @@ for ($j = 0; $j -lt $jobBoundaries.Count; $j++) {
             foreach ($secret in @('GH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'OTEL_EXPORTER_OTLP_HEADERS')) {
                 if ($stepBlock -match "\b${secret}\s*:") {
                     $failures.Add(
-                        "job '$jobName': installer step (index $s) has secret '$secret' in its env"
+                        "job '$jobName': installer step (index $s) has secret '$secret' in its env — remove it; an installer needs no secret"
                     )
                 }
             }
@@ -111,7 +111,7 @@ for ($j = 0; $j -lt $jobBoundaries.Count; $j++) {
         foreach ($coIdx in $credentialedCheckoutIndices) {
             if ($instIdx -gt $coIdx) {
                 $failures.Add(
-                    "job '$jobName': installer step (index $instIdx) appears after credentialed checkout (index $coIdx)"
+                    "job '$jobName': installer step (index $instIdx) appears after credentialed checkout (index $coIdx) — move the installer before the checkout, or set 'persist-credentials: false' on the checkout"
                 )
             }
         }

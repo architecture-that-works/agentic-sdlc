@@ -57,34 +57,28 @@ jobs:
       - run: uv sync
       - run: uv run pip-audit
 
-  guards:
+  # One rule: every .github/checks/check-*.ps1 runs here, so a new check is a new
+  # file. No check is named in this workflow (tests/workflows/test_checks.py).
+  checks:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Check Module Map integrity
+      - name: Run every check in .github/checks
         shell: pwsh
-        run: .github/checks/check-module-map.ps1
-      - name: Check Script Paths
-        shell: pwsh
-        run: .github/checks/check-script-paths.ps1
-      - name: Check Doc Paths
-        shell: pwsh
-        run: .github/checks/check-doc-paths.ps1
-      - name: Check Doc Function Names
-        shell: pwsh
-        run: .github/checks/check-doc-functions.ps1
-      - name: Check Module API boundary
-        shell: pwsh
-        run: .github/checks/check-module-api.ps1
-      - name: Verify Claude Code settings
-        shell: pwsh
-        run: .github/checks/verify-settings.ps1
-      - name: Check Token Scope
-        shell: pwsh
-        run: .github/checks/check-token-scope.ps1
+        run: |
+          $failed = @()
+          foreach ($check in Get-ChildItem .github/checks -Filter 'check-*.ps1' | Sort-Object Name) {
+            Write-Host "::group::$($check.BaseName)"
+            & pwsh -NoProfile -File $check.FullName
+            $code = $LASTEXITCODE
+            Write-Host '::endgroup::'
+            if ($code -eq 0) { Write-Host "pass: $($check.BaseName)" }
+            else { Write-Host "FAIL: $($check.BaseName) (exit $code)"; $failed += $check.BaseName }
+          }
+          if ($failed) { Write-Host "Failed checks: $($failed -join ', ')"; exit 1 }
 
   # ── Evals (tests/README.md § Evals) ──────────────────────────────────────────
   # Evals call Claude, so they run only on a PR that changes a model-facing path.
@@ -193,21 +187,6 @@ jobs:
           name: eval-results
           path: logs/evals/
           if-no-files-found: ignore
-
-  hardening:
-    runs-on: ubuntu-latest
-    # Skip on private repos (no runner needed; check would always fail until published)
-    # and on fork PRs (the fork's repo context differs; GH_TOKEN is not available).
-    if: >-
-      github.event.repository.private != true &&
-      github.event.pull_request.head.repo.fork != true
-    env:
-      GH_TOKEN: ${{ secrets.GH_TOKEN }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Check repo hardening
-        shell: pwsh
-        run: .github/checks/check-repo-hardening.ps1
 
   secret-scan:
     runs-on: ubuntu-latest

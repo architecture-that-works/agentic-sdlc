@@ -17,7 +17,7 @@
     #
     # Anything absent here is private to the module automatically. No underscore
     # convention and no internal/ directory are needed — this list is the boundary.
-    # checks/check-module-api.ps1 asserts it stays true (added in PR 3).
+    # checks/check-orchestrator-api.ps1 asserts it stays true.
     FunctionsToExport = @(
         # Run context
         'Get-OrchestratorContext'
