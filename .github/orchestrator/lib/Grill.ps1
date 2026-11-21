@@ -272,6 +272,7 @@ function Invoke-Grill {
     $raw = $fullPrompt | claude `
         --model $resolvedModel `
         --allowedTools 'Read,Glob,Grep' `
+        --tools        'Read,Glob,Grep' `
         --max-turns   $MaxTurns `
         --output-format stream-json --verbose 2>&1 | Out-String
     $exit = $LASTEXITCODE
