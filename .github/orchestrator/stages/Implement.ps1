@@ -24,10 +24,86 @@
 $ErrorActionPreference = 'Stop'
 # Module-internal library -- loaded by Orchestrator.psm1, which loads Config.ps1 and
 # GitHub.ps1 before this file. See ADR-013.
+# ── The record of what changed (#346) ─────────────────────────────────────────
+# The "Files changed" list comes from git, never from the edits the agent asked for:
+# an edit the engine refused changed nothing, and a file deleted by a shell command
+# never appears as an edit. Every path that differs from the commit the attempt
+# started from — commits made during the run, uncommitted changes, untracked files.
+# Rename detection is off, so a rename reads as one deleted and one added path.
+function Get-AttemptChangedFiles {
+    param([string]$BaseCommit)
+    $files = [System.Collections.Generic.List[object]]::new()
+    $seen  = [System.Collections.Generic.HashSet[string]]::new()
+
+    if ($BaseCommit) {
+        $tokens = @((git -c core.quotePath=false diff --name-status --no-renames -z $BaseCommit 2>$null) -join '' -split [char]0 |
+                    Where-Object { $_ })
+        for ($i = 0; $i + 1 -lt $tokens.Count; $i += 2) {
+            $change = switch -Regex ($tokens[$i]) {
+                '^A'    { 'added' }
+                '^D'    { 'deleted' }
+                default { 'changed' }   # M, T (and anything rename-free git reports)
+            }
+            $path = $tokens[$i + 1]
+            if ($seen.Add($path)) { $files.Add([pscustomobject]@{ path = $path; change = $change }) }
+        }
+    }
+
+    $untracked = @((git -c core.quotePath=false ls-files --others --exclude-standard -z 2>$null) -join '' -split [char]0 |
+                   Where-Object { $_ })
+    foreach ($path in $untracked) {
+        if ($seen.Add($path)) { $files.Add([pscustomobject]@{ path = $path; change = 'added' }) }
+    }
+    $global:LASTEXITCODE = 0
+    return $files.ToArray()
+}
+
+# The "Files changed" section of the 🤖 Implementation record, or '' when nothing did.
+function Format-ChangedFiles {
+    param([array]$ChangedFiles)
+    $entries = @($ChangedFiles | Where-Object { $_ })
+    if ($entries.Count -eq 0) { return '' }
+    $lines = ($entries | ForEach-Object { "- ``$($_.path)`` — $($_.change)" }) -join "`n"
+    return "`n`n**Files changed ($($entries.Count)):**`n$lines"
+}
+
+# The five dense lines of the 🤖 Implementation record, shared by every way an
+# attempt ends: Commands and Procedure are returned too, for the Attempts entry.
+function New-ImplementationRecord {
+    param([hashtable]$DevResult, [array]$Commands)
+    $commandsLine  = (@($Commands | Where-Object { $_ }) | ForEach-Object { "$($_.Name) → $($_.Exit)" }) -join '  '
+    $procedureLine = "AGENTS.md $(if ($DevResult.AgentsMdRead)  {'✓'} else {'✗'})  " +
+                     "CONTEXT.md $(if ($DevResult.ContextMdRead) {'✓'} else {'✗'})  " +
+                     "skill $(if ($DevResult.SkillRead)          {'✓'} else {'✗'})  " +
+                     "pytest $(if ($DevResult.TestedOnce)        {'✓'} else {'✗'})"
+    $body = "🤖 Implementation$($DevResult.FileSection)" +
+            "`n`nImplemented: $($DevResult.Implemented)" +
+            "`nLeft undone: $($DevResult.LeftUndone)" +
+            "`nIssues discovered: $($DevResult.IssuesDiscovered)" +
+            "`nCommands: $commandsLine" +
+            "`nProcedure: $procedureLine"
+    return @{ Body = $body; Commands = $commandsLine; Procedure = $procedureLine }
+}
+
+# The 🤖 signal that ends a round on a refused edit: each file, why a retry cannot
+# help, and what the owner does next. SECURITY.md § Protected paths explains it.
+function Format-RefusalComment {
+    param([string[]]$RefusedFiles, [string]$Branch, [string]$PushNote = '')
+    $list = ($RefusedFiles | ForEach-Object { "- ``$_`` — the engine protects this path" }) -join "`n"
+    $body = "🤖❌ Engine refused an edit — needs you`n`n" +
+            "The engine would not change these file(s). It protects them in an unattended run, whatever the " +
+            "allow rules say, so another attempt cannot help and none was started:`n`n$list`n`n" +
+            "The change to these files is yours to make: commit it on branch ``$Branch``, then comment on this " +
+            "issue — that starts a new round, which builds on the branch and opens the PR."
+    if ($PushNote) { $body += "`n`n$PushNote" }
+    $body += "`n`nWhy: [SECURITY.md — Protected paths](https://github.com/$KanbanRepo/blob/$KanbanDefaultBranch/SECURITY.md#protected-paths)."
+    return $body
+}
+
 # ── Phase 1: Develop ──────────────────────────────────────────────────────────
 
 function Invoke-Develop {
-    param([int]$Number, [string]$Branch)
+    param([int]$Number, [string]$Branch, [string]$BaseCommit = '')
     Write-Log "  Phase 1 — Develop issue #$Number on $Branch" -Color Yellow
     Move-ToLane -IssueNumber $Number -OptionId $KanbanOpt_Implementing -LaneName 'Implementing'
     Add-Comment -Number $Number -Body "· branch checked out — starting"
@@ -77,7 +153,6 @@ INSTRUCTIONS:
     Write-Log "  Model: $devModel  SP=$sp  max-turns=$devTurns" -Color DarkGray
 
     $allText           = [System.Text.StringBuilder]::new()
-    $modifiedFiles     = [System.Collections.Generic.List[string]]::new()
     $streamEvents      = [System.Collections.Generic.List[object]]::new()
     $explorationPosted = $false
     $writingPosted     = $false
@@ -115,13 +190,9 @@ INSTRUCTIONS:
                             $explorationPosted = $true
                             Add-Comment -Number $Number -Body "· exploring codebase"
                         }
-                        if ($block.name -in @('Write','Edit') -and $block.input.file_path) {
-                            if (-not $writingPosted) {
-                                $writingPosted = $true
-                                Add-Comment -Number $Number -Body "· writing implementation"
-                            }
-                            $fp = $block.input.file_path
-                            if (-not $modifiedFiles.Contains($fp)) { $modifiedFiles.Add($fp) }
+                        if ($block.name -in @('Write','Edit') -and $block.input.file_path -and -not $writingPosted) {
+                            $writingPosted = $true
+                            Add-Comment -Number $Number -Body "· writing implementation"
                         }
                         if ($block.name -eq 'Bash' -and $block.input.command -match 'pytest' -and -not $testedOnce) {
                             $testedOnce = $true
@@ -154,11 +225,14 @@ INSTRUCTIONS:
     $leftUndoneText  = if ($luLine)  { ($luLine  -replace '^\s*[-*•]\s+Left undone:\s*',     '').Trim() } else { 'none' }
     $issuesDiscText  = if ($idLine)  { ($idLine  -replace '^\s*[-*•]\s+Issues discovered:\s*', '').Trim() } else { 'none' }
 
-    $fileSection = if ($modifiedFiles.Count -gt 0) {
-        $fileLines = ($modifiedFiles | Select-Object -Unique |
-                      ForEach-Object { "- ``$(Split-Path $_ -Leaf)``" }) -join "`n"
-        "`n`n**Files changed ($($modifiedFiles.Count)):**`n$fileLines"
-    } else { '' }
+    # What really changed (git) and what the engine refused (its result event).
+    $changedFiles = @(Get-AttemptChangedFiles -BaseCommit $BaseCommit)
+    $fileSection  = Format-ChangedFiles -ChangedFiles $changedFiles
+    $repoRoot     = "$(git rev-parse --show-toplevel 2>$null)".Trim()
+    $refusedFiles = @(Get-RefusedFiles -StreamEvents $streamEvents.ToArray() -RepoRoot $repoRoot)
+    if ($refusedFiles.Count -gt 0) {
+        Write-Log "  ⛔ The engine refused edits to: $($refusedFiles -join ', ')" -Color Red
+    }
 
     Write-Log "  Implementation finished for issue #$Number." -Color Green
 
@@ -181,6 +255,8 @@ INSTRUCTIONS:
 
     return @{
         FileSection      = $fileSection
+        ChangedFiles     = $changedFiles
+        RefusedFiles     = $refusedFiles
         Implemented      = $implementedText
         LeftUndone       = $leftUndoneText
         IssuesDiscovered = $issuesDiscText
@@ -196,8 +272,10 @@ INSTRUCTIONS:
 # ── Phase 2: Commit + PR ──────────────────────────────────────────────────────
 
 function Invoke-CommitAndPR {
-    param([int]$Number, [string]$Title, [string]$Branch)
-    Write-Log "  Phase 2 — Commit + PR for issue #$Number" -Color Yellow
+    # -NoPR commits and pushes only (#346): a round the engine's refusal ended keeps
+    # the rest of its work on the branch for the owner, without a PR or a review.
+    param([int]$Number, [string]$Title, [string]$Branch, [switch]$NoPR)
+    Write-Log "  Phase 2 — Commit $(if ($NoPR) { '+ push (no PR)' } else { '+ PR' }) for issue #$Number" -Color Yellow
 
     $commands = [System.Collections.Generic.List[object]]::new()
 
@@ -285,6 +363,9 @@ function Invoke-CommitAndPR {
         } finally {
             Remove-Item $msgFile.FullName -ErrorAction SilentlyContinue
         }
+    } elseif ($NoPR) {
+        Write-Log "  No changes to commit — nothing to push." -Color DarkGray
+        return @{ PrUrl = $null; Commands = $commands.ToArray(); Pushed = $false }
     } else {
         # No new changes this run. Determine whether the branch as a whole has any
         # commits vs the default branch — if not, there is nothing to PR. This is
@@ -327,6 +408,10 @@ function Invoke-CommitAndPR {
     $commands.Add([pscustomobject]@{ Name = 'git push'; Exit = $LASTEXITCODE })
     if ($LASTEXITCODE -ne 0) {
         throw "git push failed for branch ${Branch}:`n$($pushOut.Trim())"
+    }
+    if ($NoPR) {
+        Write-Log "  Pushed to $Branch — no PR opened." -Color DarkGray
+        return @{ PrUrl = $null; Commands = $commands.ToArray(); Pushed = $true }
     }
 
     $existing = gh pr list --head $Branch --json url --limit 1 | ConvertFrom-Json
@@ -429,34 +514,54 @@ function Invoke-Implement {
 
     $headBefore  = git rev-parse HEAD 2>$null
     $devResult   = $null
-    $testsFailed = $false
+    $testsFailed = $false   # set when this stage already posted and recorded the failure
     try {
-        $devResult = Invoke-Develop -Number $IssueNumber -Branch $branch
+        $devResult = Invoke-Develop -Number $IssueNumber -Branch $branch -BaseCommit $headBefore
+
+        $stateForAttempt = Get-IssueState -IssueNumber $IssueNumber
+        $runAttempt      = if ($stateForAttempt -and $stateForAttempt.PSObject.Properties['attempt_count']) { [int]$stateForAttempt.attempt_count + 1 } else { 1 }
+        $maxR            = (Get-OrchestratorContext).MaxRetries
+
+        $refused = @($devResult.RefusedFiles | Where-Object { $_ })
+        if ($refused.Count -gt 0) {
+            # The engine refused an edit to a path it protects (#346). The refusal is a
+            # property of the path, not of the attempt, so the round ends here, before
+            # the tests-failed retry and without a review. The rest of the work is
+            # pushed to the branch (no PR) so the owner can add the protected change.
+            $pushNote = ''
+            $commitCmds = @()
+            try {
+                $commitResult = Invoke-CommitAndPR -Number $IssueNumber -Title $meta.title -Branch $branch -NoPR
+                $commitCmds   = @($commitResult.Commands)
+                if (-not $commitResult.Pushed) { $pushNote = "The attempt changed nothing else, so nothing was pushed." }
+            } catch {
+                Write-Log "  ⚠️ Could not push the attempt's other work: $_" -Color Yellow
+                $pushNote = "⚠️ The attempt's other work could not be pushed to the branch:`n``````text`n$("$_".Trim())`n``````"
+            }
+
+            $record = New-ImplementationRecord -DevResult $devResult -Commands (@($devResult.PhaseOneCommands) + $commitCmds)
+            Add-Comment -Number $IssueNumber -Body $record.Body
+
+            $reason = "Engine refused edits to protected path(s): $($refused -join ', ')"
+            Add-ImplementAttempt -IssueNumber $IssueNumber -Stage 'implement' -Reason $reason `
+                -Attempt $runAttempt -Max $maxR `
+                -Implemented $devResult.Implemented -LeftUndone $devResult.LeftUndone `
+                -IssuesDiscovered $devResult.IssuesDiscovered -Commands $record.Commands -Procedure $record.Procedure
+
+            Add-Comment -Number $IssueNumber -Body (Format-RefusalComment -RefusedFiles $refused -Branch $branch -PushNote $pushNote)
+
+            $testsFailed = $true
+            throw "ATTEMPT-RECORDED|ENGINE-REFUSED|$reason"
+        }
 
         if (-not $devResult.TestsPassed) {
-            # Build and post a partial Implementation comment, then throw for retry.
-            # Set $testsFailed so the catch block skips the duplicate "Implement Failed" comment.
-            $allCmds       = @($devResult.PhaseOneCommands)
-            $commandsLine  = ($allCmds | ForEach-Object { "$($_.Name) → $($_.Exit)" }) -join '  '
-            $procedureLine = "AGENTS.md $(if ($devResult.AgentsMdRead)  {'✓'} else {'✗'})  " +
-                             "CONTEXT.md $(if ($devResult.ContextMdRead) {'✓'} else {'✗'})  " +
-                             "skill $(if ($devResult.SkillRead)          {'✓'} else {'✗'})  " +
-                             "pytest $(if ($devResult.TestedOnce)        {'✓'} else {'✗'})"
-            $commentBody = "🤖 Implementation$($devResult.FileSection)" +
-                           "`n`nImplemented: $($devResult.Implemented)" +
-                           "`nLeft undone: $($devResult.LeftUndone)" +
-                           "`nIssues discovered: $($devResult.IssuesDiscovered)" +
-                           "`nCommands: $commandsLine" +
-                           "`nProcedure: $procedureLine"
-            Add-Comment -Number $IssueNumber -Body $commentBody
-
-            $stateForAttempt = Get-IssueState -IssueNumber $IssueNumber
-            $runAttempt      = if ($stateForAttempt -and $stateForAttempt.PSObject.Properties['attempt_count']) { [int]$stateForAttempt.attempt_count + 1 } else { 1 }
-            $maxR            = (Get-OrchestratorContext).MaxRetries
+            # Post a partial Implementation comment, then throw for retry.
+            $record = New-ImplementationRecord -DevResult $devResult -Commands @($devResult.PhaseOneCommands)
+            Add-Comment -Number $IssueNumber -Body $record.Body
             Add-ImplementAttempt -IssueNumber $IssueNumber -Stage 'implement' -Reason 'Tests failed' `
                 -Attempt $runAttempt -Max $maxR `
                 -Implemented $devResult.Implemented -LeftUndone $devResult.LeftUndone `
-                -IssuesDiscovered $devResult.IssuesDiscovered -Commands $commandsLine -Procedure $procedureLine
+                -IssuesDiscovered $devResult.IssuesDiscovered -Commands $record.Commands -Procedure $record.Procedure
 
             $testsFailed = $true
             throw "ATTEMPT-RECORDED|Test suite failed after implementation for issue #$IssueNumber"
@@ -465,28 +570,13 @@ function Invoke-Implement {
         $commitResult = Invoke-CommitAndPR -Number $IssueNumber -Title $meta.title -Branch $branch
         $prUrl        = $commitResult.PrUrl
 
-        # Build and post the unified 🤖 Implementation comment with five dense lines.
-        $allCmds       = @($devResult.PhaseOneCommands) + @($commitResult.Commands)
-        $commandsLine  = ($allCmds | ForEach-Object { "$($_.Name) → $($_.Exit)" }) -join '  '
-        $procedureLine = "AGENTS.md $(if ($devResult.AgentsMdRead)  {'✓'} else {'✗'})  " +
-                         "CONTEXT.md $(if ($devResult.ContextMdRead) {'✓'} else {'✗'})  " +
-                         "skill $(if ($devResult.SkillRead)          {'✓'} else {'✗'})  " +
-                         "pytest $(if ($devResult.TestedOnce)        {'✓'} else {'✗'})"
-        $commentBody = "🤖 Implementation$($devResult.FileSection)" +
-                       "`n`nImplemented: $($devResult.Implemented)" +
-                       "`nLeft undone: $($devResult.LeftUndone)" +
-                       "`nIssues discovered: $($devResult.IssuesDiscovered)" +
-                       "`nCommands: $commandsLine" +
-                       "`nProcedure: $procedureLine"
-        Add-Comment -Number $IssueNumber -Body $commentBody
-
-        $stateForAttempt = Get-IssueState -IssueNumber $IssueNumber
-        $runAttempt      = if ($stateForAttempt -and $stateForAttempt.PSObject.Properties['attempt_count']) { [int]$stateForAttempt.attempt_count + 1 } else { 1 }
-        $maxR            = (Get-OrchestratorContext).MaxRetries
+        # The unified 🤖 Implementation comment with five dense lines.
+        $record = New-ImplementationRecord -DevResult $devResult -Commands (@($devResult.PhaseOneCommands) + @($commitResult.Commands))
+        Add-Comment -Number $IssueNumber -Body $record.Body
         Add-ImplementAttempt -IssueNumber $IssueNumber -Stage 'implement' -Reason '' `
             -Attempt $runAttempt -Max $maxR `
             -Implemented $devResult.Implemented -LeftUndone $devResult.LeftUndone `
-            -IssuesDiscovered $devResult.IssuesDiscovered -Commands $commandsLine -Procedure $procedureLine
+            -IssuesDiscovered $devResult.IssuesDiscovered -Commands $record.Commands -Procedure $record.Procedure
 
         if ($null -eq $prUrl) {
             # Invoke-CommitAndPR returned the no-diff sentinel — branch has no commits

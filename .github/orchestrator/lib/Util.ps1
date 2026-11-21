@@ -117,6 +117,36 @@ function Get-ProcedureRecord {
     }
 }
 
+# ── Edits the engine refused (#346) ──────────────────────────────────────────
+# Pure function: the repo-relative paths of the file edits the engine refused,
+# unique and in order. Read only from what the engine reports — the
+# `permission_denials[]` of its last `result` stream event — never from the agent's
+# prose. A denied tool that edits no file (a Bash command) is not an edit refusal.
+# Claude Code refuses writes to its protected paths (.devcontainer/, .claude/, ...)
+# in an unattended run whatever the allow rules say, so a retry cannot help.
+function Get-RefusedFiles {
+    param([array]$StreamEvents, [string]$RepoRoot = '')
+    $result = @($StreamEvents | Where-Object { $_ -and $_.type -eq 'result' }) | Select-Object -Last 1
+    if (-not $result -or -not $result.PSObject.Properties['permission_denials']) { return @() }
+
+    $root  = "$RepoRoot".Replace('\', '/').TrimEnd('/')
+    $paths = [System.Collections.Generic.List[string]]::new()
+    foreach ($d in @($result.permission_denials | Where-Object { $_ })) {
+        if ("$($d.tool_name)" -notin @('Write', 'Edit', 'NotebookEdit')) { continue }
+        $fp = "$($d.tool_input.file_path)"
+        if (-not $fp) { $fp = "$($d.tool_input.notebook_path)" }
+        if (-not $fp) { continue }
+        $fp = $fp.Replace('\', '/')
+        if ($root -and [System.IO.Path]::IsPathRooted($fp)) {
+            $rel = [System.IO.Path]::GetRelativePath($root, $fp).Replace('\', '/')
+            if (-not $rel.StartsWith('..')) { $fp = $rel }
+        }
+        $fp = $fp -replace '^\./', ''
+        if (-not $paths.Contains($fp)) { $paths.Add($fp) }
+    }
+    return $paths.ToArray()
+}
+
 # ── LLM-optimized error formatter (issue #119) ────────────────────────────────
 # Wraps raw error output (pytest failures, ruff output, tracebacks) into a
 # structured Markdown block so the verification loop can self-correct, via

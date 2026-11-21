@@ -358,6 +358,15 @@ function Invoke-Orchestration {
                     Write-Log "⛔ Issue #$IssueNumber — $reason" -Color Red
                     return
                 }
+                # The engine refused an edit to a path it protects (#346): a property of
+                # the path, so no retry can help. Invoke-Implement already recorded the
+                # attempt, pushed the rest of the work and posted the refusal comment.
+                if ($reason -match '^ATTEMPT-RECORDED\|ENGINE-REFUSED\|') {
+                    $reason = $reason -replace '^ATTEMPT-RECORDED\|ENGINE-REFUSED\|', ''
+                    Set-AgentFailedState -IssueNumber $IssueNumber -FailedAt 'implement' -Reason $reason
+                    Write-Log "⛔ Issue #$IssueNumber — $reason" -Color Red
+                    return
+                }
                 $attempt++
                 # Skip Add-FailedAttempt when Invoke-Implement already recorded the
                 # entry (sentinel prefix) — the five-field record was written there;
