@@ -87,7 +87,7 @@ jobs:
   # unrelated PRs. One rule for every PATHS_<TARGET>: an eval fires when a file
   # it reads changes — the component's entry file or prompt source, its eval test
   # and its goldens. PATHS_SHARED (the harness, plus the orchestrator's model
-  # configuration every eval reads through orchestrator_models) fires every target.
+  # configuration the evals read through stage_models) fires every target.
   eval-scope:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
@@ -107,7 +107,7 @@ jobs:
         shell: bash
         env:
           BASE_REF: ${{ github.base_ref }}
-          PATHS_SHARED: '^(tests/evals/(conftest\.py|claude_judge\.py|eval_goldens\.py|eval_results\.py)|\.github/orchestrator/lib/Config\.ps1)$'
+          PATHS_SHARED: '^(tests/evals/(eval_goldens\.py|stage_models\.py)|\.github/orchestrator/lib/Config\.ps1)$'
           PATHS_COMMIT: '^(src/tools/commit\.py|tests/evals/test_commit_eval\.py|tests/evals/goldens/commit\.jsonl)$'
           PATHS_REFINE: '^(\.agents/skills/refine/(SKILL\.md|scripts/grill\.ps1)|\.github/orchestrator/lib/Grill\.ps1|tests/evals/test_refine_eval\.py|tests/evals/goldens/refine\.jsonl)$'
           PATHS_REVIEW: '^(\.agents/skills/review/SKILL\.md|tests/evals/test_review_eval\.py|tests/evals/goldens/review\.jsonl)$'
@@ -139,8 +139,6 @@ jobs:
     permissions:
       contents: read
     env:
-      # Non-secret: the OTLP endpoint URL is not sensitive.
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
       # Pin the CLI version so the cache key is stable and the install is reproducible.
       CLAUDE_CODE_VERSION: 2.1.330
     steps:
@@ -162,32 +160,22 @@ jobs:
         if: ${{ !cancelled() && needs.eval-scope.outputs.run_commit == 'true' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
-        run: uv run pytest tests/evals/test_commit_eval.py -m eval --junitxml=logs/evals/junit-commit.xml
+        run: uv run pytest tests/evals/test_commit_eval.py -m eval
       - name: Run refine eval
         if: ${{ !cancelled() && needs.eval-scope.outputs.run_refine == 'true' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
-        run: uv run pytest tests/evals/test_refine_eval.py -m eval --junitxml=logs/evals/junit-refine.xml
+        run: uv run pytest tests/evals/test_refine_eval.py -m eval
       - name: Run review eval
         if: ${{ !cancelled() && needs.eval-scope.outputs.run_review == 'true' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
-        run: uv run pytest tests/evals/test_review_eval.py -m eval --junitxml=logs/evals/junit-review.xml
+        run: uv run pytest tests/evals/test_review_eval.py -m eval
       - name: Run implement eval
         if: ${{ !cancelled() && needs.eval-scope.outputs.run_implement == 'true' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
-        run: uv run pytest tests/evals/test_implement_eval.py -m eval --junitxml=logs/evals/junit-implement.xml
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
-        with:
-          name: eval-results
-          path: logs/evals/
-          if-no-files-found: ignore
+        run: uv run pytest tests/evals/test_implement_eval.py -m eval
 
   secret-scan:
     runs-on: ubuntu-latest

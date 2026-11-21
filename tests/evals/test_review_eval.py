@@ -1,71 +1,50 @@
-"""Eval: the review skill's report — the shape `review` must produce.
+"""Eval: the review skill's verdict — the one thing the orchestrator reads from a review.
 
-Each golden is an issue's criterion plus a diff. Claude reviews it with the skill's
-SKILL.md as its system prompt and no tools, on the model the review stage uses. The
-exact parts of § Step 4 — Report are checked in code first (`check_review_format`):
-the verdict line the pipeline reads, and no severity label. Then, also in code, the
-verdict agrees with the expected one. Only what needs judgement goes to the judge
-(G-Eval): when the expected output names a defect, the report has it as a three-part
-finding with a concrete case. The format check is proven by a model-free test over
-stored bad reports, which runs in the default suite.
+Each stored case is an issue's criterion plus a change. Claude reviews it with the
+skill's SKILL.md as its system prompt and no tools, on the model the review stage uses,
+and the verdict is read the way `stages/Review.ps1` reads it: a line that starts with
+`APPROVED` approves, anything else rejects.
+
+The two cases are twins: the same issue, tests and change, differing only in one planted
+line. Approving `clean` and rejecting `planted-bug` can only be explained by that line, so
+a reviewer that rejects for another reason fails `clean`. Each case runs three times and
+every verdict must be right, so a reviewer that is right only some of the time fails.
 """
 
 import re
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from claude_judge import orchestrator_models
-from deepeval.metrics import GEval
-from deepeval.test_case import LLMTestCase, SingleTurnParams
 from eval_goldens import load_goldens
+from stage_models import stage_models
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL = (REPO_ROOT / ".agents/skills/review/SKILL.md").read_text(encoding="utf-8")
 GOLDENS = load_goldens("review")
+RUNS = 3
 
-# review/SKILL.md § Step 4 — Report: `APPROVED`, or `REJECTED — fix 1`, `fix 1 and 3`,
-# `fix 1, 2 and 4`. The review stage reads this line; anything else is a rejection.
-VERDICT_LINE = re.compile(r"APPROVED|REJECTED — fix \d+(?:(?:, | and )\d+)*")
-# The skill's internal severities are never printed (§ Quick Reference).
-SEVERITY_LABEL = re.compile(r"\b(?:BLOCK|WARN|INFO)\b|\b(?i:severity):")
+# stages/Review.ps1: `$review -match '(?im)^APPROVED'`; anything else is a rejection.
+_APPROVED = re.compile(r"^APPROVED", re.IGNORECASE | re.MULTILINE)
 
 
-def _first_line(text: str) -> str:
-    return next((line.strip() for line in text.splitlines() if line.strip()), "")
+def approves(report: str) -> bool:
+    """The verdict the review stage reads from a report: True approves."""
+    return _APPROVED.search(report) is not None
 
 
-def verdict(text: str) -> str:
-    """`APPROVED` or `REJECTED` — the first word of a report or an expected output."""
-    words = _first_line(text).split()
-    return words[0] if words else ""
-
-
-def check_review_format(report: str) -> list[str]:
-    """The exact-format violations in a review report; empty when it passes."""
-    violations = []
-    first = _first_line(report)
-    if not VERDICT_LINE.fullmatch(first):
-        violations.append(
-            f"first line is not `APPROVED` or `REJECTED — fix <numbers>`: {first!r}"
-        )
-    labels = sorted(set(SEVERITY_LABEL.findall(report)))
-    if labels:
-        violations.append(f"severity label printed: {', '.join(labels)}")
-    return violations
-
-
-def review(change: str, skill: str = SKILL) -> str:
+def review(change: str) -> str:
     out = subprocess.run(
         [
             "claude",
             "-p",
             "--model",
-            orchestrator_models()["review"],
+            stage_models()["review"],
             "--tools",
             "",
             "--system-prompt",
-            skill,
+            SKILL,
         ],
         input=f"Review this change. You have no tools: judge it from the text below.\n\n{change}",
         capture_output=True,
@@ -79,109 +58,33 @@ def review(change: str, skill: str = SKILL) -> str:
     return out.stdout
 
 
-def review_report(judge) -> GEval:
-    return GEval(
-        name="Review report",
-        # Mirrors review/SKILL.md § Step 4 — Report; the exact format is checked in code.
-        evaluation_steps=[
-            (
-                "The report's verdict — APPROVED or REJECTED — is the verdict the "
-                "expected output gives."
-            ),
-            (
-                "When the expected output names a defect, the report has it as a numbered "
-                "finding with three labelled parts — Defect, Case, Fix — and the Case is a "
-                "concrete input with the wrong result it produces. An approved report "
-                "with no findings needs no parts. Do not deduct for formatting."
-            ),
-            (
-                "Only the findings the verdict line names block. A numbered finding the "
-                "verdict line does not name, or a proposed follow-up issue, is a "
-                "recommendation the skill allows for points the issue did not ask for: "
-                "it never deducts, even when the expected output says `no findings`."
-            ),
-        ],
-        evaluation_params=[
-            SingleTurnParams.INPUT,
-            SingleTurnParams.ACTUAL_OUTPUT,
-            SingleTurnParams.EXPECTED_OUTPUT,
-        ],
-        model=judge,
-        threshold=0.6,
-    )
-
-
-def _case(golden: dict, report: str) -> LLMTestCase:
-    return LLMTestCase(
-        input=golden["input"],
-        actual_output=report,
-        expected_output=golden["expected_output"],
-    )
-
-
 @pytest.mark.eval
-@pytest.mark.parametrize(
-    "golden", GOLDENS, ids=[g["additional_metadata"]["id"] for g in GOLDENS]
-)
-def test_review_report(golden, judge, evaluate) -> None:
-    report = review(golden["input"])
-    violations = check_review_format(report)
-    assert violations == [], f"{violations}\n--- report ---\n{report}"
-    # Exact once the format holds, so checked in code: a judge weighing the verdict
-    # against an expected `APPROVED — no findings` marks down the recommendations
-    # the skill is told to list, and scored the same clean report 0.3 to 0.9 (#341).
-    expected = verdict(golden["expected_output"])
-    assert verdict(report) == expected, f"verdict is not {expected}\n{report}"
-    if expected == "REJECTED":  # only a named defect is left for judgement
-        evaluate(_case(golden, report), [review_report(judge)])
+@pytest.mark.parametrize("case", GOLDENS, ids=[g["id"] for g in GOLDENS])
+def test_review_verdict(case) -> None:
+    stage_models()  # one lookup before the threads, not one per thread
+    with ThreadPoolExecutor(max_workers=RUNS) as pool:
+        reports = list(pool.map(review, [case["input"]] * RUNS))
+    wrong = [r for r in reports if approves(r) is not case["approve"]]
+    expected = "approve" if case["approve"] else "reject"
+    assert not wrong, (
+        f"{len(wrong)} of {RUNS} reviews did not {expected}:\n\n"
+        + "\n\n--- next report ---\n\n".join(wrong)
+    )
 
 
-FINDING = """
-What this change does: adds paginate(), which slices one page out of a list.
-
-1. **The first page is skipped** (`src/orders.py:L6`)
-   - **Defect:** `start = page * size` treats `page` as 0-based.
-   - **Case:** paginate(list(range(10)), 1, 3) returns [3, 4, 5] instead of [0, 1, 2].
-   - **Fix:** `start = (page - 1) * size`.
-"""
-
-# The first lines reviews really produced with § Step 4 — Report removed (#341).
-STORED_REPORTS = {
-    "decorated-rejected": ("## Verdict: REJECTED (BLOCK)\n" + FINDING, False),
-    "severity-as-verdict": ("## Verdict: BLOCK\n" + FINDING, False),
-    "count-not-numbers": ("REJECTED — 1 BLOCK finding\n" + FINDING, False),
-    "severity-on-finding": (
-        "REJECTED — fix 1\n" + FINDING.replace("**Defect:**", "**Defect (WARN):**"),
-        False,
-    ),
-    "severity-label": ("REJECTED — fix 1\n" + FINDING + "   - Severity: high\n", False),
-    "decorated-approved": ("**APPROVED**\n\nLooks good.\n", False),
-    "correct-rejected": ("REJECTED — fix 1\n" + FINDING, True),
-    "correct-rejected-list": (
-        "\nREJECTED — fix 1, 2 and 3\n" + FINDING + FINDING.replace("1.", "2."),
-        True,
-    ),
-    "correct-approved": (
-        (
-            "APPROVED\nWhat this change does: adds paginate().\nLooks good.\n"
-            "Checked page 1 and page 2 against the criterion; the info in the "
-            "docstring matches.\n"
-        ),
-        True,
-    ),
-}
+def test_approves_reads_the_verdict_the_way_the_review_stage_does() -> None:
+    assert approves("APPROVED\nWhat this change does: adds paginate().\n")
+    assert not approves(
+        "## Verdict: APPROVED\n1. **The first page is skipped**\n"
+        "   - **Case:** paginate(list(range(10)), 1, 3) returns [3, 4, 5].\n"
+    )
 
 
-@pytest.mark.parametrize(
-    ("report", "passes"), STORED_REPORTS.values(), ids=STORED_REPORTS.keys()
-)
-def test_review_format_check(report: str, passes: bool) -> None:
-    violations = check_review_format(report)
-    assert (violations == []) is passes, violations
-
-
-def test_every_golden_expects_a_verdict() -> None:
-    # A golden whose verdict parses to neither would skip the judge unnoticed.
-    assert {verdict(g["expected_output"]) for g in GOLDENS} <= {"APPROVED", "REJECTED"}
-    assert verdict("REJECTED — fix 1 and 3\n1. ...") == "REJECTED"
-    assert verdict("\nAPPROVED\nLooks good.") == "APPROVED"
+def test_the_review_cases_are_twins() -> None:
+    # The twin rule (tests/README.md § Evals): only the planted line may differ.
+    clean, planted = (
+        next(g["input"].splitlines() for g in GOLDENS if g["id"] == name)
+        for name in ("clean", "planted-bug")
+    )
+    assert len(clean) == len(planted)
+    assert sum(a != b for a, b in zip(clean, planted, strict=True)) == 1
