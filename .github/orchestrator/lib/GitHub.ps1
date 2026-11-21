@@ -866,7 +866,8 @@ function New-FeatureBranch {
         # refused and everything died with the runner.
         #
         # Fetch with an explicit refspec so refs/remotes/origin/<branch> definitely
-        # exists — --force-with-lease on the later push needs that remote-tracking ref.
+        # exists — HEAD then descends from the pushed tip, so the later plain push
+        # fast-forwards, and Update-Branch can compare against it.
         git fetch --quiet origin "+refs/heads/${branch}:refs/remotes/origin/${branch}" 2>$null
         if ($LASTEXITCODE -ne 0) { throw "Could not fetch existing remote branch $branch" }
         git checkout --quiet -B $branch "origin/$branch"

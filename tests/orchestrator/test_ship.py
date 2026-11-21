@@ -61,7 +61,7 @@ function script:gh { $global:LASTEXITCODE = 0
     ]
 
 
-# Invoke-Ship up to the merge: branch checkout, rebase and a green CI poll are faked.
+# Invoke-Ship up to the merge: branch checkout, Update-Branch and a green CI poll are faked.
 _SHIP = r"""
 $env:KANBAN_LOCAL_CI = $null
 $script:Log = [System.Collections.Generic.List[string]]::new()
@@ -70,7 +70,7 @@ function script:Get-IssueLabel { param($IssueNumber) $script:Labels }
 function script:Test-HoldAnnounced { param($IssueNumber) $false }
 $script:State = $null
 function script:Get-IssueState { param($IssueNumber) $script:State }
-function script:Invoke-RebaseOnMaster { param($IssueNumber, $Branch) }
+function script:Update-Branch { param($IssueNumber, $Branch) [pscustomobject]@{ UpToDate = $true; Merged = $false; Conflicts = @() } }
 function script:Set-IssueLabel { param($Number, $Add, $Remove) $script:Log.Add("label:+$Add") }
 function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
 function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:" + ($Body -split "`n")[0]) }
@@ -83,6 +83,35 @@ function script:gh { $global:LASTEXITCODE = 0
         'merge'  { $script:Log.Add('merged') }
     } }
 """
+
+
+def test_a_conflict_in_ship_aborts_the_merge_and_fails_the_attempt(
+    tmp_path: Path,
+) -> None:
+    """#367: ship never settles a conflict. It aborts the merge, names the files and
+    throws an ordinary failure, so the conductor's next attempt starts at implement."""
+    out = _run(
+        _SHIP
+        + r"""
+function script:Update-Branch { param($IssueNumber, $Branch)
+    [pscustomobject]@{ UpToDate = $false; Merged = $false; Conflicts = @('README.md', 'SECURITY.md') } }
+function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:$Body") }
+function script:git { $global:LASTEXITCODE = 0
+    if ($args[0] -eq 'rev-parse') { 'feature/1-x' }
+    if ($args[0] -eq 'merge') { $script:Log.Add("git merge $($args[1])") } }
+$script:Diff = @('src/x.py')
+$err = $null
+try { $null = Invoke-Ship -IssueNumber 1 -PRNumber 9 } catch { $err = "$_" }
+[pscustomobject]@{ err = $err; log = @($script:Log) } | ConvertTo-Json -Compress
+""",
+        tmp_path,
+    )
+    assert out["err"] and "Merge conflict" in out["err"]
+    assert not out["err"].startswith("ATTEMPT-RECORDED")
+    assert "git merge --abort" in out["log"]
+    assert "merged" not in out["log"]
+    comment = next(e for e in out["log"] if e.startswith("comment:🤖❌ Merge Conflict"))
+    assert "`README.md`" in comment and "`SECURITY.md`" in comment
 
 
 def test_governance_change_is_held_after_green_ci(tmp_path: Path) -> None:
@@ -318,7 +347,7 @@ $script:Labels = @('agent:reviewing')
 function script:Get-IssueLabel { param($IssueNumber) $script:Labels }
 function script:Test-HoldAnnounced { param($IssueNumber) $false }
 function script:Get-IssueState { param($IssueNumber) $null }
-function script:Invoke-RebaseOnMaster { param($IssueNumber, $Branch) }
+function script:Update-Branch { param($IssueNumber, $Branch) [pscustomobject]@{ UpToDate = $true; Merged = $false; Conflicts = @() } }
 function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
 function script:Set-AgentFailedState { param($IssueNumber, $FailedAt, $Reason) $script:Log.Add("failed:$FailedAt") }
 function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:" + ($Body -split "`n")[0]) }
