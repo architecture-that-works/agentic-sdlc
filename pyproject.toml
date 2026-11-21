@@ -22,7 +22,7 @@ dev = [
     "copier>=9.19.1",
     "pre-commit>=4.7.0",
     "hypothesis>=6.170.15",
-    "deepeval>=4.3.3",
+    "deepeval>=4.3.4",
     "opentelemetry-exporter-otlp-proto-http>=1.45.2",
     "opentelemetry-sdk>=1.45.2",
 ]
