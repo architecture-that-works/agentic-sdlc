@@ -18,8 +18,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL = (REPO_ROOT / ".agents/skills/implement/SKILL.md").read_text(encoding="utf-8")
 GOLDENS = load_goldens("implement")
 
-# A bullet prefix is optional: stages/Implement.ps1 reads `- Left undone:` from the
-# agent's bullets, and the skill's note writes the same line.
+# The eval checks the skill's wording, so a bullet prefix is optional here. In the
+# pipeline the bullet comes from the stage prompt in stages/Implement.ps1, which keeps
+# only bulleted lines (`- Left undone:`); this eval does not pass that prompt.
 REQUIRED_LINES = ("Left undone:", "Issues discovered:")
 
 

@@ -19,8 +19,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 GRILL = REPO_ROOT / ".agents" / "skills" / "refine" / "scripts" / "grill.ps1"
 GOLDENS = load_goldens("refine")
 
-# A file name ending in .py or .ps1, or a `:<line>` reference such as `Util.ps1:113`.
-SOURCE_REFERENCE = re.compile(r"[\w*-]+\.(?:py|ps1)(?::L?\d+)?\b|\w+:L?\d+\b")
+# A file name ending in .py or .ps1, with its `:<line>` reference if any (`Util.ps1:113`).
+# A `:<digits>` counts only after such a name: a timestamp (`2026-11-21T10:15`) or a
+# port (`localhost:8080`) in a brief is not a line reference.
+SOURCE_REFERENCE = re.compile(r"[\w*-]+\.(?:py|ps1)(?::L?\d+)?\b")
 
 
 def grill(title: str, body: str) -> dict:
@@ -93,7 +95,10 @@ def test_refine_violations() -> None:
     brief = {
         "feature_name": "rate-limit",
         "problem_statement": "The server is overloaded by bursts of requests.",
-        "interfaces": ["A request over the limit gets 429 with Retry-After."],
+        "interfaces": [
+            "A request to localhost:8080 over the limit gets 429 with Retry-After."
+        ],
+        "timestamp": "2026-11-21T10:15:00Z",
         "constraints": ["Standard library first (CONTEXT.md); ADR-009."],
     }
     question = {
