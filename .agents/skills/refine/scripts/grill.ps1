@@ -54,7 +54,7 @@
 
 .PARAMETER Trace
     Emit { result, tools_called } instead of the bare GrillResult: the tools the
-    subagent called, in order. The refine eval (tests/evals) scores Rule 1 with it.
+    subagent called, in order. The refine eval (tests/evals) checks Rule 1 with it.
 
 .NOTES
     Tracked in: https://github.com/ysuurme/my_template_repo/issues/85

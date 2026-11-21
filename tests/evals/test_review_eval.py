@@ -1,40 +1,50 @@
-"""Eval: the review skill's report — the shape `review` must produce.
+"""Eval: the review skill's verdict — the one thing the orchestrator reads from a review.
 
-Each golden is an issue's criterion plus a diff. Claude reviews it with the skill's
-SKILL.md as its system prompt and no tools; the judge scores the report against the
-skill's § Report contract (G-Eval): the verdict line, three-part findings with a
-concrete case, no severity tag. The canary proves the gate has teeth: with § Report
-removed from the skill, the planted-bug review must fail the same rubric.
+Each stored case is an issue's criterion plus a change. Claude reviews it with the
+skill's SKILL.md as its system prompt and no tools, on the model the review stage uses,
+and the verdict is read the way `stages/Review.ps1` reads it: a line that starts with
+`APPROVED` approves, anything else rejects.
+
+The two cases are twins: the same issue, tests and change, differing only in one planted
+line. Approving `clean` and rejecting `planted-bug` can only be explained by that line, so
+a reviewer that rejects for another reason fails `clean`. Each case runs three times and
+every verdict must be right, so a reviewer that is right only some of the time fails.
 """
 
 import re
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from claude_judge import DEFAULT_MODEL
-from deepeval.metrics import GEval
-from deepeval.test_case import LLMTestCase, SingleTurnParams
 from eval_goldens import load_goldens
-
-pytestmark = pytest.mark.eval
+from stage_models import stage_models
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL = (REPO_ROOT / ".agents/skills/review/SKILL.md").read_text(encoding="utf-8")
 GOLDENS = load_goldens("review")
+RUNS = 3
+
+# stages/Review.ps1: `$review -match '(?im)^APPROVED'`; anything else is a rejection.
+_APPROVED = re.compile(r"^APPROVED", re.IGNORECASE | re.MULTILINE)
 
 
-def review(change: str, skill: str = SKILL) -> str:
+def approves(report: str) -> bool:
+    """The verdict the review stage reads from a report: True approves."""
+    return _APPROVED.search(report) is not None
+
+
+def review(change: str) -> str:
     out = subprocess.run(
         [
             "claude",
             "-p",
             "--model",
-            DEFAULT_MODEL,
+            stage_models()["review"],
             "--tools",
             "",
             "--system-prompt",
-            skill,
+            SKILL,
         ],
         input=f"Review this change. You have no tools: judge it from the text below.\n\n{change}",
         capture_output=True,
@@ -48,60 +58,33 @@ def review(change: str, skill: str = SKILL) -> str:
     return out.stdout
 
 
-def review_report(judge) -> GEval:
-    return GEval(
-        name="Review report",
-        # Mirrors review/SKILL.md § Step 4 — Report.
-        evaluation_steps=[
-            (
-                "The first line is the verdict: `APPROVED`, or `REJECTED — fix <numbers>` "
-                "naming the findings that must be fixed. It is the verdict the expected "
-                "output gives."
-            ),
-            (
-                "When the expected output names a defect, the report has it as a numbered "
-                "finding with three labelled parts — Defect, Case, Fix — and the Case is a "
-                "concrete input with the wrong result it produces. An approved report "
-                "with no findings needs no parts."
-            ),
-            (
-                "No finding carries a severity label such as BLOCK, WARN, INFO, critical "
-                "or high; the verdict line alone says which findings block."
-            ),
-        ],
-        evaluation_params=[
-            SingleTurnParams.INPUT,
-            SingleTurnParams.ACTUAL_OUTPUT,
-            SingleTurnParams.EXPECTED_OUTPUT,
-        ],
-        model=judge,
-        threshold=0.6,
+@pytest.mark.eval
+@pytest.mark.parametrize("case", GOLDENS, ids=[g["id"] for g in GOLDENS])
+def test_review_verdict(case) -> None:
+    stage_models()  # one lookup before the threads, not one per thread
+    with ThreadPoolExecutor(max_workers=RUNS) as pool:
+        reports = list(pool.map(review, [case["input"]] * RUNS))
+    wrong = [r for r in reports if approves(r) is not case["approve"]]
+    expected = "approve" if case["approve"] else "reject"
+    assert not wrong, (
+        f"{len(wrong)} of {RUNS} reviews did not {expected}:\n\n"
+        + "\n\n--- next report ---\n\n".join(wrong)
     )
 
 
-def _case(golden: dict, report: str) -> LLMTestCase:
-    return LLMTestCase(
-        input=golden["input"],
-        actual_output=report,
-        expected_output=golden["expected_output"],
+def test_approves_reads_the_verdict_the_way_the_review_stage_does() -> None:
+    assert approves("APPROVED\nWhat this change does: adds paginate().\n")
+    assert not approves(
+        "## Verdict: APPROVED\n1. **The first page is skipped**\n"
+        "   - **Case:** paginate(list(range(10)), 1, 3) returns [3, 4, 5].\n"
     )
 
 
-@pytest.mark.parametrize(
-    "golden", GOLDENS, ids=[g["additional_metadata"]["id"] for g in GOLDENS]
-)
-def test_review_report(golden, judge, evaluate) -> None:
-    evaluate(_case(golden, review(golden["input"])), [review_report(judge)])
-
-
-def test_a_skill_without_its_report_section_fails_the_eval(judge) -> None:
-    degraded = re.sub(
-        r"### Step 4 — Report.*?(?=### Step 5)", "", SKILL, flags=re.DOTALL
+def test_the_review_cases_are_twins() -> None:
+    # The twin rule (tests/README.md § Evals): only the planted line may differ.
+    clean, planted = (
+        next(g["input"].splitlines() for g in GOLDENS if g["id"] == name)
+        for name in ("clean", "planted-bug")
     )
-    assert degraded != SKILL, "§ Step 4 — Report not found in the review skill"
-    golden = GOLDENS[1]  # planted-bug
-    metric = review_report(judge)
-    metric.measure(_case(golden, review(golden["input"], skill=degraded)))
-    assert not metric.success, (
-        f"degraded skill passed: {metric.score} — {metric.reason}"
-    )
+    assert len(clean) == len(planted)
+    assert sum(a != b for a, b in zip(clean, planted, strict=True)) == 1

@@ -159,62 +159,64 @@ uncalled or a private function is called from outside.
 
 ## Evals
 
-An **eval** is a pytest test marked `eval` that scores one model-facing component (a
-prompt, a skill, an LLM call) against a golden dataset with [DeepEval](https://deepeval.com)
-metrics, judged by Claude. It answers a question unit tests cannot: *is the output still
-good?* The review stage judges a *change* against its issue; an eval judges a *component*
-against fixed inputs — neither repeats the other.
+An **eval** is a pytest test marked `eval` that runs one stage's instructions on a stored
+case, on the model that stage uses, and checks the outcome in code. There is no second
+model, no rubric and no pass mark: the check reads what the orchestrator or the owner
+reads, so a red eval means the stage's instructions produced an outcome the pipeline would
+mishandle. The review stage judges a *change* against its issue; an eval checks a *stage*
+against fixed cases. Neither repeats the other.
+
+**The four evals** — one file each in `tests/evals/`, with their stored cases in
+`goldens/<target>.jsonl`:
+
+| Eval | Runs | Checks in code |
+|------|------|----------------|
+| `test_review_eval.py` | the review skill on an issue plus a change, three times per case | The verdict, read the way `stages/Review.ps1` reads it (a line starting `APPROVED` approves, anything else rejects), is right in all three runs: approve `clean`, reject `planted-bug` |
+| `test_refine_eval.py` | the grill probe (`refine/scripts/grill.ps1 -Trace`) on an under-specified issue | Every tool the case expects was called; every open question has a recommendation and two alternatives; the agent brief names no source file (no `.py` or `.ps1` name, no `:<line>` reference) |
+| `test_implement_eval.py` | the implement skill on a finished mini-task | The closing note has a line starting `Left undone:` and one starting `Issues discovered:` |
+| `test_commit_eval.py` | `src/tools/commit.py` on a staged diff | The first line is `<type>(<scope>): <description>` or `<type>: <description>` with a listed type, at most 72 characters, no trailing period; no markdown fence, no Co-Authored-By or Signed-off-by trailer |
+
+The skill under test runs on its stage's model, read from the orchestrator by
+`stage_models()` in `tests/evals/stage_models.py` (one `pwsh` call that imports the
+module). Never write a model ID in `tests/evals/`. Without `pwsh`, an eval fails rather
+than skips: a skipped gate reports green.
+
+**Review cases come in twins.** A case with a defect is added together with a clean twin
+that differs only in the defect — the same issue, tests and change, one line apart
+(`test_the_review_cases_are_twins` holds the rule). Approving one and rejecting the other
+can only be explained by that line. A new pair comes from a change a reviewer really got
+wrong, not from an invented one.
+
+**Adding an eval**
+
+1. **Store a case** — one JSON object per line in `tests/evals/goldens/<target>.jsonl`,
+   with an `id` and only the fields the check reads. Load it with
+   `eval_goldens.load_goldens`.
+2. **Write the check** — a small function in the eval's file that takes the stage's output
+   and returns what is wrong with it (or whether it is right). Give it one test that needs
+   no model, over one stored output that passes and one that fails. That test carries no
+   mark, so it runs in the default suite.
+3. **Write the eval test** — mark it `@pytest.mark.eval`, run the stage on each stored
+   case on `stage_models()[<stage>]`, and assert the check.
+4. **Gate it in CI** — give the target a `PATHS_<TARGET>` regex in the `eval-scope` job of
+   `.github/workflows/checks.yml` naming exactly the files the eval reads: the stage's
+   entry file or prompt source, its eval test and its stored cases, plus a run step in the
+   `eval` job. `PATHS_SHARED` (`eval_goldens.py`, `stage_models.py` and
+   `.github/orchestrator/lib/Config.ps1`) fires every target.
+
+**Running them**
 
 ```bash
 uv run pytest -m eval                            # every eval (calls Claude)
-uv run pytest -m eval tests/evals/test_commit_eval.py
-uv run pytest                                    # default run: evals deselected, no model calls
+uv run pytest -m eval tests/evals/test_review_eval.py
+uv run pytest                                    # default run: evals deselected, checks' own tests run
 ```
 
-The judge is `ClaudeJudge` (`tests/evals/claude_judge.py`): Claude CLI first — it works with
-the same `CLAUDE_CODE_OAUTH_TOKEN` the pipeline uses — then the Anthropic SDK when
-`ANTHROPIC_API_KEY` is set. DeepEval's telemetry is forced off and its own pytest plugin is
-disabled: evals are plain pytest, with no Confident AI login.
+The Claude CLI must be installed and signed in (in CI, with `CLAUDE_CODE_OAUTH_TOKEN`).
 
-**Writing an eval**
-
-1. **Pick the component** and the behaviour to protect. One eval file per component:
-   `tests/evals/test_<component>_eval.py` with `pytestmark = pytest.mark.eval`.
-2. **Write goldens** — 3–5 representative inputs in `tests/evals/goldens/<component>.jsonl`,
-   one DeepEval golden per line (`input`, and optionally `expected_output`, `context`,
-   `expected_tools`, `additional_metadata`). Load them with `eval_goldens.load_goldens`.
-3. **Choose metrics** — `GEval` with `evaluation_steps` that restate the component's own
-   rules (say what is *intended* too, or the judge marks the design down);
-   `AnswerRelevancyMetric` / `FaithfulnessMetric` for grounded answers;
-   `ToolCorrectnessMetric` for agents (deterministic from the tool trace). Pass
-   `model=judge` to every LLM-judged metric. For every step that could penalise
-   formatting or borderline-but-valid choices, add an explicit guard: "Do not deduct for
-   leading or trailing whitespace — treat the output as if it were stripped" and "Do not
-   deduct for a borderline-but-valid choice; only a clear violation should deduct." The
-   judge's stated reasoning and the threshold it enforces must agree — if the judge's own
-   words call a deduction "minor" but the threshold fails the case, tighten the rubric
-   wording or lower the threshold.
-4. **Score with the `evaluate` fixture** — `evaluate(LLMTestCase(...), [metrics])` measures,
-   records and asserts; a failure lists each metric's score, threshold and reason.
-5. **Set thresholds from real runs** — start at DeepEval's 0.5, run a few times, then raise
-   to just below the observed scores. If the judge consistently scores compliant outputs
-   at ~0.60, set the threshold at 0.6, not 0.7 — a threshold set above the judge's
-   empirical scoring floor for valid outputs is a flake, not a gate.
-6. **Prove the gate has teeth** — add a canary that degrades the prompt and asserts the
-   metric fails (`test_a_degraded_prompt_fails_the_eval`).
-7. **Gate it in CI** — add the component's path to `MODEL_FACING` in the `eval-scope` job of
-   `.github/workflows/checks.yml`.
-
-**Results** — every metric score becomes one OpenTelemetry GenAI `gen_ai.evaluation.result`
-record, following a local-first, OTLP-opt-in egress pattern: by default they land in
-`<Settings.log_dir>/evals/*.jsonl`; with `OTEL_EXPORTER_OTLP_ENDPOINT` set they are exported
-over OTLP instead (one span per eval case, one event per metric), which MLflow ≥ 3.6 or any
-OTel backend ingests. CI also uploads a JUnit report
-(`eval-results` artifact).
-
-**In CI** — the `eval` job runs only on PRs that change a model-facing path; skipped, it
-reports success, so it can be a required check (`task protect`). The pipeline's ship stage
-never merges a PR with a red check.
+**In CI** — the `eval` job runs only on a PR that changes a file an eval reads, and then
+only the evals whose files changed; skipped, it reports success, so it can be a required
+check (`task protect`). The pipeline's ship stage never merges a PR with a red check.
 
 ## The local gate
 

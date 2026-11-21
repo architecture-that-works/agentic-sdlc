@@ -1,3 +1,3 @@
-{"input": "Requests should be limited so the server is not overloaded.", "additional_metadata": {"title": "Add rate limiting to the HTTP server"}, "expected_tools": [{"name": "Read"}]}
-{"input": "Generating a commit message takes several seconds. Cache the suggestions so repeated runs are fast.", "additional_metadata": {"title": "Cache commit message suggestions"}, "expected_tools": [{"name": "Read"}]}
-{"input": "Operations wants the application logs in their central logging platform.", "additional_metadata": {"title": "Ship application logs to an external store"}, "expected_tools": [{"name": "Read"}]}
+{"id": "rate-limit", "title": "Add rate limiting to the HTTP server", "input": "Requests should be limited so the server is not overloaded.", "expected_tools": ["Read"]}
+{"id": "cache", "title": "Cache commit message suggestions", "input": "Generating a commit message takes several seconds. Cache the suggestions so repeated runs are fast.", "expected_tools": ["Read"]}
+{"id": "logs", "title": "Ship application logs to an external store", "input": "Operations wants the application logs in their central logging platform.", "expected_tools": ["Read"]}

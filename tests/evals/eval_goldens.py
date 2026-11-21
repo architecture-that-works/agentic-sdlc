@@ -1,7 +1,6 @@
-"""Golden datasets for evals: JSONL beside the tests, one DeepEval golden per line.
+"""Stored cases for evals: JSONL beside the tests, one case per line.
 
-Fields follow DeepEval's Golden (input, expected_output, context, expected_tools, …) —
-nothing bespoke, so the files stay portable to any tool that reads DeepEval goldens.
+A case holds an `id` and only the fields its eval's check reads (tests/README.md § Evals).
 """
 
 import json

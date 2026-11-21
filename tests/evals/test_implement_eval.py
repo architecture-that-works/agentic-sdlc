@@ -1,39 +1,49 @@
-"""Eval: the implement skill's closing note — the lines `review` and the owner read.
+"""Eval: the implement skill's closing note — the two lines the orchestrator reads.
 
-Each golden is a finished mini-task: what was done, skipped and noticed. Claude writes
-the closing note with the skill's SKILL.md as its system prompt and no tools; the judge
-scores it against the skill's closing-note contract (G-Eval). The canary proves the gate
-has teeth: with every mention of the two lines removed from the skill, the note must
-fail the same rubric.
+Each stored case is a finished mini-task: what was done, skipped and noticed. Claude
+writes the closing note with the skill's SKILL.md as its system prompt and no tools, on
+the model the implement stage uses. The note must hold a line starting `Left undone:` and
+one starting `Issues discovered:`, which `stages/Implement.ps1` lifts into the issue.
 """
 
+import re
 import subprocess
 from pathlib import Path
 
 import pytest
-from claude_judge import DEFAULT_MODEL
-from deepeval.metrics import GEval
-from deepeval.test_case import LLMTestCase, SingleTurnParams
 from eval_goldens import load_goldens
-
-pytestmark = pytest.mark.eval
+from stage_models import stage_models
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL = (REPO_ROOT / ".agents/skills/implement/SKILL.md").read_text(encoding="utf-8")
 GOLDENS = load_goldens("implement")
 
+# The eval checks the skill's wording, so a bullet prefix is optional here. In the
+# pipeline the bullet comes from the stage prompt in stages/Implement.ps1, which keeps
+# only bulleted lines (`- Left undone:`); this eval does not pass that prompt.
+REQUIRED_LINES = ("Left undone:", "Issues discovered:")
 
-def closing_note(task: str, skill: str = SKILL) -> str:
+
+def missing_lines(note: str) -> list[str]:
+    """The closing-note lines the note lacks; empty when it passes."""
+    return [
+        label
+        for label in REQUIRED_LINES
+        if not re.search(rf"^\s*(?:[-*•]\s+)?{re.escape(label)}", note, re.MULTILINE)
+    ]
+
+
+def closing_note(task: str) -> str:
     out = subprocess.run(
         [
             "claude",
             "-p",
             "--model",
-            DEFAULT_MODEL,
+            stage_models()["implement"],
             "--tools",
             "",
             "--system-prompt",
-            skill,
+            SKILL,
         ],
         input=(
             "The task below is finished. Write the closing note your skill asks for "
@@ -50,62 +60,22 @@ def closing_note(task: str, skill: str = SKILL) -> str:
     return out.stdout
 
 
-def closing_note_format(judge) -> GEval:
-    return GEval(
-        name="Closing note",
-        # Mirrors implement/SKILL.md § Primary Outputs — the closing note.
-        evaluation_steps=[
-            (
-                "The output has a line starting `Left undone:` that names what the task "
-                "skipped — the same point the expected output makes."
-            ),
-            (
-                "The output has a line starting `Issues discovered:` that names what the "
-                "owner must know — the same point the expected output makes."
-            ),
-            (
-                "The output is the note and nothing else: no summary of the work, no "
-                "preamble, no headings. Judge content, not formatting: a `- ` bullet "
-                "prefix or its absence, inline code backticks, blank lines and "
-                "whitespace never deduct."
-            ),
-        ],
-        evaluation_params=[
-            SingleTurnParams.INPUT,
-            SingleTurnParams.ACTUAL_OUTPUT,
-            SingleTurnParams.EXPECTED_OUTPUT,
-        ],
-        model=judge,
-        threshold=0.6,
+@pytest.mark.eval
+@pytest.mark.parametrize("case", GOLDENS, ids=[g["id"] for g in GOLDENS])
+def test_closing_note(case) -> None:
+    note = closing_note(case["input"])
+    assert missing_lines(note) == [], f"{missing_lines(note)} missing from:\n{note}"
+
+
+def test_missing_lines() -> None:
+    assert (
+        missing_lines(
+            "- Left undone: lo > hi is not handled.\n"
+            "- Issues discovered: README.md documents clamp_value.\n"
+        )
+        == []
     )
-
-
-def _case(golden: dict, note: str) -> LLMTestCase:
-    return LLMTestCase(
-        input=golden["input"],
-        actual_output=note,
-        expected_output=golden["expected_output"],
-    )
-
-
-@pytest.mark.parametrize(
-    "golden", GOLDENS, ids=[g["additional_metadata"]["id"] for g in GOLDENS]
-)
-def test_closing_note(golden, judge, evaluate) -> None:
-    evaluate(_case(golden, closing_note(golden["input"])), [closing_note_format(judge)])
-
-
-def test_a_skill_without_the_closing_note_fails_the_eval(judge) -> None:
-    lines = SKILL.splitlines(keepends=True)
-    degraded = "".join(
-        line
-        for line in lines
-        if "Left undone" not in line and "Issues discovered" not in line
-    )
-    assert degraded != SKILL, "the closing-note contract was not found in the skill"
-    golden = GOLDENS[0]
-    metric = closing_note_format(judge)
-    metric.measure(_case(golden, closing_note(golden["input"], skill=degraded)))
-    assert not metric.success, (
-        f"degraded skill passed: {metric.score} — {metric.reason}"
-    )
+    assert missing_lines(
+        "Added clamp with tests; nothing was skipped.\n"
+        "Note: README.md documents clamp_value.\n"
+    ) == ["Left undone:", "Issues discovered:"]

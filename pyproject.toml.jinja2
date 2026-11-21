@@ -20,17 +20,13 @@ dev = [
     "copier>=9.0.0",
     "pre-commit>=4.0.0",
     "hypothesis>=6.0.0",
-    "deepeval>=4.2.6",
-    "opentelemetry-sdk>=1.45.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.45.0",
 ]
 
 [tool.pytest.ini_options]
 # Evals call a model: opt in with `uv run pytest -m eval` (a later -m overrides this one).
-# DeepEval's own pytest plugin is off — evals are plain pytest (tests/README.md).
-addopts = ["-m", "not eval", "-p", "no:deepeval"]
+addopts = ["-m", "not eval"]
 markers = [
-    "eval: LLM-judged eval of a model-facing component; calls Claude (run with -m eval)",
+    "eval: runs one stage's instructions on a stored case and checks the outcome in code; calls Claude (run with -m eval)",
 ]
 
 [build-system]
