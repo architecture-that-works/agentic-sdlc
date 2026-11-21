@@ -6,8 +6,9 @@
 
 .DESCRIPTION
     Configures branch protection on 'main' with:
-      - Required status checks: lint, typecheck, test, audit, checks, eval
-        (eval is skipped — reported as success — on PRs that touch no model-facing path)
+      - Required status checks: RequiredChecks in .github/orchestrator/lib/Config.ps1
+        (today lint, typecheck, test, audit, checks, eval; eval is skipped — reported as
+        success — on PRs that touch no model-facing path)
       - A branch need not be up to date before merging (strict off), so a pull request held
         for the owner stays mergeable after another one merges. GitHub still blocks a merge
         with a conflict or with a failed or missing required check, and checks.yml runs on
@@ -43,6 +44,10 @@
 
 $ErrorActionPreference = 'Stop'
 
+# The required check names live once, in the orchestrator config (RequiredChecks, #373):
+# ship waits for the same list on the commit it pushed.
+Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
+
 # ── Resolve repo ───────────────────────────────────────────────────────────────
 
 $RepoJson = gh repo view --json nameWithOwner,visibility 2>&1 | Out-String
@@ -59,21 +64,24 @@ if (-not $Repo) {
 # GitHub Secret Protection, so a refusal there is reported rather than treated as an error.
 $IsPublic = "$($RepoInfo.visibility)" -eq 'PUBLIC'
 
-$Branch         = "main"
-# Job names in checks.yml. Every .github/checks/check-*.ps1 runs inside the `checks`
-# job; no check has a job of its own, so requiring one would block every merge.
-$RequiredChecks = @("lint", "typecheck", "test", "audit", "checks", "eval")
+$Branch   = "main"
+# Job names in checks.yml, from RequiredChecks in lib/Config.ps1 — the one list.
+$Required = @((Get-OrchestratorContext).RequiredChecks)
+if ($Required.Count -eq 0) {
+    Write-Error "RequiredChecks in .github/orchestrator/lib/Config.ps1 is empty."
+    exit 1
+}
 
 Write-Host ""
 Write-Host "🔒 Applying branch protection to '$Branch' in '$Repo'..." -ForegroundColor Cyan
-Write-Host "   Required checks: $($RequiredChecks -join ', ')" -ForegroundColor DarkGray
+Write-Host "   Required checks: $($Required -join ', ')" -ForegroundColor DarkGray
 
 # ── Build protection body ──────────────────────────────────────────────────────
 
 $BodyObject = [ordered]@{
     required_status_checks           = [ordered]@{
         strict   = $false
-        contexts = $RequiredChecks
+        contexts = $Required
     }
     enforce_admins                   = $true
     required_pull_request_reviews    = [ordered]@{
@@ -166,12 +174,12 @@ if ($LASTEXITCODE -ne 0) {
 
 $Protection = $VerifyJson | ConvertFrom-Json
 $Contexts   = @($Protection.required_status_checks.contexts)
-$Missing    = $RequiredChecks | Where-Object { $_ -notin $Contexts }
+$Missing    = $Required | Where-Object { $_ -notin $Contexts }
 
 if ($Missing.Count -gt 0) {
     Write-Host "  ⚠️  Missing required checks: $($Missing -join ', ')" -ForegroundColor Yellow
 } else {
-    Write-Host "  ✅ All $($RequiredChecks.Count) required status checks configured." -ForegroundColor Green
+    Write-Host "  ✅ All $($Required.Count) required status checks configured." -ForegroundColor Green
 }
 
 if ($Protection.required_status_checks.strict) {

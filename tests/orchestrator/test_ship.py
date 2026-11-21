@@ -61,8 +61,45 @@ function script:gh { $global:LASTEXITCODE = 0
     ]
 
 
+# The check runs GitHub holds for the pushed commit (#373). `gh api` answers
+# commits/<sha>/check-runs with one JSON object per line (as `--jq ... | tojson`
+# prints them) and actions/jobs/<id>/logs with that job's log. Every required name
+# passed on $script:Sha unless a test says otherwise; the wait has no ceiling to sit out.
+_CHECKS = r"""
+$script:Sha = '0123456789abcdef0123456789abcdef01234567'
+$script:ShipCheckTimeoutSec = 0
+$script:ShipCheckPollSec = 0
+$script:ChecksPolled = $false
+$script:JobLogs = @{}
+function script:New-CheckRun {
+    param([string]$Name, [long]$Id, [string]$Conclusion = 'success', [string]$Status = 'completed', [string]$Sha = $script:Sha)
+    [pscustomobject]@{
+        id = $Id; name = $Name; status = $Status; head_sha = $Sha
+        conclusion = $(if ($Status -eq 'completed') { $Conclusion } else { $null })
+        details_url = "https://github.com/octocat/sandbox/actions/runs/7/job/$Id"
+    } }
+$script:Runs = @(
+    New-CheckRun lint 101; New-CheckRun typecheck 102; New-CheckRun test 103
+    New-CheckRun audit 104; New-CheckRun checks 105; New-CheckRun eval-scope 106
+    New-CheckRun eval 107)
+function script:Invoke-GhApi { param([string[]]$Argv)
+    $path = @($Argv | Where-Object { $_ -like 'repos/*' })[0]
+    if ($path -like "repos/octocat/sandbox/commits/$($script:Sha)/check-runs*") {
+        $script:ChecksPolled = $true
+        foreach ($r in $script:Runs) { $r | ConvertTo-Json -Compress }
+    } elseif ($path -like "repos/octocat/sandbox/commits/*/check-runs*") {
+        $script:ChecksPolled = $true
+    } elseif ($path -match '^repos/octocat/sandbox/actions/jobs/(\d+)/logs$') {
+        $log = $script:JobLogs[$Matches[1]]
+        if ($null -eq $log) { $global:LASTEXITCODE = 1 } else { $log }
+    } }
+"""
+
+
 # Invoke-Ship up to the merge: branch checkout, Update-Branch and a green CI poll are faked.
-_SHIP = r"""
+_SHIP = (
+    _CHECKS
+    + r"""
 $env:KANBAN_LOCAL_CI = $null
 $script:Log = [System.Collections.Generic.List[string]]::new()
 $script:Labels = @()
@@ -73,16 +110,19 @@ function script:Get-IssueState { param($IssueNumber) $script:State }
 function script:Update-Branch { param($IssueNumber, $Branch) [pscustomobject]@{ UpToDate = $true; Merged = $false; Conflicts = @() } }
 function script:Set-IssueLabel { param($Number, $Add, $Remove) $script:Log.Add("label:+$Add") }
 function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
-function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:" + ($Body -split "`n")[0]) }
-function script:git { $global:LASTEXITCODE = 0; if ($args[0] -eq 'rev-parse') { 'feature/1-x' } }
+$script:Bodies = [System.Collections.Generic.List[string]]::new()
+function script:Add-Comment { param($Number, $Body) $script:Bodies.Add($Body); $script:Log.Add("comment:" + ($Body -split "`n")[0]) }
+function script:git { $global:LASTEXITCODE = 0
+    if ($args[0] -eq 'rev-parse') { if ($args -contains '--abbrev-ref') { 'feature/1-x' } else { $script:Sha } } }
 function script:gh { $global:LASTEXITCODE = 0
+    if ($args[0] -eq 'api') { return Invoke-GhApi -Argv @($args) }
     switch ($args[1]) {
         'view'   { 'feature/1-x' }
-        'checks' { '[{"name":"test","bucket":"pass"}]' }
         'diff'   { $script:Diff }
         'merge'  { $script:Log.Add('merged') }
     } }
 """
+)
 
 
 def test_a_conflict_in_ship_aborts_the_merge_and_fails_the_attempt(
@@ -97,7 +137,7 @@ function script:Update-Branch { param($IssueNumber, $Branch)
     [pscustomobject]@{ UpToDate = $false; Merged = $false; Conflicts = @('README.md', 'SECURITY.md') } }
 function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:$Body") }
 function script:git { $global:LASTEXITCODE = 0
-    if ($args[0] -eq 'rev-parse') { 'feature/1-x' }
+    if ($args[0] -eq 'rev-parse') { if ($args -contains '--abbrev-ref') { 'feature/1-x' } else { $script:Sha } }
     if ($args[0] -eq 'merge') { $script:Log.Add("git merge $($args[1])") } }
 $script:Diff = @('src/x.py')
 $err = $null
@@ -339,7 +379,9 @@ def test_a_failed_issue_still_ships_when_its_pr_merges(tmp_path: Path) -> None:
 # agent:shipped and posts the signal comment, then returns — it never switches or
 # syncs the default branch, commits, pushes, or asks a model to patch CONTEXT.md.
 # git, gh and both engine CLIs are recorded, not faked into success-only no-ops.
-_RECORDED = r"""
+_RECORDED = (
+    _CHECKS
+    + r"""
 $script:Log   = [System.Collections.Generic.List[string]]::new()
 $script:Calls = [System.Collections.Generic.List[string]]::new()
 $env:KANBAN_LOCAL_CI = $null
@@ -351,18 +393,20 @@ function script:Update-Branch { param($IssueNumber, $Branch) [pscustomobject]@{ 
 function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
 function script:Set-AgentFailedState { param($IssueNumber, $FailedAt, $Reason) $script:Log.Add("failed:$FailedAt") }
 function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:" + ($Body -split "`n")[0]) }
-function script:git    { $script:Calls.Add('git ' + ($args -join ' ')); $global:LASTEXITCODE = 0; if ($args[0] -eq 'rev-parse') { 'feature/1-x' } }
+function script:git    { $script:Calls.Add('git ' + ($args -join ' ')); $global:LASTEXITCODE = 0
+    if ($args[0] -eq 'rev-parse') { if ($args -contains '--abbrev-ref') { 'feature/1-x' } else { $script:Sha } } }
 function script:claude { $script:Calls.Add('claude ' + ($args -join ' ')); $global:LASTEXITCODE = 0; 'NO_CHANGES' }
 function script:agy    { $script:Calls.Add('agy ' + ($args -join ' '));    $global:LASTEXITCODE = 0; 'NO_CHANGES' }
 function script:gemini { $script:Calls.Add('gemini ' + ($args -join ' ')); $global:LASTEXITCODE = 0; 'NO_CHANGES' }
 function script:gh { $script:Calls.Add('gh ' + ($args -join ' ')); $global:LASTEXITCODE = 0
+    if ($args[0] -eq 'api') { return Invoke-GhApi -Argv @($args) }
     switch ($args[1]) {
         'view'   { 'feature/1-x' }
-        'checks' { '[{"name":"test","bucket":"pass"}]' }
         'diff'   { 'src/x.py' }
         'merge'  { $script:Log.Add('merged') }
     } }
 """
+)
 
 
 def _after_merge(call: str, tmp_path: Path) -> tuple[list[str], list[str], list[str]]:
@@ -430,14 +474,7 @@ def test_issue_shipped_is_true_only_for_agent_shipped() -> None:
 
 _LOCAL_CI = r"""
 $env:KANBAN_LOCAL_CI = '1'
-$script:ChecksPolled = $false
-function script:gh { $global:LASTEXITCODE = 0
-    switch ($args[1]) {
-        'view'   { 'feature/1-x' }
-        'checks' { $script:ChecksPolled = $true; '[{"name":"test","bucket":"fail"}]' }
-        'diff'   { $script:Diff }
-        'merge'  { $script:Log.Add('merged') }
-    } }
+$script:Runs = @(New-CheckRun test 103 -Conclusion failure)
 """
 
 
@@ -451,7 +488,7 @@ def _local_ship(tmp_path: Path, jobs: str) -> dict:
         + r"""
 $script:Diff = @('src/x.py', 'tests/test_x.py')
 try { $r = Invoke-Ship -IssueNumber 1 -PRNumber 9 } catch { $r = "threw: $_" }
-[pscustomobject]@{ r = "$r"; log = @($script:Log); polled = $script:ChecksPolled } | ConvertTo-Json -Compress
+[pscustomobject]@{ r = "$r"; log = @($script:Log); bodies = @($script:Bodies); polled = $script:ChecksPolled } | ConvertTo-Json -Compress
 """,
         tmp_path,
     )
@@ -468,6 +505,8 @@ def test_local_ci_pass_holds_even_a_writable_only_pr(tmp_path: Path) -> None:
     assert "state:human:approval" in out["log"]
     assert "comment:🤖✅ Local CI passed" in out["log"]
     assert out["polled"] is False
+    held = next(b for b in out["bodies"] if b.startswith("🤖⏸ Held for human approval"))
+    assert "green on commit 0123456789abcdef0123456789abcdef01234567" in held
 
 
 def test_local_ci_failure_posts_ci_failed_and_throws(tmp_path: Path) -> None:
@@ -500,3 +539,157 @@ def test_local_ci_runs_every_uv_command_checks_yml_runs() -> None:
     )
     assert ci, "no uv run commands found in checks.yml"
     assert ci <= set(out["jobs"]), ci - set(out["jobs"])
+
+
+# ── Green only on the pushed commit (#373) ─────────────────────────────────────
+# Ship reads the check runs of the commit it pushed, and is green only when every
+# RequiredChecks name passed on that commit. A name that has not passed when the
+# ceiling passes stops ship, named; nothing merges without the required checks.
+
+_SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+def _ship_ci(tmp_path: Path, runs: str = "", diff: str = "@('src/x.py')") -> dict:
+    return _run(
+        _SHIP
+        + runs
+        + f"\n$script:Diff = {diff}\n"
+        + r"""
+$err = $null; $r = $null
+try { $r = Invoke-Ship -IssueNumber 1 -PRNumber 9 } catch { $err = "$_" }
+[pscustomobject]@{ r = $r; err = $err; log = @($script:Log); bodies = @($script:Bodies) } | ConvertTo-Json -Compress -Depth 4
+""",
+        tmp_path,
+    )
+
+
+def _body(out: dict, start: str) -> str:
+    return next(b for b in out["bodies"] if b.startswith(start))
+
+
+def test_required_checks_passed_on_another_commit_is_not_green(
+    tmp_path: Path,
+) -> None:
+    """The tracer: every run passed, but on the commit before the push — what
+    `gh pr checks` saw 0.8 seconds after ship's own push."""
+    out = _ship_ci(
+        tmp_path,
+        r"$script:Runs = @($script:Runs | ForEach-Object { $_.head_sha = 'f' * 40; $_ })",
+    )
+    assert out["err"] and out["err"].startswith("Required checks did not pass")
+    assert "merged" not in out["log"]
+    assert "state:human:approval" not in out["log"]
+    warning = _body(out, "🤖⚠️ CI did not pass")
+    assert _SHA in warning
+    for name in ["lint", "typecheck", "test", "audit", "checks", "eval"]:
+        assert f"`{name} (not reported)`" in warning
+        assert name in out["err"]
+
+
+def test_a_missing_required_check_is_not_green(tmp_path: Path) -> None:
+    out = _ship_ci(
+        tmp_path,
+        r"$script:Runs = @($script:Runs | Where-Object { $_.name -ne 'audit' })",
+    )
+    assert out["err"] and "audit (not reported)" in out["err"]
+    assert "lint" not in out["err"]
+    assert "merged" not in out["log"]
+    assert "`audit (not reported)`" in _body(out, "🤖⚠️ CI did not pass")
+
+
+def test_a_required_check_still_running_at_the_ceiling_is_not_green(
+    tmp_path: Path,
+) -> None:
+    out = _ship_ci(
+        tmp_path,
+        r"$script:Runs = @($script:Runs | Where-Object { $_.name -ne 'test' }) + @(New-CheckRun test 103 -Status in_progress)",
+    )
+    assert out["err"] and "test (not passed)" in out["err"]
+    assert "merged" not in out["log"]
+
+
+def test_every_required_check_passed_with_eval_skipped_is_green(
+    tmp_path: Path,
+) -> None:
+    out = _ship_ci(
+        tmp_path,
+        r"$script:Runs = @($script:Runs | Where-Object { $_.name -ne 'eval' }) + @(New-CheckRun eval 107 -Conclusion skipped)",
+        diff="@('src/x.py', '.github/workflows/stale.yml')",
+    )
+    assert out["err"] is None, out["err"]
+    assert "state:human:approval" in out["log"]
+    held = _body(out, "🤖⏸ Held for human approval")
+    assert f"PR #9 is green on commit {_SHA}" in held
+
+
+def test_green_on_the_pushed_commit_merges_an_ordinary_change(tmp_path: Path) -> None:
+    out = _ship_ci(tmp_path)
+    assert out["err"] is None, out["err"]
+    assert out["r"] is True and "merged" in out["log"]
+
+
+def test_a_failed_required_check_is_a_failed_check_that_names_it(
+    tmp_path: Path,
+) -> None:
+    out = _ship_ci(
+        tmp_path,
+        r"$script:Runs = @($script:Runs | Where-Object { $_.name -ne 'typecheck' }) + @(New-CheckRun typecheck 102 -Conclusion failure)",
+    )
+    assert out["err"] == "CI checks failed for PR #9: typecheck"
+    assert "merged" not in out["log"]
+    failed = _body(out, "🤖❌ CI Failed")
+    assert "Failed checks: typecheck" in failed
+    assert _SHA in failed
+
+
+def test_the_failure_comment_holds_the_failed_jobs_log_while_the_run_goes_on(
+    tmp_path: Path,
+) -> None:
+    """eval failed in seconds while test ran on: the job's own log is read, not the
+    run's, which GitHub returns empty until every job of the run has finished."""
+    out = _ship_ci(
+        tmp_path,
+        r"""
+$script:Runs = @($script:Runs | Where-Object { $_.name -notin 'eval', 'test' }) +
+    @(New-CheckRun eval 107 -Conclusion failure; New-CheckRun test 103 -Status in_progress)
+$script:JobLogs['107'] = "setup ok`nFAILED tests/evals/test_review_eval.py::test_case`n1 failed"
+""",
+    )
+    assert out["err"] == "CI checks failed for PR #9: eval"
+    failed = _body(out, "🤖❌ CI Failed")
+    assert "**eval** (job 107)" in failed
+    assert "FAILED tests/evals/test_review_eval.py::test_case" in failed
+    assert "1 failed" in failed
+
+
+def test_a_failed_check_that_is_not_required_still_fails_ship(tmp_path: Path) -> None:
+    """eval-scope failing makes eval skip: the skip must not read as a pass."""
+    out = _ship_ci(
+        tmp_path,
+        r"$script:Runs = @($script:Runs | Where-Object { $_.name -notin 'eval-scope', 'eval' }) + @(New-CheckRun eval-scope 106 -Conclusion failure; New-CheckRun eval 107 -Conclusion skipped)",
+    )
+    assert out["err"] == "CI checks failed for PR #9: eval-scope"
+    assert "merged" not in out["log"]
+
+
+def test_the_newest_run_of_a_name_counts() -> None:
+    out = _run(
+        _CHECKS
+        + r"""
+$runs = @($script:Runs) + @(New-CheckRun test 99 -Conclusion failure)
+$rerun = @($script:Runs | Where-Object { $_.name -ne 'test' }) + @(New-CheckRun test 103 -Conclusion failure; New-CheckRun test 120)
+[pscustomobject]@{
+    old   = (Get-CheckVerdict -RequiredNames (Get-OrchestratorContext).RequiredChecks -CheckRuns $runs -Sha $script:Sha).State
+    rerun = (Get-CheckVerdict -RequiredNames (Get-OrchestratorContext).RequiredChecks -CheckRuns $rerun -Sha $script:Sha).State
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert out == {"old": "green", "rerun": "green"}
+
+
+def test_no_path_merges_without_the_required_checks() -> None:
+    ship = (
+        Path(__file__).parents[2] / ".github" / "orchestrator" / "stages" / "Ship.ps1"
+    ).read_text(encoding="utf-8")
+    assert "approval gate alone" not in ship
+    assert "gh pr checks" not in ship.split("function Invoke-Ship", 1)[1]

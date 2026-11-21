@@ -8,7 +8,8 @@
     after the review stage approved (the conductor) or by the owner's manual
     dispatch (afk.yml stage=ship), so it does not re-derive approval. It merges the
     default branch into the branch (Update-Branch — a conflict ends the attempt and
-    the next one settles it at implement), waits for CI (or, with KANBAN_LOCAL_CI, runs it locally and always holds
+    the next one settles it at implement), waits for every required check to pass
+    on the commit it pushed (or, with KANBAN_LOCAL_CI, runs it locally and always holds
     the PR — #314), and then either holds a PR that touches a governance file
     (human:approval) or squash-merges it and deletes the branch
     (Complete-Ship). Complete-HeldPR reconciles the issue on every feature-branch PR
@@ -22,30 +23,87 @@ $ErrorActionPreference = 'Stop'
 # Module-internal library — loaded by Orchestrator.psm1 (which loads Config.ps1 first).
 # Not dot-sourced individually; see ADR-013.
 
-# The last lines of each failed CI job's log, as a Markdown block ('' when none can
-# be read). Job links from `gh pr checks` carry the run id; `gh run view --log-failed`
-# returns only the failed steps.
-function Get-FailedCheckLog {
-    param([int]$PRNumber, [int]$Tail = 60)
-    $checks = gh pr checks $PRNumber --json name,bucket,link 2>$null | Out-String
-    if ($LASTEXITCODE -ne 0 -or -not $checks.Trim().StartsWith('[')) { return '' }
-    $runIds = @($checks | ConvertFrom-Json |
-        Where-Object { $_.bucket -eq 'fail' -and $_.link -match '/actions/runs/(\d+)' } |
-        ForEach-Object { [regex]::Match($_.link, '/actions/runs/(\d+)').Groups[1].Value } |
-        Select-Object -Unique)
-    $blocks = foreach ($id in $runIds) {
-        $log = gh run view $id --repo $KanbanRepo --log-failed 2>$null
-        if ($LASTEXITCODE -eq 0 -and $log) {
-            $lines = @($log) | Select-Object -Last $Tail
-            "`n`n**Run $id** — last $($lines.Count) log lines:`n``````text`n$($lines -join "`n")`n``````"
-        }
+# ── CI on the pushed commit (#373) ────────────────────────────────────────────
+# Ship calls a PR green only when every required check (RequiredChecks in
+# lib/Config.ps1, the list branch protection requires) has passed on the exact
+# commit it pushed. `gh pr checks` cannot say that: its answer carries no commit, so
+# right after a push it still shows the previous commit's checks as passed.
+
+# How long ship waits, from its push, for the required checks; and how often it asks.
+$ShipCheckTimeoutSec = 900
+$ShipCheckPollSec    = 10
+
+# Every check run GitHub holds for one commit: id, name, status, conclusion,
+# head_sha, details_url. @() when the API cannot be read (the poll asks again).
+function Get-CommitCheckRuns {
+    param([Parameter(Mandatory)][string]$Sha)
+    $raw = gh api --paginate "repos/$KanbanRepo/commits/$Sha/check-runs?per_page=100" `
+        --jq '.check_runs[] | {id, name, status, conclusion, head_sha, details_url} | tojson' 2>$null | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not read the check runs of $Sha — asking again." -Color Yellow
+        return @()
+    }
+    return @($raw -split '\r?\n' | Where-Object { $_.Trim().StartsWith('{') } |
+        ForEach-Object { $_ | ConvertFrom-Json })
+}
+
+# The verdict on one commit, from its check runs — a pure function. Runs on another
+# commit are ignored; of several runs with one name (a re-run) the newest counts.
+#   failed   any run on the commit ended failure, cancelled or timed_out, required or not
+#   green    every required name completed as success, or as skipped (nothing failed)
+#   missing  a required name has no run on the commit yet
+#   pending  a required name has a run that has not passed yet
+# Returns { State, Failed (names), FailedRuns, Missing, Pending }.
+function Get-CheckVerdict {
+    param([string[]]$RequiredNames, [object[]]$CheckRuns, [Parameter(Mandatory)][string]$Sha)
+
+    $latest = [ordered]@{}
+    foreach ($run in @($CheckRuns | Where-Object { $_ -and "$($_.head_sha)" -eq $Sha })) {
+        $name = "$($run.name)"
+        if (-not $latest.Contains($name) -or [long]$run.id -gt [long]$latest[$name].id) { $latest[$name] = $run }
+    }
+    $failedRuns = @($latest.Values | Where-Object {
+        $_.status -eq 'completed' -and "$($_.conclusion)" -in @('failure', 'cancelled', 'timed_out') })
+    $missing = @(); $pending = @()
+    foreach ($name in @($RequiredNames | Where-Object { $_ })) {
+        if (-not $latest.Contains($name)) { $missing += $name; continue }
+        $run = $latest[$name]
+        if ($run.status -ne 'completed' -or "$($run.conclusion)" -notin @('success', 'skipped')) { $pending += $name }
+    }
+    $state = if ($failedRuns.Count -gt 0) { 'failed' }
+             elseif ($missing.Count -gt 0) { 'missing' }
+             elseif ($pending.Count -gt 0) { 'pending' }
+             else { 'green' }
+    return [pscustomobject]@{
+        State      = $state
+        Failed     = @($failedRuns | ForEach-Object { "$($_.name)" })
+        FailedRuns = $failedRuns
+        Missing    = $missing
+        Pending    = $pending
+    }
+}
+
+# The last lines of each failed job's own log, as Markdown blocks ('' when none can
+# be read). Read per job (actions/jobs/{id}/logs), so a job's log is there as soon as
+# that job ends — `gh run view --log-failed` returns nothing until the whole run has.
+# The job id is in the check run's details_url (…/job/{id}); for Actions it is also
+# the check run's own id.
+function Get-FailedJobLogs {
+    param([object[]]$CheckRuns, [int]$Tail = 60)
+    $blocks = foreach ($run in @($CheckRuns | Where-Object { $_ })) {
+        $jobId = if ("$($run.details_url)" -match '/job/(\d+)') { $Matches[1] } else { "$($run.id)" }
+        if (-not $jobId) { continue }
+        $log = gh api "repos/$KanbanRepo/actions/jobs/$jobId/logs" 2>$null | Out-String
+        if ($LASTEXITCODE -ne 0 -or -not $log.Trim()) { continue }
+        $lines = @($log.TrimEnd() -split '\r?\n' | Select-Object -Last $Tail)
+        "`n`n**$($run.name)** (job $jobId) — last $($lines.Count) log lines:`n``````text`n$($lines -join "`n")`n``````"
     }
     return ($blocks -join '')
 }
 
 # ── Local CI (#314) ───────────────────────────────────────────────────────────
 # When GitHub Actions cannot run (observed: a spent Actions allowance on a private
-# repo), KANBAN_LOCAL_CI makes ship run CI here instead of polling `gh pr checks`.
+# repo), KANBAN_LOCAL_CI makes ship run CI here instead of reading the commit's check runs.
 # Mirrors checks.yml's lint / typecheck / test / audit jobs — keep the two in step;
 # test_ship.py fails when a checks.yml `uv run` command is missing here. The checks
 # job is every .github/checks/check-*.ps1, the same rule as CI. eval stays
@@ -320,103 +378,62 @@ function Invoke-Ship {
         throw "Merge conflict between $featureBranch and $KanbanDefaultBranch in: $($conflicts -join ', ')"
     }
 
-    # Local CI (#314): run checks.yml's jobs here and skip the `gh pr checks` poll.
+    # The commit the checks must pass on: HEAD after the update — the merge commit
+    # Update-Branch pushed, or the head the implement stage pushed when the branch was
+    # already up to date. Both are the PR's head.
+    $sha = "$(git rev-parse HEAD 2>$null)".Trim()
+    if ($sha -notmatch '^[0-9a-f]{40}$') { throw "Could not read the HEAD commit of $featureBranch." }
+
+    # Local CI (#314): run checks.yml's jobs here instead of reading GitHub's check runs.
     # A pass always ends in the owner's hold below — nothing merges on local CI alone.
     $localCi = Test-LocalCI
     if ($localCi) {
-        Write-Log "  Running CI locally (KANBAN_LOCAL_CI) on PR #$PRNumber..." -Color DarkGray
+        Write-Log "  Running CI locally (KANBAN_LOCAL_CI) on PR #$PRNumber at $sha..." -Color DarkGray
         $rows   = @(Invoke-LocalCI)
         $failed = @($rows | Where-Object { $_.ExitCode -ne 0 })
         if ($failed.Count -gt 0) {
             $label = ($failed | ForEach-Object { $_.Name }) -join ', '
             $logs  = ($failed | ForEach-Object { "`n`n**$($_.Name)** — exit $($_.ExitCode):`n``````text`n$($_.Tail)`n``````" }) -join ''
-            Add-Comment -Number $IssueNumber -Body "🤖❌ CI Failed`n`nFailed checks (run locally): $label$logs"
+            Add-Comment -Number $IssueNumber -Body "🤖❌ CI Failed`n`nFailed checks (run locally on commit $sha): $label$logs"
             throw "CI checks failed for PR #${PRNumber}: $label"
         }
         $table = ($rows | ForEach-Object { "| $($_.Name) | pass |" }) -join "`n"
         Add-Comment -Number $IssueNumber -Body ("🤖✅ Local CI passed`n`nGitHub Actions could not run, so ship ran " +
-            "``checks.yml``'s jobs on this branch locally (``KANBAN_LOCAL_CI``):`n`n| Job | Result |`n|---|---|`n$table")
+            "``checks.yml``'s jobs on commit $sha of this branch locally (``KANBAN_LOCAL_CI``):`n`n| Job | Result |`n|---|---|`n$table")
     } else {
-        Write-Log "  Waiting for CI checks on PR #$PRNumber..." -Color DarkGray
-    }
+        # Green only when every required name has passed on $sha (Get-CheckVerdict).
+        # An empty or partial answer — the checks of a fresh push take seconds to
+        # appear — means ask again, up to one ceiling counted from the push. There is
+        # no path that merges without the required checks.
+        $required = @((Get-OrchestratorContext).RequiredChecks)
+        if ($required.Count -eq 0) { throw 'RequiredChecks in .github/orchestrator/lib/Config.ps1 is empty.' }
+        Write-Log "  Waiting for the required checks ($($required -join ', ')) on $sha (PR #$PRNumber)..." -Color DarkGray
 
-    # Poll `gh pr checks --json name,bucket` instead of `--watch`. After
-    # a push of the merge, GitHub Actions needs 5-30s to register the rerun
-    # and during that window `--watch` produces non-deterministic text on a
-    # mixed stdout/stderr stream — previously this leaked into a downstream
-    # ConvertFrom-Json and crashed the orchestrator (dropping the issue to
-    # Backlog even though CI eventually passed).
-    #
-    # `--json` gives structured output that is unambiguous:
-    #   - empty array        → no checks registered yet → keep polling
-    #   - bucket=pending     → in progress → keep polling
-    #   - bucket=fail|cancel → real failure → fail the merge
-    #   - all bucket=pass    → CI green
-    $CIRegisterTimeoutSec   = 60     # how long to wait for at least one check to register
-    $CICompletionTimeoutSec = 900    # 15 min — hard ceiling for total CI duration
-    $CIPollIntervalSec      = 10
-
-    $registerDeadline   = (Get-Date).AddSeconds($CIRegisterTimeoutSec)
-    $completionDeadline = (Get-Date).AddSeconds($CICompletionTimeoutSec)
-    $ciGreen            = $localCi
-    $ciFailed           = $false
-    $everRegistered     = $false
-    $failedNames        = ''
-
-    while (-not $localCi -and (Get-Date) -lt $completionDeadline) {
-        $jsonOut  = gh pr checks $PRNumber --json name,bucket 2>$null | Out-String
-        $jsonTrim = $jsonOut.Trim()
-
-        $checks = $null
-        if ($jsonTrim.StartsWith('[')) {
-            try { $checks = $jsonTrim | ConvertFrom-Json -ErrorAction Stop } catch { $checks = $null }
-        }
-        $arr = @($checks)
-
-        if ($arr.Count -eq 0) {
-            if (-not $everRegistered -and (Get-Date) -ge $registerDeadline) {
-                Write-Log "  ⚠️ No CI checks registered after ${CIRegisterTimeoutSec}s — proceeding on approval gate alone." -Color Yellow
-                Add-Comment -Number $IssueNumber -Body "🤖⚠️ No CI checks reported after ${CIRegisterTimeoutSec}s — merging on approval gate alone."
-                break
-            }
-            Write-Log "  CI not yet registered — retrying in ${CIPollIntervalSec}s..." -Color DarkGray
-            Start-Sleep -Seconds $CIPollIntervalSec
-            continue
+        $deadline = (Get-Date).AddSeconds($ShipCheckTimeoutSec)
+        while ($true) {
+            $verdict = Get-CheckVerdict -RequiredNames $required -CheckRuns @(Get-CommitCheckRuns -Sha $sha) -Sha $sha
+            if ($verdict.State -in @('green', 'failed') -or (Get-Date) -ge $deadline) { break }
+            $waiting = @($verdict.Missing) + @($verdict.Pending)
+            Write-Log "  CI on ${sha}: waiting for $($waiting -join ', ') — asking again in ${ShipCheckPollSec}s..." -Color DarkGray
+            Start-Sleep -Seconds $ShipCheckPollSec
         }
 
-        $everRegistered = $true
-        $failed  = @($arr | Where-Object { $_.bucket -eq 'fail' -or $_.bucket -eq 'cancel' })
-        $pending = @($arr | Where-Object { $_.bucket -eq 'pending' })
-
-        if ($failed.Count -gt 0) {
-            $failedNames = ($failed | ForEach-Object { $_.name }) -join ', '
-            $ciFailed    = $true
-            break
+        if ($verdict.State -eq 'failed') {
+            $label = $verdict.Failed -join ', '
+            # The log tail is what lets the next attempt fix the failure rather than guess.
+            $logs = Get-FailedJobLogs -CheckRuns $verdict.FailedRuns
+            Add-Comment -Number $IssueNumber -Body "🤖❌ CI Failed`n`nFailed checks: $label — on commit $sha.$logs"
+            throw "CI checks failed for PR #${PRNumber}: $label"
         }
-
-        if ($pending.Count -eq 0) {
-            $ciGreen = $true
-            break
+        if ($verdict.State -ne 'green') {
+            $names = @(@($verdict.Missing | ForEach-Object { "$_ (not reported)" }) +
+                       @($verdict.Pending | ForEach-Object { "$_ (not passed)" }))
+            $list  = ($names | ForEach-Object { "- ``$_``" }) -join "`n"
+            Add-Comment -Number $IssueNumber -Body ("🤖⚠️ CI did not pass within ${ShipCheckTimeoutSec}s`n`n" +
+                "These required checks have not passed on commit ${sha}:`n`n$list`n`nNothing was merged; the PR needs manual review.")
+            throw "Required checks did not pass on $sha within ${ShipCheckTimeoutSec}s for PR #${PRNumber}: $($names -join ', ')"
         }
-
-        Write-Log "  CI in progress: $($pending.Count)/$($arr.Count) pending — retrying in ${CIPollIntervalSec}s..." -Color DarkGray
-        Start-Sleep -Seconds $CIPollIntervalSec
-    }
-
-    if ($ciFailed) {
-        $label = if ($failedNames) { $failedNames } else { 'unknown' }
-        # The log tail is what lets the next attempt fix the failure rather than guess.
-        $logs = Get-FailedCheckLog -PRNumber $PRNumber
-        Add-Comment -Number $IssueNumber -Body "🤖❌ CI Failed`n`nFailed checks: $label$logs"
-        throw "CI checks failed for PR #${PRNumber}: $label"
-    }
-
-    if ($ciGreen) {
-        Write-Log "  CI green ✅" -Color Green
-    } elseif ($everRegistered) {
-        # Registered but never completed — don't auto-merge a PR with running CI.
-        Add-Comment -Number $IssueNumber -Body "🤖⚠️ CI did not complete within ${CICompletionTimeoutSec}s — needs manual review."
-        throw "CI did not complete within ${CICompletionTimeoutSec}s for PR #$PRNumber."
+        Write-Log "  CI green on $sha ✅" -Color Green
     }
 
     # ── Human-approval hold ───────────────────────────────────────────────────
@@ -455,7 +472,7 @@ function Invoke-Ship {
             } else { 'this issue is labelled ``human:approval``.' }
             if ($localCi -and $held.Count -gt 0) { $why += "`n`nIts CI ran locally (``KANBAN_LOCAL_CI``)." }
 
-            Add-Comment -Number $IssueNumber -Body ("🤖⏸ Held for human approval`n`nPR #$PRNumber is green and self-reviewed, but " +
+            Add-Comment -Number $IssueNumber -Body ("🤖⏸ Held for human approval`n`nPR #$PRNumber is green on commit $sha and self-reviewed, but " +
                 "$why`n`n**Comment on this issue to change the PR; close the PR to reject it.** Merge PR #$PRNumber to accept. " +
                 "The agent reads the issue, not PR review comments. Nothing reaches the default branch until you merge.")
             Write-Log "⏸ Issue #$IssueNumber held for human approval — $($governance.Count) governance, $($proposed.Count) proposed file(s)." -Color Yellow
