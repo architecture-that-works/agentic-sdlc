@@ -2,7 +2,7 @@
 # Provides a PostgreSQL database and an Ollama LLM server alongside the dev container.
 services:
   app:
-    image: mcr.microsoft.com/devcontainers/python:3.12
+    image: mcr.microsoft.com/devcontainers/python:3.14-bookworm
     volumes:
       - ..:/workspace:cached
     command: sleep infinity
