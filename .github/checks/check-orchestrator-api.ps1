@@ -1,3 +1,19 @@
+#Requires -Version 7.0
+<#
+.SYNOPSIS
+    Guards the orchestrator's public API: code outside .github/orchestrator/ calls only the
+    functions Orchestrator.psd1 exports, and every export has an outside caller.
+
+.DESCRIPTION
+    Orchestrator.psd1 FunctionsToExport is the module boundary. Callers are the workflows,
+    the task runnables in .github/tasks/ and the skill scripts. A caller that names a private
+    function breaks when the function is renamed; an export nobody calls widens the API for
+    nothing. Exits 0 when both hold, 1 with one line per violation otherwise.
+
+.EXAMPLE
+    pwsh .github/checks/check-orchestrator-api.ps1
+#>
+
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path "$PSScriptRoot/../..").ProviderPath
@@ -7,7 +23,7 @@ $psd1 = Join-Path $RepoRoot ".github/orchestrator/Orchestrator.psd1"
 $manifest = Import-PowerShellDataFile -Path $psd1
 $exports = $manifest.FunctionsToExport
 if (-not $exports) {
-    Write-Host "❌ Could not parse FunctionsToExport from Orchestrator.psd1" -ForegroundColor Red
+    Write-Host "❌ Could not parse FunctionsToExport from Orchestrator.psd1 — restore its explicit FunctionsToExport list." -ForegroundColor Red
     exit 1
 }
 
@@ -19,8 +35,8 @@ $psm1Files = @(
 $allFunctions = @()
 foreach ($f in $psm1Files) {
     $content = Get-Content $f.FullName -Raw
-    $matches = [regex]::Matches($content, '(?mi)^\s*function\s+([A-Za-z0-9\-]+)\s*(?:\{|\()')
-    foreach ($m in $matches) {
+    $defined = [regex]::Matches($content, '(?mi)^\s*function\s+([A-Za-z0-9\-]+)\s*(?:\{|\()')
+    foreach ($m in $defined) {
         $allFunctions += $m.Groups[1].Value
     }
 }
@@ -50,7 +66,7 @@ foreach ($f in $callerFiles) {
 
     foreach ($priv in $privateFunctions) {
         if ($content -match "\b$priv\b") {
-            Write-Host "❌ Module boundary violation: External file $($f.Name) calls private module function '$priv'" -ForegroundColor Red
+            Write-Host "❌ $($f.Name) calls private orchestrator function '$priv' — call an exported function instead, or add '$priv' to FunctionsToExport in Orchestrator.psd1." -ForegroundColor Red
             $failures++
         }
     }
@@ -58,15 +74,15 @@ foreach ($f in $callerFiles) {
 
 foreach ($exp in $exports) {
     if (-not $calledExports.ContainsKey($exp)) {
-        Write-Host "❌ Dead export: Function '$exp' is exported but never called by any external file." -ForegroundColor Red
+        Write-Host "❌ '$exp' is exported but nothing outside the orchestrator calls it — remove it from FunctionsToExport in Orchestrator.psd1." -ForegroundColor Red
         $failures++
     }
 }
 
 if ($failures -gt 0) {
-    Write-Host "❌ $failures module API violations found." -ForegroundColor Red
+    Write-Host "❌ $failures orchestrator API violation(s) found." -ForegroundColor Red
     exit 1
 }
 
-Write-Host "✅ Module API contract holds: all exports are used, no private functions are called externally." -ForegroundColor Green
+Write-Host "✅ Orchestrator API contract holds: all exports are used, no private functions are called externally." -ForegroundColor Green
 exit 0

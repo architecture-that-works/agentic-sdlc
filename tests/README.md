@@ -154,7 +154,7 @@ Import-Module .\.github\orchestrator\Orchestrator.psd1 -Force
 faster this way.
 
 **Never widen `FunctionsToExport` to make a test pass.** That is how an explicit API
-list decays back to `'*'`; `check-module-api.ps1` fails the build if an export goes
+list decays back to `'*'`; `check-orchestrator-api.ps1` fails the build if an export goes
 uncalled or a private function is called from outside.
 
 ## Evals
@@ -222,9 +222,8 @@ Six commands, all clean, before any push:
 
 ```powershell
 uv run pytest ; uv run ruff check . ; uv run ruff format . ; uv run pyright
-pwsh .github/checks/check-script-paths.ps1
-pwsh .github/checks/check-doc-paths.ps1
-pwsh .github/checks/check-module-api.ps1
+pwsh .github/checks/check-references.ps1
+pwsh .github/checks/check-orchestrator-api.ps1
 ```
 
 Self-review is not a gate. It approved two changes CI then rejected (#154, #192): a

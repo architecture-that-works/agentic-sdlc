@@ -95,13 +95,14 @@ made every pipeline-improvement issue hands-on while adding no merge-time protec
 
 ## Public repository
 
-The repository is published as public so GitHub Actions compute is free. Four safeguards must be
-in place and are verified by `check-repo-hardening.ps1` on every CI run:
+Guidance for anyone who makes a repository public — for example so GitHub Actions compute is
+free. Apply these one-time repository settings before you change the visibility:
 
-- **Public visibility (Step 1):** the repository is public — Actions minutes are free on public repos and fork-PR isolation is effective only when the visibility setting is public.
-- **Fork-PR approval gate (Step 2):** Actions → General → "Approval for running fork pull request workflows from contributors" is set to "Require approval for all external contributors" — prevents untrusted code from running in the pipeline without review.
-- **Hosted-only runner profile (Step 3):** `KANBAN_RUNNER_PROFILE` is not `self-hosted` — a self-hosted runner on a public repo lets fork pull requests execute code on the owner's machine.
-- **No registered self-hosted runner (Step 3):** no runner is registered under Settings → Actions → Runners — reinforces the hosted-only constraint even if the variable is misconfigured.
+- **Public visibility:** Settings → General → Danger Zone → Change visibility → Public. Actions minutes are free on public repos, and fork-PR isolation is effective only when the visibility setting is public.
+- **Fork-PR approval gate:** Settings → Actions → General → "Approval for running fork pull request workflows from contributors" is set to "Require approval for all external contributors" — prevents untrusted code from running in the pipeline without review.
+- **Hosted-only runner profile:** `KANBAN_RUNNER_PROFILE` is not `self-hosted` (`gh variable set KANBAN_RUNNER_PROFILE --body hosted`) — a self-hosted runner on a public repo lets fork pull requests execute code on the owner's machine.
+- **No registered self-hosted runner:** no runner is registered under Settings → Actions → Runners — reinforces the hosted-only constraint even if the variable is misconfigured.
+- **Commit email privacy:** in your GitHub account, Settings → Emails → "Keep my email addresses private" and "Block command line pushes that expose my email" are on, and local commits use your `noreply` address — every commit's author email becomes public with the history.
 
 ---
 

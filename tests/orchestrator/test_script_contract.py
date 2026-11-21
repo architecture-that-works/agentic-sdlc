@@ -132,7 +132,7 @@ _PSSCRIPTROOT_PATH = re.compile(r"\$PSScriptRoot([\\/][^\"'\s)]*)")
 def test_psscriptroot_paths_resolve_inside_the_repo() -> None:
     """Every $PSScriptRoot-relative path in a runnable must resolve inside the repo.
 
-    check-script-paths.ps1 only scans workflows and Taskfile.yml, so when the
+    check-references.ps1 checks script paths only in workflows and Taskfile.yml, so when the
     runnables moved from scripts/ to .github/tasks/ their `..\\..\\orchestrator`
     imports went on pointing one level too high and every local task failed on
     Import-Module, while setup.ps1 resolved its .env one level above the repo.

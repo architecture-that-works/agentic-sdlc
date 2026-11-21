@@ -153,8 +153,9 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
     pwsh = shutil.which("pwsh")
     if pwsh is None:
         pytest.skip("pwsh not available — cannot run generated-project checks")
-    # Some checks (check-module-map.ps1, check-script-paths.ps1) interrogate git —
-    # initialise and stage so they see the generated project as a repo.
+    # check-module-map.ps1 and check-token-scope.ps1 interrogate git — initialise
+    # and commit so they see the generated project as a repo. Every check-*.ps1 runs,
+    # the same rule as the checks job in checks.yml.
     for argv in (
         ["git", "init", "-q", "-b", "main"],
         ["git", "config", "user.email", "ci@example.com"],
@@ -163,7 +164,7 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
         ["git", "commit", "-qm", "initial"],
     ):
         subprocess.run(argv, cwd=tmp_path, check=True, capture_output=True, text=True)
-    for check in sorted((tmp_path / ".github" / "checks").glob("*.ps1")):
+    for check in sorted((tmp_path / ".github" / "checks").glob("check-*.ps1")):
         check_result = subprocess.run(
             [pwsh, "-NoProfile", "-File", str(check)],
             cwd=tmp_path,

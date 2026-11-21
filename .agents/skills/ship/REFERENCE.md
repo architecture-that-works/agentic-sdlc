@@ -12,7 +12,7 @@ walkthroughs.
 
 ```bash
 # Run the CI gate script
-pwsh .github/scripts/ci/check-module-map.ps1
+pwsh .github/checks/check-module-map.ps1
 
 # Manual verification when the script is not available:
 # 1. List all top-level src/ directories in this PR

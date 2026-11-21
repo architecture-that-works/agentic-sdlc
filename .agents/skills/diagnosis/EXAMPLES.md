@@ -178,15 +178,15 @@ gh run view --log-failed 2>&1 | tee /tmp/ci-failure.txt
 Relevant excerpt:
 
 ```
-Run pwsh .github/scripts/ci/check-module-map.ps1
+Run pwsh .github/checks/check-module-map.ps1
 FAIL: Module Map is missing a row for src/payments/
 Expected row: | payments | src/payments/ | ...
-  at .github/scripts/ci/check-module-map.ps1:47
+  at .github/checks/check-module-map.ps1:47
 ```
 
 Reading protocol applied:
 - **Error type:** Script exits non-zero with `FAIL:` message
-- **Origin frame:** `.github/scripts/ci/check-module-map.ps1:47`
+- **Origin frame:** `.github/checks/check-module-map.ps1:47`
 - **Mechanism:** The script expects `CONTEXT.md` to contain a row for `src/payments/`
 - **Secondary clue:** None visible in the truncated log
 
@@ -229,7 +229,7 @@ Replicate the CI command locally:
 
 ```bash
 # From the project root
-pwsh .github/scripts/ci/check-module-map.ps1
+pwsh .github/checks/check-module-map.ps1
 # FAIL: Module Map is missing a row for src/payments/
 ```
 
@@ -246,7 +246,7 @@ Candidate fix: add the Module Map row to `CONTEXT.md`.
 ```
 
 ```bash
-pwsh .github/scripts/ci/check-module-map.ps1
+pwsh .github/checks/check-module-map.ps1
 # All module map checks passed.
 ```
 
@@ -254,7 +254,7 @@ Revert:
 
 ```bash
 git stash
-pwsh .github/scripts/ci/check-module-map.ps1
+pwsh .github/checks/check-module-map.ps1
 # FAIL: Module Map is missing a row for src/payments/
 ```
 
@@ -262,7 +262,7 @@ Re-apply:
 
 ```bash
 git stash pop
-pwsh .github/scripts/ci/check-module-map.ps1
+pwsh .github/checks/check-module-map.ps1
 # All module map checks passed.
 ```
 
@@ -279,7 +279,7 @@ did not surface locally because the script was not run before the push.
 **Minimal reproduction:**
 
 ```bash
-pwsh .github/scripts/ci/check-module-map.ps1
+pwsh .github/checks/check-module-map.ps1
 ```
 
 **Ruled-out hypotheses:**

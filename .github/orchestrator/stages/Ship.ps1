@@ -187,8 +187,9 @@ function Get-FailedCheckLog {
 # When GitHub Actions cannot run (observed: a spent Actions allowance on a private
 # repo), KANBAN_LOCAL_CI makes ship run CI here instead of polling `gh pr checks`.
 # Mirrors checks.yml's lint / typecheck / test / audit jobs — keep the two in step;
-# test_ship.py fails when a checks.yml `uv run` command is missing here. The guards
-# job is every .github/checks/*.ps1. eval and secret-scan stay CI-only.
+# test_ship.py fails when a checks.yml `uv run` command is missing here. The checks
+# job is every .github/checks/check-*.ps1, the same rule as CI. eval and secret-scan
+# stay CI-only.
 $LocalCiJobs = [ordered]@{
     'lint'      = @('uv', 'run', 'ruff', 'check', '.')
     'format'    = @('uv', 'run', 'ruff', 'format', '--check', '.')
@@ -205,8 +206,8 @@ function Invoke-LocalCI {
     $null = & uv sync 2>&1
     $jobs = [ordered]@{}
     foreach ($k in $LocalCiJobs.Keys) { $jobs[$k] = $LocalCiJobs[$k] }
-    foreach ($c in Get-ChildItem (Join-Path $_Root '.github/checks') -Filter '*.ps1' | Sort-Object Name) {
-        $jobs["guards: $($c.BaseName)"] = @('pwsh', '-NoProfile', '-File', $c.FullName)
+    foreach ($c in Get-ChildItem (Join-Path $_Root '.github/checks') -Filter 'check-*.ps1' | Sort-Object Name) {
+        $jobs["checks: $($c.BaseName)"] = @('pwsh', '-NoProfile', '-File', $c.FullName)
     }
     foreach ($name in $jobs.Keys) {
         $cmd  = $jobs[$name]

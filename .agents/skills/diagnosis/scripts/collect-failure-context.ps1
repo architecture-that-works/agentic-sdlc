@@ -42,7 +42,7 @@
 .EXAMPLE
     # Capture a CI script failure (no source file)
     pwsh .agents/skills/diagnosis/scripts/collect-failure-context.ps1 \
-        -Command "pwsh .github/scripts/ci/check-module-map.ps1"
+        -Command "pwsh .github/checks/check-module-map.ps1"
 #>
 
 [CmdletBinding()]

@@ -16,7 +16,7 @@ without re-running the failing command:
 ```bash
 uv run pytest 2>&1 | tee /tmp/test-failure.txt
 # or for a CI script:
-bash .github/scripts/ci/check-module-map.ps1 2>&1 | tee /tmp/ci-failure.txt
+bash .github/checks/check-module-map.ps1 2>&1 | tee /tmp/ci-failure.txt
 ```
 
 Capturing prevents the output from scrolling past the terminal buffer and makes `grep` possible.

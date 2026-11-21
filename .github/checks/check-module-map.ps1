@@ -1,7 +1,8 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    Check that every new src/<domain>/ directory in the PR diff has a Module Map row in CONTEXT.md.
+    Guards the Module Map: every new top-level src/<domain>/ in the pull request has a row in
+    the CONTEXT.md Module Map (ADR-009).
 
 .DESCRIPTION
     Tracer for ADR-009. Detects new top-level src/<domain>/ directories added in this PR
@@ -27,7 +28,7 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = (git rev-parse --show-toplevel 2>&1)
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Not in a git repository."
+    Write-Error "Not in a git repository — run this check from inside the repository clone."
     exit 1
 }
 $repoRoot = $repoRoot.Trim()
@@ -73,7 +74,7 @@ if ($newDomains.Count -eq 0) {
 
 $contextPath = Join-Path $repoRoot 'CONTEXT.md'
 if (-not (Test-Path $contextPath)) {
-    Write-Error "CONTEXT.md not found at '$contextPath' — every new src/<domain>/ needs a Module Map row."
+    Write-Error "CONTEXT.md not found at '$contextPath' — restore it; every new src/<domain>/ needs a Module Map row there."
     exit 1
 }
 
@@ -94,7 +95,7 @@ if ($missing.Count -eq 0) {
 }
 
 foreach ($m in $missing) {
-    Write-Host "check-module-map: FAIL — missing Module Map row for: $m"
+    Write-Host "check-module-map: FAIL — missing Module Map row for: $m — add a row for it to the Module Map in CONTEXT.md"
 }
 Write-Host "Add a row to the Module Map in CONTEXT.md for each path listed above."
 exit 1

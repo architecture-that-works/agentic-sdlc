@@ -14,7 +14,7 @@ with all BLOCK and WARN findings resolved. Ready to ship.
 ### Step 1 — Module Map check
 
 ```bash
-pwsh .github/scripts/ci/check-module-map.ps1
+pwsh .github/checks/check-module-map.ps1
 # → Exit 0: all new src/ directories have Module Map rows.
 ```
 

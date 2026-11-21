@@ -58,7 +58,7 @@ if ($pr.body -imatch 'closes\s+#\d+') {
 
 # ── 3. Module Map check ───────────────────────────────────────────────────────
 
-$moduleMapScript = '.github/scripts/ci/check-module-map.ps1'
+$moduleMapScript = '.github/checks/check-module-map.ps1'
 if (Test-Path $moduleMapScript) {
     Write-Host "Running Module Map check..."
     & pwsh $moduleMapScript
