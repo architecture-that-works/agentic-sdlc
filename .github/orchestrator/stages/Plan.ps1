@@ -28,7 +28,7 @@
       3. PRD published into the parent issue body section (AGENT-PRD markers); a
          signal comment announces it for downstream agents and humans.
       4. Child-issue emission -- tasks/sync.ps1 block format (LABELS:/ESTIMATE:/
-         PRIORITY: header + Goal/Description/Requirements/Acceptance Criteria).
+         PRIORITY: header + one section per issue-template heading).
          children[0] is the tracer bullet; children land via `gh issue create`.
       5. Heuristic:
            * wide blast OR open_questions[] non-empty -> human:decision
@@ -148,40 +148,61 @@ function Get-PlanLabel {
 }
 
 # ── Child-issue block format (matches tasks/sync.ps1 ISSUE: ... END_ISSUE) ──
-# Returns the body string for one child issue — header fields first, then the
-# Goal / Description / Requirements / Acceptance Criteria body. The block is
+# Returns the body string for one child issue — header fields first, then one
+# section per heading of the issue template (Get-IssueHeadings, lib/Util.ps1), in
+# template order and in the style the template writes it. No heading is spelled
+# here: the template is the one place they are written (#369). The block is
 # identical in shape to a hand-written ISSUES.md block so existing tooling
 # (tasks/sync.ps1, the refine phase parser) handles them unchanged.
+#
+# -Sections maps heading name → value (a hashtable, or the planner's JSON object).
+# A list heading takes an array of strings, an inline heading a string. A heading
+# with no value gets a placeholder line. -Footer is appended after the sections.
 
 function Format-ChildIssue {
     param(
         [string]$Label,
         [int]$Estimate = 0,
         [string]$Priority,
-        [Parameter(Mandatory)][string]$Goal,
-        [Parameter(Mandatory)][string]$Description,
-        [string[]]$Requirements = @(),
-        [string[]]$AcceptanceCriteria = @()
+        $Sections = @{},
+        [string]$Footer = ''
     )
+    $placeholder = '_(populated by plan synthesis)_'
     $sb = [System.Text.StringBuilder]::new()
     if ($Label) { $null = $sb.AppendLine("LABELS: $Label") }
     if ($Estimate -gt 0) { $null = $sb.AppendLine("ESTIMATE: $Estimate") }
     if ($Priority)       { $null = $sb.AppendLine("PRIORITY: $Priority") }
-    $null = $sb.AppendLine()
-    $null = $sb.AppendLine("**Goal**: $Goal")
-    $null = $sb.AppendLine("**Description**: $Description")
-    $null = $sb.AppendLine("**Requirements**:")
-    if ($Requirements -and $Requirements.Count -gt 0) {
+    if ($sb.Length -gt 0) { $null = $sb.AppendLine() }
+    foreach ($heading in @(Get-IssueHeadings)) {
+        $value = $null
+        if ($Sections -is [System.Collections.IDictionary]) {
+            if ($Sections.Contains($heading.Name)) { $value = $Sections[$heading.Name] }
+        } elseif ($Sections -and $Sections.PSObject.Properties[$heading.Name]) {
+            $value = $Sections.PSObject.Properties[$heading.Name].Value
+        }
+        $items = @(@($value) | Where-Object { $null -ne $_ -and "$_".Trim() } | ForEach-Object { "$_".Trim() })
+
+        if ($heading.Style -eq 'inline') {
+            $text = if ($items.Count -gt 0) { $items -join ' ' } else { $placeholder }
+            $null = $sb.AppendLine("**$($heading.Name)**: $text")
+            continue
+        }
+        $null = $sb.AppendLine("**$($heading.Name)**:")
+        if ($items.Count -eq 0) { $items = @($placeholder) }
         $i = 1
-        foreach ($req in $Requirements) { $null = $sb.AppendLine("$i. $req"); $i++ }
-    } else {
-        $null = $sb.AppendLine('1. _(populated by plan synthesis)_')
+        foreach ($item in $items) {
+            $line = switch ($heading.Style) {
+                'numbered' { "$i. $item" }
+                'checkbox' { "- [ ] $item" }
+                default    { "- $item" }
+            }
+            $null = $sb.AppendLine($line)
+            $i++
+        }
     }
-    $null = $sb.AppendLine("**Acceptance Criteria**:")
-    if ($AcceptanceCriteria -and $AcceptanceCriteria.Count -gt 0) {
-        foreach ($ac in $AcceptanceCriteria) { $null = $sb.AppendLine("- [ ] $ac") }
-    } else {
-        $null = $sb.AppendLine('- [ ] _(populated by plan synthesis)_')
+    if ($Footer) {
+        $null = $sb.AppendLine()
+        $null = $sb.AppendLine($Footer.Trim())
     }
     return $sb.ToString().TrimEnd()
 }
@@ -191,26 +212,21 @@ function New-ChildIssue {
         [Parameter(Mandatory)][int]$ParentNumber,
         [Parameter(Mandatory)][pscustomobject]$Child
     )
-    $requirements = @()
-    if ($Child.PSObject.Properties['requirements'] -and $Child.requirements) { $requirements = @($Child.requirements) }
-    $acceptance = @()
-    if ($Child.PSObject.Properties['acceptance_criteria'] -and $Child.acceptance_criteria) { $acceptance = @($Child.acceptance_criteria) }
+    $sections = if ($Child.PSObject.Properties['sections'] -and $Child.sections) { $Child.sections } else { @{} }
     $estimate = 0
     if ($Child.PSObject.Properties['estimate'] -and $null -ne $Child.estimate) { try { $estimate = [int]$Child.estimate } catch { $estimate = 0 } }
     $priority = ''
     if ($Child.PSObject.Properties['priority'] -and $Child.priority) { $priority = "$($Child.priority)" }
     # The planner's human:decision heuristic becomes a note for refine, not a label.
     $note = if ($Child.label -eq 'human:decision') {
-        "`n`n_Planner note: wide blast radius or open questions — refine should confirm the decisions with the owner._"
+        "_Planner note: wide blast radius or open questions — refine should confirm the decisions with the owner._`n`n"
     } else { '' }
     $body = Format-ChildIssue `
-        -Label              '' `
-        -Estimate           $estimate `
-        -Priority           $priority `
-        -Goal               $Child.goal `
-        -Description        "$($Child.description)$note`n`n**Parent**: #$ParentNumber" `
-        -Requirements       $requirements `
-        -AcceptanceCriteria $acceptance
+        -Label    '' `
+        -Estimate $estimate `
+        -Priority $priority `
+        -Sections $sections `
+        -Footer   "${note}Parent: #$ParentNumber"
 
     $tmp = New-TemporaryFile
     try {
@@ -320,6 +336,12 @@ function Invoke-PrdSynthesis {
     param([int]$IssueNumber)
     $issue = gh issue view $IssueNumber --repo $KanbanRepo --json title,body | ConvertFrom-Json
 
+    # The child's sections follow the issue template's headings (#369).
+    $sectionShape = (@(Get-IssueHeadings) | ForEach-Object {
+        $shape = if ($_.Style -eq 'inline') { '"<text>"' } else { '["<item>", "<item>"]' }
+        "        `"$($_.Name)`": $shape"
+    }) -join ",`n"
+
     $prompt = @"
 You are synthesising a Lean PRD from a refined GitHub Issue per the plan/SKILL.md schema.
 
@@ -341,15 +363,16 @@ Return ONLY valid JSON — no fences, no prose — matching this shape:
       "label": "<leave empty, or 'human:decision'>",
       "estimate": 2,
       "priority": "P3",
-      "goal": "<one-sentence goal>",
-      "description": "<what, why, context — no implementation steps>",
-      "requirements": ["<r1>", "<r2>"],
-      "acceptance_criteria": ["<a1>", "<a2>"]
+      "sections": {
+$sectionShape
+      }
     }
   ]
 }
 
 Rules:
+- "sections" has exactly one key per heading of the issue template, named as above:
+  a list (array of strings) where the shape shows one, otherwise one string.
 - children[0] MUST be the tracer bullet (narrowest vertical slice).
 - >= 3 children in total.
 - Assign the 'human:decision' label if the child genuinely needs a human decision

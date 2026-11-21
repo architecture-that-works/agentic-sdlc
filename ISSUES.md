@@ -13,14 +13,12 @@ Every block must follow this structure exactly so `pwsh -NoProfile -File .github
 
 ```
 ISSUE: [Action-oriented Issue Title]
-**Goal**: A singular non-technical explanation of the business outcome.
-**Description**: Context answering *why* this matters, linking previous boundaries to the new feature.
-**Requirements**:
-1. Sequenced, modular actionable steps explicit enough for an independent developer (or AI) to implement.
-**Acceptance Criteria**:
-- Strict qualitative boundaries defining when the work is officially "finished".
+LABELS: / ESTIMATE: / PRIORITY: (optional header lines)
+<body — the issue template's headings>
 END_ISSUE
 ```
+
+The body is the issue template's: copy the headings of [`.github/ISSUE_TEMPLATE/issue.md`](.github/ISSUE_TEMPLATE/issue.md) (everything below its front matter) and fill them in. The template is the one place the headings are written. Sync refuses the whole run, dry run included, when a block's body lacks one of them, and names the block and the heading.
 
 Header fields — all optional, must appear before the body, in any order:
 
