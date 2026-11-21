@@ -75,7 +75,6 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. "$PSScriptRoot\..\..\..\..\.github\orchestrator\lib\Config.ps1"
 . "$PSScriptRoot\..\..\..\..\.github\orchestrator\lib\Grill.ps1"
 
 if ($Issue -eq 0 -and (-not $Body)) {
