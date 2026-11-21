@@ -2,8 +2,9 @@
 <#
     Util.ps1 — cross-cutting local utilities for the Kanban module.
 
-    Logging, runtime detection, the orchestrator lock, and the issue template
-    reader (Get-IssueTemplate, Get-IssueHeadings). These touch only the local
+    Logging, runtime detection, the orchestrator lock, the issue template
+    reader (Get-IssueTemplate, Get-IssueHeadings) and the pull request template
+    filler (Get-PullRequestTemplate, Format-PullRequestBody). These touch only the local
     filesystem / process environment (no gh, no Claude). Loaded after Config.ps1
     (it reads $KanbanLogFile / $_Root from there).
 #>
@@ -108,6 +109,81 @@ function Get-IssueHeadings {
         $headings.Add([pscustomobject]@{ Name = $name; Style = $style })
     }
     return $headings.ToArray()
+}
+
+# ── The pull request template — the one place a PR's sections are written (#375) ──
+# Invoke-CommitAndPR fills it from the round's facts on every round. A section is a
+# `## <Name>` line; the names below say which fact goes under which section, and are
+# never written here as headings. Every HTML comment is guidance for a person and is
+# left out. There is no fallback: a missing or unfillable template stops the round.
+
+$KanbanPullRequestTemplatePath = '.github/PULL_REQUEST_TEMPLATE.md'
+$KanbanPullRequestSections     = [ordered]@{
+    'Summary'           = 'Implemented'
+    'Left undone'       = 'LeftUndone'
+    'Issues discovered' = 'IssuesDiscovered'
+    'Validation'        = 'Commands'
+}
+
+# The template's text. Throws, naming the file, when it is missing.
+function Get-PullRequestTemplate {
+    param([string]$Root = $_Root)
+    $path = Join-Path $Root $KanbanPullRequestTemplatePath
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "The pull request template $KanbanPullRequestTemplatePath is missing. It gives every pull request its sections; restore it before running the pipeline."
+    }
+    return "$(Get-Content -LiteralPath $path -Raw)"
+}
+
+# Pure: the pull request description built from the template. The template's sections
+# keep their order; under each goes its fact (an empty one becomes `none`), and under
+# the Validation section one line per command, in the order run. The template's
+# `Closes #` line becomes `Closes #<Number>`, the last line. Throws on a level-2
+# heading it cannot fill, naming it, and on a template without a `Closes #` line.
+function Format-PullRequestBody {
+    param(
+        [string]$Template,
+        [int]$Number,
+        [string]$Implemented = '',
+        [string]$LeftUndone = '',
+        [string]$IssuesDiscovered = '',
+        [array]$Commands = @()
+    )
+    $commandLines = @($Commands | Where-Object { $_ } | ForEach-Object { "- ``$($_.Name)`` → $($_.Exit)" })
+    $facts = @{
+        Implemented      = $Implemented
+        LeftUndone       = $LeftUndone
+        IssuesDiscovered = $IssuesDiscovered
+        Commands         = ($commandLines -join "`n")
+    }
+
+    $text   = ("$Template" -replace "`r`n", "`n") -replace '(?s)<!--.*?-->', ''
+    $out    = [System.Collections.Generic.List[string]]::new()
+    $inside = $false
+    $closes = $false
+    foreach ($line in ($text -split "`n")) {
+        if ($line -match '^##\s+(.+?)[\s#]*$') {
+            $name = $Matches[1]
+            if (-not $KanbanPullRequestSections.Contains($name)) {
+                throw "The pull request template $KanbanPullRequestTemplatePath has a section the orchestrator cannot fill: '$name'. Its sections are $(($KanbanPullRequestSections.Keys | ForEach-Object { "'$_'" }) -join ', ')."
+            }
+            $value = "$($facts[$KanbanPullRequestSections[$name]])".Trim()
+            if (-not $value) { $value = 'none' }
+            $out.Add($line.TrimEnd()); $out.Add(''); $out.Add($value); $out.Add('')
+            $inside = $true
+            continue
+        }
+        if ($line -match '^\s*Closes\s+#') { $closes = $true; break }
+        # The template's own text under a section is replaced by the fact; text above
+        # the first section is kept.
+        if (-not $inside) { $out.Add($line.TrimEnd()) }
+    }
+    if (-not $closes) {
+        throw "The pull request template $KanbanPullRequestTemplatePath has no 'Closes #' line; it must end with one."
+    }
+
+    $body = ($out -join "`n") -replace "\n{3,}", "`n`n"
+    return "$($body.Trim())`n`nCloses #$Number".TrimStart()
 }
 
 # ── Procedure-derivation from agent stream events ────────────────────────────

@@ -20,6 +20,10 @@ collaborator. Issues from anyone else are not acted on.
 
 ## A pull request made by hand
 
+- The description comes from the pull request template, `.github/PULL_REQUEST_TEMPLATE.md`:
+  Summary, Left undone, Issues discovered and Validation, ending with `Closes #<issue>`.
+  GitHub fills it into a new pull request; write under each heading what its comment asks.
+  A pull request the workflow opens fills the same sections itself.
 - All checks must pass: tests, lint, format and the `check-*` validators.
 - A pull request from a fork needs approval before the workflows run.
 - Commit messages follow `<type>(#<issue>): <subject>`.

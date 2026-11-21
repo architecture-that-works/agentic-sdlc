@@ -95,6 +95,7 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
     for rel in (
         ".github/ISSUE_TEMPLATE/issue.md",
         ".github/ISSUE_TEMPLATE/config.yml",
+        ".github/PULL_REQUEST_TEMPLATE.md",
         "CONTRIBUTING.md",
     ):
         shipped = tmp_path / rel
