@@ -18,6 +18,7 @@ hermetic (no live ``gh`` / ``claude`` calls).
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -60,11 +61,20 @@ _MODULE = (
 
 
 def _ps_file(args: list[str]) -> subprocess.CompletedProcess[str]:
+    # grill.ps1 imports the orchestrator module, which needs a repository slug and a
+    # default branch. A freshly generated project has no 'origin' remote and the CI
+    # `test` job sets neither variable, so give the run both.
+    env = {
+        **os.environ,
+        "GITHUB_REPOSITORY": "octocat/sandbox",
+        "GITHUB_DEFAULT_BRANCH": "main",
+    }
     return subprocess.run(
         [PWSH, "-NoProfile", "-File", str(GRILL_SCRIPT), *args],
         capture_output=True,
         text=True,
         cwd=str(REPO_ROOT),
+        env=env,
         check=False,
     )
 
