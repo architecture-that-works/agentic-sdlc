@@ -40,8 +40,8 @@ fixed in one round, a clean approval, escalation after three rejections).
 
 ## Primary Outputs
 
-- Review report: verdict first, then numbered three-part findings, most important first
-- In the pipeline: `APPROVED` proceeds to `ship`; `REJECTED` returns the issue to `implement` with the findings
+- Review answer: two fields, defined by [answer.schema.json](answer.schema.json) — `verdict` (`approved` or `rejected`) and `report` (markdown: numbered three-part findings, most important first)
+- In the pipeline: `approved` proceeds to `ship`; `rejected` returns the issue to `implement` with the findings; a run that gives no valid answer is a failed attempt, never a rejection
 - Escalation when the rejection budget is spent (the issue lands on `agent:failed`)
 
 ## Core Pattern
@@ -75,9 +75,14 @@ Plus the governance checks — `CONTEXT.md` constraints, internal mocks, Module 
 
 ### Step 4 — Report
 
-First line: the verdict — `APPROVED`, or `REJECTED — fix 1 and 3`, naming every finding that must be fixed. The pipeline reads this line.
+The answer has two fields ([answer.schema.json](answer.schema.json)); the engine checks it, and the pipeline reads only `verdict`:
+
+- `verdict` — `approved` or `rejected`, by the verdict rule below.
+- `report` — the review in markdown, posted to the issue as written.
+
+A rejected report opens by naming every finding that must be fixed — `Fix 1 and 3.` An approved report needs no opening line.
 Then `What this change does:` in two or three sentences.
-Then the findings, numbered, most important first (the order of Step 2), so the owner can say "fix 2 and 5". No severity tag on a finding — the verdict line says which numbers block; the rest are suggestions. Every finding has three parts, each one or two short sentences:
+Then the findings, numbered, most important first (the order of Step 2), so the owner can say "fix 2 and 5". No severity tag on a finding — the rejected report's opening line says which numbers block; the rest are suggestions. Every finding has three parts, each one or two short sentences:
 
 ```
 2. **Orders land on the wrong day** (`billing/close_day.py:L40-52`)
@@ -89,11 +94,11 @@ Then the findings, numbered, most important first (the order of Step 2), so the 
 
 End with `Lean: -<N> lines possible.` when lean findings exist, then `Not checked:` — a heading listing anything that mattered but you could not check.
 
-Nothing found: the verdict, `What this change does:`, `Looks good.` and one line on what you checked.
+Nothing found: `verdict` `approved`; the report is `What this change does:`, `Looks good.` and one line on what you checked.
 
-**Verdict rule.** A finding's severity (REFERENCE § Finding categories) is the reviewer's rule, never printed: `REJECTED` names every BLOCK and every WARN that is not waived. A WARN is waived only when the fix would be larger than the problem; the waiver is one line inside the finding. INFO never changes the verdict.
+**Verdict rule.** A finding's severity (REFERENCE § Finding categories) is the reviewer's rule, never printed: `rejected`, with the report naming every BLOCK and every WARN that is not waived. A WARN is waived only when the fix would be larger than the problem; the waiver is one line inside the finding. INFO never changes the verdict.
 
-**Do not reject for what the issue did not ask for.** A finding built on an input the acceptance criteria rule out (an empty list when the criterion says the list is never empty), or one asking for a test the criteria do not require, never changes the verdict: keep it as a numbered finding the verdict line does not name, or propose it in the report as a follow-up issue — never file one yourself. Two kinds still block: a breach of a `CONTEXT.md` Architectural Constraint, and a Risk finding (security or data loss) on input that comes from users, because criteria cannot rule out what an attacker sends.
+**Do not reject for what the issue did not ask for.** A finding built on an input the acceptance criteria rule out (an empty list when the criterion says the list is never empty), or one asking for a test the criteria do not require, never changes the verdict: keep it as a numbered finding the opening line does not name, or propose it in the report as a follow-up issue — never file one yourself. Two kinds still block: a breach of a `CONTEXT.md` Architectural Constraint, and a Risk finding (security or data loss) on input that comes from users, because criteria cannot rule out what an attacker sends.
 
 ### Step 5 — Fix loop and escalation
 
@@ -107,7 +112,7 @@ If a finding maps to a principle from `CONTEXT.md` or a constraint established i
 
 ## Quick Reference
 
-Severity is the reviewer's internal rule for the verdict line; it is never printed on a finding.
+Severity is the reviewer's internal rule for the verdict and the findings it names; it is never printed on a finding.
 
 | Severity | Holds | Gate | Resolution |
 |---|---|---|---|

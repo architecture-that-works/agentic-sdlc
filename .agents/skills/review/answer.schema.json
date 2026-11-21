@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Review answer",
+  "description": "The review's answer: the verdict the pipeline reads, and the report posted to the issue.",
+  "type": "object",
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["approved", "rejected"],
+      "description": "approved proceeds to ship; rejected returns the issue to implement."
+    },
+    "report": {
+      "type": "string",
+      "description": "The review in markdown, in the shape of the review skill's Step 4. A rejected report opens by naming every finding that must be fixed, e.g. 'Fix 1 and 3.'"
+    }
+  },
+  "required": ["verdict", "report"],
+  "additionalProperties": false
+}

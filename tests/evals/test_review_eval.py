@@ -2,8 +2,9 @@
 
 Each stored case is an issue's criterion plus a change. Claude reviews it with the
 skill's SKILL.md as its system prompt and no tools, on the model the review stage uses,
-and the verdict is read the way `stages/Review.ps1` reads it: a line that starts with
-`APPROVED` approves, anything else rejects.
+and answers in the shape of the skill's `answer.schema.json` — the schema the review
+stage passes too. The verdict is read the way `stages/Review.ps1` reads it: the checked
+`verdict` field of the result's `structured_output`.
 
 The two cases are twins: the same issue, tests and change, differing only in one planted
 line. Approving `clean` and rejecting `planted-bug` can only be explained by that line, so
@@ -11,7 +12,7 @@ a reviewer that rejects for another reason fails `clean`. Each case runs three t
 every verdict must be right, so a reviewer that is right only some of the time fails.
 """
 
-import re
+import json
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -21,20 +22,20 @@ from eval_goldens import load_goldens
 from stage_models import stage_models
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SKILL = (REPO_ROOT / ".agents/skills/review/SKILL.md").read_text(encoding="utf-8")
+SKILL_DIR = REPO_ROOT / ".agents/skills/review"
+SKILL = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+SCHEMA = (SKILL_DIR / "answer.schema.json").read_text(encoding="utf-8")
 GOLDENS = load_goldens("review")
 RUNS = 3
 
-# stages/Review.ps1: `$review -match '(?im)^APPROVED'`; anything else is a rejection.
-_APPROVED = re.compile(r"^APPROVED", re.IGNORECASE | re.MULTILINE)
+
+def verdict_of(result: dict) -> str | None:
+    """The verdict the review stage reads from a result: `structured_output.verdict`."""
+    answer = result.get("structured_output")
+    return answer.get("verdict") if isinstance(answer, dict) else None
 
 
-def approves(report: str) -> bool:
-    """The verdict the review stage reads from a report: True approves."""
-    return _APPROVED.search(report) is not None
-
-
-def review(change: str) -> str:
+def review(change: str) -> dict:
     out = subprocess.run(
         [
             "claude",
@@ -45,6 +46,10 @@ def review(change: str) -> str:
             "",
             "--system-prompt",
             SKILL,
+            "--json-schema",
+            SCHEMA,
+            "--output-format",
+            "json",
         ],
         input=f"Review this change. You have no tools: judge it from the text below.\n\n{change}",
         capture_output=True,
@@ -55,7 +60,7 @@ def review(change: str) -> str:
         check=False,
     )
     assert out.returncode == 0, out.stderr or out.stdout
-    return out.stdout
+    return json.loads(out.stdout)
 
 
 @pytest.mark.eval
@@ -64,19 +69,33 @@ def test_review_verdict(case) -> None:
     stage_models()  # one lookup before the threads, not one per thread
     with ThreadPoolExecutor(max_workers=RUNS) as pool:
         reports = list(pool.map(review, [case["input"]] * RUNS))
-    wrong = [r for r in reports if approves(r) is not case["approve"]]
+    wrong = [r for r in reports if (verdict_of(r) == "approved") is not case["approve"]]
     expected = "approve" if case["approve"] else "reject"
     assert not wrong, (
         f"{len(wrong)} of {RUNS} reviews did not {expected}:\n\n"
-        + "\n\n--- next report ---\n\n".join(wrong)
+        + "\n\n--- next result ---\n\n".join(json.dumps(r, indent=2) for r in wrong)
     )
 
 
-def test_approves_reads_the_verdict_the_way_the_review_stage_does() -> None:
-    assert approves("APPROVED\nWhat this change does: adds paginate().\n")
-    assert not approves(
-        "## Verdict: APPROVED\n1. **The first page is skipped**\n"
-        "   - **Case:** paginate(list(range(10)), 1, 3) returns [3, 4, 5].\n"
+def test_verdict_of_reads_the_checked_field_the_review_stage_reads() -> None:
+    approved = {
+        "type": "result",
+        "subtype": "success",
+        "structured_output": {"verdict": "approved", "report": "Looks good."},
+    }
+    rejected = {
+        "type": "result",
+        "subtype": "success",
+        "structured_output": {
+            "verdict": "rejected",
+            "report": "Fix 1.\n\nAPPROVED would not count here.\n\n1. **The first page is skipped**",
+        },
+    }
+    assert verdict_of(approved) == "approved"
+    assert verdict_of(rejected) == "rejected"
+    assert (
+        verdict_of({"type": "result", "subtype": "error_max_structured_output_retries"})
+        is None
     )
 
 

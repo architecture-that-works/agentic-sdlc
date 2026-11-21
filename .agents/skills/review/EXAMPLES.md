@@ -23,10 +23,10 @@ The signal history holds `🤖✅ Tests Passing — 3 passed` and `Left undone: 
 the empty order mocks `TaxCalculator`, an internal class. `checkout.py` passes `items=None`
 when the cart is empty.
 
-### Round 1 — Report (posted to the issue)
+### Round 1 — Answer: `verdict` `rejected`; `report` (posted to the issue)
 
 ```
-REJECTED — fix 1, 2 and 3
+Fix 1, 2 and 3.
 
 What this change does: Adds an Order class with total(), which sums item prices and applies
 a tax rate. checkout.py calls it to show the price before confirmation.
@@ -53,14 +53,14 @@ Not checked: rounding of fractional tax rates — no criterion asks for it.
 ```
 
 Findings 1 and 2 are BLOCK and 3 is an unwaived WARN by the reviewer's rule, so the verdict
-names all three; no tag is printed. The pipeline posts this as `🤖❌ Review Rejected` and sets
+is `rejected` and the report names all three; no tag is printed. The pipeline posts this as `🤖❌ Review Rejected` and sets
 `agent:implementing`.
 
 ### Round 2 — `implement` fixes all three; review re-reads the current diff
 
-```
-APPROVED
+Answer: `verdict` `approved`; `report`:
 
+```
 What this change does: Adds an Order class with total(); an empty order totals 0.0; the
 item list is private.
 
@@ -74,9 +74,9 @@ signal history (5 passed).
 
 **Context:** PR #55 adds a `DEFAULT_TIMEOUT` field to `Settings` with its test.
 
-```
-APPROVED
+Answer: `verdict` `approved`; `report`:
 
+```
 What this change does: Adds DEFAULT_TIMEOUT (30 s) to Settings, read from .env like every
 other field, with one test for the default and one for the override.
 
@@ -89,7 +89,7 @@ other field, with one test for the default and one for the override.
 Looks good. Checked: the one caller of Settings, extra="ignore" still set, the two tests.
 ```
 
-A suggestion like this never changes the verdict; the verdict line names only what must be
+A suggestion like this never changes the verdict; a rejected report names only what must be
 fixed. The pipeline proceeds to `ship`.
 
 ---
@@ -101,9 +101,9 @@ imports from `src/domain/` — a bounded-context bleed (`src/utils/` is generic,
 
 | Round | Finding 1 | Why it stands |
 |---|---|---|
-| 1 | REJECTED | `src/utils/m_response.py` imports `src/domain/`; three callers depend on the util |
-| 2 | REJECTED | Import moved, but the validation is now duplicated in `src/utils/` and `src/domain/` |
-| 3 | REJECTED | Duplication extracted into a shared helper both contexts import — a God Object candidate per the blast-radius report |
+| 1 | `rejected` | `src/utils/m_response.py` imports `src/domain/`; three callers depend on the util |
+| 2 | `rejected` | Import moved, but the validation is now duplicated in `src/utils/` and `src/domain/` |
+| 3 | `rejected` | Duplication extracted into a shared helper both contexts import — a God Object candidate per the blast-radius report |
 
 Each rejection is one attempt in the issue's `attempts[]`. After the third the orchestrator
 sets `agent:failed`; nobody sets a label by hand. The reviewer posts the escalation and stops:

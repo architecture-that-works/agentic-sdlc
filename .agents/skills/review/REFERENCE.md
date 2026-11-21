@@ -75,13 +75,16 @@ initial severity. Constraints established in `refine` are not negotiable.
 
 ## Verdict rule
 
-| Findings | Verdict |
-|---|---|
-| Any BLOCK | `REJECTED — fix <numbers>` |
-| A WARN that is not waived | `REJECTED — fix <numbers>` |
-| Only waived WARN and INFO | `APPROVED` |
-| Only findings on what the issue did not ask for (SKILL § Step 4) | `APPROVED`; they stay unnamed findings or proposed follow-ups |
-| None | `APPROVED` + `Looks good.` |
+| Findings | `verdict` | `report` opens with |
+|---|---|---|
+| Any BLOCK | `rejected` | `Fix <numbers>.` |
+| A WARN that is not waived | `rejected` | `Fix <numbers>.` |
+| Only waived WARN and INFO | `approved` | `What this change does:` |
+| Only findings on what the issue did not ask for (SKILL § Step 4) | `approved` | `What this change does:`; they stay unnamed findings or proposed follow-ups |
+| None | `approved` | `What this change does:`, then `Looks good.` |
+
+The two fields are defined once, in [answer.schema.json](answer.schema.json); the review
+stage and the review eval both pass it to the engine, which checks the answer.
 
 A waiver is one line inside the finding — `Waived: the fix is a new module for a two-line
 gain` — never a silent drop.
@@ -92,7 +95,8 @@ gain` — never a silent drop.
 
 The loop is the pipeline's implement ↔ review bounce; there is no separate fixer agent.
 
-1. `REJECTED` posts the review to the issue as a signal comment and sets `agent:implementing`.
+1. `rejected` posts the report to the issue as a signal comment and sets `agent:implementing`.
+   A run that ends without a valid answer is a failed attempt, not a rejection.
 2. `implement` reads the signal history, fixes the root cause once (`implement` § Before you
    write), runs the suite, pushes.
 3. Review runs again against the **current** diff. Resolved findings are not repeated; new
