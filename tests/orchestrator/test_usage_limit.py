@@ -6,7 +6,9 @@
 - Orchestrator.psm1 — a failure while the allowance is spent pauses the issue
   (agent:paused) and counts no attempt; a real failure still counts.
 - lib/GitHub.ps1 — Resume-PausedIssues resumes only issues that are due, and only
-  once a probe shows the engine answers again.
+  once a probe shows the engine answers again; it starts each through Restart-Issue,
+  which decides from readiness (#380), so a pause on an owner's comment still
+  reaches refine.
 
 Fakes live at module script scope; conductor tests run in tmp_path because the
 conductor's finally block resets git.
@@ -133,7 +135,7 @@ function script:Get-IssueState { param($IssueNumber) $script:State }
 function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
 function script:Add-Comment { param($Number, $Body) }
 function script:Add-FailedAttempt { param($IssueNumber, $Stage, $Reason, $Attempt, $Max) $script:Log.Add("attempt:$Attempt") }
-function script:Suspend-ForUsageLimit { param($IssueNumber, $Stage, $Until) $script:Log.Add("paused:$Stage") }
+function script:Suspend-ForUsageLimit { param($IssueNumber, $Until) $script:Log.Add("paused") }
 function script:Set-AgentFailedState { param($IssueNumber, $FailedAt, $Reason) $script:Log.Add('failed') }
 function script:Format-ErrorBlock { param($Raw) $Raw }
 function script:gh { $global:LASTEXITCODE = 0; '{"title":"t","labels":[],"state":"OPEN"}' }
@@ -152,7 +154,7 @@ Invoke-Orchestration -IssueNumber 50 -MaxRetries 3
 """,
         cwd=tmp_path,
     )
-    assert out["log"] == ["state:agent:implementing", "paused:implement"]
+    assert out["log"] == ["state:agent:implementing", "paused"]
 
 
 def test_real_failure_still_counts_as_an_attempt(tmp_path: Path) -> None:
@@ -166,7 +168,7 @@ Invoke-Orchestration -IssueNumber 50 -MaxRetries 1
         cwd=tmp_path,
     )
     assert "attempt:1" in out["log"] and "failed" in out["log"]
-    assert not any(e.startswith("paused:") for e in out["log"])
+    assert "paused" not in out["log"]
 
 
 def test_spent_allowance_at_startup_pauses_the_issue(tmp_path: Path) -> None:
@@ -180,7 +182,7 @@ $r = Invoke-Orchestration -From refine -IssueNumber 50
 """,
         cwd=tmp_path,
     )
-    assert out == {"r": False, "log": ["paused:refine"]}
+    assert out == {"r": False, "log": ["paused"]}
 
 
 def test_every_run_resumes_due_pauses_before_its_stage(tmp_path: Path) -> None:
@@ -216,22 +218,32 @@ _RESUME = r"""
 $script:Log = [System.Collections.Generic.List[string]]::new()
 $past   = (Get-Date).ToUniversalTime().AddMinutes(-5).ToString('o')
 $future = (Get-Date).ToUniversalTime().AddHours(3).ToString('o')
+function ready { [pscustomobject]@{ refined = @{ done = $true }; architected = @{ done = $true }; planned = @{ done = $true } } }
 $script:States = @{
-    11 = [pscustomobject]@{ paused_until = $past;   paused_stage = 'implement' }
-    12 = [pscustomobject]@{ paused_until = $past;   paused_stage = 'refine' }
-    13 = [pscustomobject]@{ paused_until = $future; paused_stage = 'implement' }
+    # Ready: refined, architected, planned, nothing open.
+    11 = [pscustomobject]@{ paused_until = $past;   readiness = (ready); open_questions = @() }
+    # Paused while the owner's answer was being read: a question is still open.
+    12 = [pscustomobject]@{ paused_until = $past;   readiness = (ready); open_questions = @(@{ text = 'Which?' }) }
+    13 = [pscustomobject]@{ paused_until = $future; readiness = (ready); open_questions = @() }
 }
+$script:Labels = @{ 11 = @('agent:paused'); 12 = @('agent:paused', 'human:decision'); 13 = @('agent:paused') }
 function script:Get-IssueState { param($IssueNumber) $script:States[$IssueNumber] }
 function script:Set-PlanningState { param($IssueNumber, $State) $script:Log.Add("write:$IssueNumber") }
+function script:Set-AttemptsSection { param($IssueNumber, $State, $Max) }
 function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:${IssueNumber}:$Label") }
 function script:Set-IssueLabel { param($Number, $Add, $Remove) $script:Log.Add("label:${Number}:-$Remove") }
-function script:Add-Comment { param($Number, $Body) }
+function script:Get-IssueLabel { param($IssueNumber) $script:Labels[$IssueNumber] }
+function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:${Number}:$Body") }
 $script:Paused = @('11', '12', '13')
 function script:gh { $global:LASTEXITCODE = 0
     # The paused listing is REST (ADR-012): one call on every run must not spend GraphQL.
     if ($args[0] -eq 'api' -and "$($args[1])" -like '*issues?labels=agent:paused*') { $script:Paused }
     else { $script:Log.Add('dispatch:' + ($args -join ' ')) } }
 """
+
+
+def _for(log: list[str], n: int) -> list[str]:
+    return [e for e in log if f":{n}:" in e or f"={n}" in e or e.endswith(f":{n}")]
 
 
 def test_resume_waits_for_the_engine_and_the_due_time() -> None:
@@ -254,12 +266,79 @@ Resume-PausedIssues
     assert out["still"] == ["write:11", "write:12"]
     assert out["moved"] is True
     resumed = out["resumed"]
-    assert (
-        "state:11:agent:backlog" in resumed
-    )  # implement pause → label restarts implement
-    assert "label:12:-agent:paused" in resumed
-    assert any(e.startswith("dispatch:") and "issue_number=12" in e for e in resumed)
-    assert not any(":13" in e or "=13" in e for e in resumed)  # not due yet
+    assert "state:11:agent:backlog" in resumed  # ready → label restarts implement
+    assert not _for(resumed, 13)  # not due yet: left alone
+
+
+def test_a_paused_issue_with_an_open_question_goes_to_refine() -> None:
+    """#380: a pause taken on an owner's comment must reach refine, which reads the
+    answer — agent:backlog refuses an issue with open questions."""
+    out = _run(
+        _RESUME
+        + r"""
+function script:Test-EngineUsageLimit { $null }
+Resume-PausedIssues
+[pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
+"""
+    )
+    log = _for(out["log"], 12)
+    assert "label:12:-agent:paused" in log
+    assert any(e.startswith("dispatch:") and "stage=refine" in e for e in log)
+    assert not any(e.startswith("state:12:") for e in log)  # agent:backlog never set
+    # The pause is cleared before the restart, so the restart's writes are the last.
+    assert log.index("write:12") < log.index("label:12:-agent:paused")
+
+
+def test_the_resume_posts_only_the_restart_comment() -> None:
+    out = _run(
+        _RESUME
+        + r"""
+function script:Test-EngineUsageLimit { $null }
+Resume-PausedIssues
+[pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
+"""
+    )
+    comments = [e for e in out["log"] if e.startswith("comment:")]
+    assert comments == [
+        "comment:11:· restarting from implement (usage limit lifted)",
+        "comment:12:· restarting refine (usage limit lifted)",
+    ]
+
+
+def test_a_paused_issue_without_a_resume_time_is_resumed() -> None:
+    out = _run(
+        _RESUME
+        + r"""
+$script:States[12].PSObject.Properties.Remove('paused_until')
+$script:Paused = @('12')
+function script:Test-EngineUsageLimit { $null }
+Resume-PausedIssues
+[pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
+"""
+    )
+    log = out["log"]
+    assert "label:12:-agent:paused" in log
+    assert any(e.startswith("dispatch:") and "issue_number=12" in e for e in log)
+
+
+def test_the_pause_stores_and_names_no_stage() -> None:
+    out = _run(
+        r"""
+$script:Log = [System.Collections.Generic.List[string]]::new()
+$script:St = [pscustomobject]@{ attempt_count = 0 }
+function script:Get-IssueState { param($IssueNumber) $script:St }
+function script:Set-PlanningState { param($IssueNumber, $State) }
+function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
+function script:Add-Comment { param($Number, $Body) $script:Log.Add($Body) }
+Suspend-ForUsageLimit -IssueNumber 7 -Until ([datetime]::SpecifyKind([datetime]'2026-09-23T15:00:00', 'Utc'))
+[pscustomobject]@{ log = @($script:Log); keys = @($script:St.PSObject.Properties.Name) } | ConvertTo-Json -Compress
+"""
+    )
+    assert out["keys"] == ["attempt_count", "paused_until"]
+    assert out["log"][0] == "state:agent:paused"
+    body = out["log"][1]
+    assert "Work resumes after 2026-09-23 15:00 UTC" in body
+    assert not any(s in body for s in ("implement", "refine", "comment"))
 
 
 def test_no_paused_issue_means_no_engine_probe() -> None:
