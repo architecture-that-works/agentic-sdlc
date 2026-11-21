@@ -115,6 +115,7 @@ free. Apply these one-time repository settings before you change the visibility:
 - **Fork-PR approval gate:** Settings → Actions → General → "Approval for running fork pull request workflows from contributors" is set to "Require approval for all external contributors" — prevents untrusted code from running in the pipeline without review.
 - **Hosted-only runner profile:** `KANBAN_RUNNER_PROFILE` is not `self-hosted` (`gh variable set KANBAN_RUNNER_PROFILE --body hosted`) — a self-hosted runner on a public repo lets fork pull requests execute code on the owner's machine.
 - **No registered self-hosted runner:** no runner is registered under Settings → Actions → Runners — reinforces the hosted-only constraint even if the variable is misconfigured.
+- **Secret scanning and push protection:** `task protect` switches both on with the owner's own `gh` login, next to the branch rules. Secret scanning finds secrets already in the repository and its history; push protection refuses a push that holds a secret, so the secret never reaches GitHub. Both are free on a public repository; a private repository has no secret scan unless its owner buys GitHub Secret Protection.
 - **Commit email privacy:** in your GitHub account, Settings → Emails → "Keep my email addresses private" and "Block command line pushes that expose my email" are on, and local commits use your `noreply` address — every commit's author email becomes public with the history.
 
 ---

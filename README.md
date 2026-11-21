@@ -112,7 +112,7 @@ task refine [ISSUE=N]  # local: refine one issue, or every issue with no agent:*
 task hitl [ISSUE=N]    # local: pick a backlog issue and run it in this terminal
 task retry ISSUE=N     # resume a failed issue (same as commenting on it)
 task setup             # one-time board, label and variable setup
-task protect           # apply branch protection to main
+task protect           # apply branch protection to main; switch on secret scanning and push protection
 ```
 
 Actions → **AFK** → **Run workflow** runs one stage — `refine` (issue `0` = backfill),

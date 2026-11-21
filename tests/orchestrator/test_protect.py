@@ -1,282 +1,197 @@
-"""Tests for .github/tasks/protect.ps1 business logic.
+"""Tests for .github/tasks/protect.ps1.
 
-Each test runs an inline PowerShell snippet that replicates the exact decision
-logic from the script, avoiding the need for a live GitHub connection while
-still verifying the real rules.
+Each test runs the real script against a stand-in for `gh`: a PowerShell function of
+that name, defined before the script runs, which records every argument list and the
+stdin it receives and answers with canned JSON. Assertions read what the script sent.
 """
 
-import re
+import json
+import os
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 PWSH = shutil.which("pwsh") or "pwsh"
 _ROOT = Path(__file__).resolve().parents[2]
+_SCRIPT = _ROOT / ".github" / "tasks" / "protect.ps1"
 
 pytestmark = pytest.mark.skipif(
     not shutil.which("pwsh"),
     reason="pwsh not available",
 )
 
-_REQUIRED_CHECKS = [
-    "lint",
-    "typecheck",
-    "test",
-    "audit",
-    "secret-scan",
-    "module-map-check",
-]
+_REQUIRED_CHECKS = ["lint", "typecheck", "test", "audit", "checks", "eval"]
+_REPO = "owner/repo"
+
+_STAND_IN = r"""
+$ErrorActionPreference = 'Stop'
+$global:GhLog = $env:GH_STANDIN_LOG
+
+function gh {
+    $argv  = @($args | ForEach-Object { "$_" })
+    $stdin = @($input) -join "`n"
+    $entry = [ordered]@{ args = $argv; stdin = $stdin } | ConvertTo-Json -Compress -Depth 5
+    Add-Content -LiteralPath $global:GhLog -Value $entry
+
+    $joined = $argv -join ' '
+    $global:LASTEXITCODE = 0
+    if ($joined -like 'repo view*') {
+        return (@{ nameWithOwner = 'owner/repo'; visibility = $env:GH_STANDIN_VISIBILITY } |
+            ConvertTo-Json -Compress)
+    }
+    if ($argv -contains 'PATCH') {
+        $global:LASTEXITCODE = [int]$env:GH_STANDIN_PATCH_EXIT
+        if ($global:LASTEXITCODE -ne 0) { return 'Secret scanning is not available (HTTP 422)' }
+        return '{}'
+    }
+    if ($argv -contains 'PUT') { return '{}' }
+    if ($joined -eq 'api repos/owner/repo/branches/main/protection') {
+        return (@{
+            required_status_checks        = @{ strict = $true; contexts = @('lint','typecheck','test','audit','checks','eval') }
+            required_pull_request_reviews = @{ required_approving_review_count = 0 }
+            enforce_admins                = @{ enabled = $true }
+        } | ConvertTo-Json -Compress -Depth 5)
+    }
+    if ($joined -eq 'api repos/owner/repo') {
+        $status = if ([int]$env:GH_STANDIN_PATCH_EXIT -eq 0) { 'enabled' } else { 'disabled' }
+        return (@{ security_and_analysis = @{
+            secret_scanning                 = @{ status = $status }
+            secret_scanning_push_protection = @{ status = $status }
+        } } | ConvertTo-Json -Compress -Depth 5)
+    }
+    $global:LASTEXITCODE = 1
+    return "unexpected gh call: $joined"
+}
+
+& $env:GH_STANDIN_SCRIPT
+exit $LASTEXITCODE
+"""
 
 
-def _ps(script: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [PWSH, "-NoProfile", "-Command", script],
+@dataclass
+class Run:
+    returncode: int
+    output: str
+    calls: list[dict[str, Any]]
+
+    def call(self, method: str) -> dict[str, Any]:
+        matches = [c for c in self.calls if method in c["args"]]
+        assert len(matches) == 1, f"expected one {method} call, got {self.calls}"
+        return matches[0]
+
+    def body(self, method: str) -> dict[str, Any]:
+        return json.loads(self.call(method)["stdin"])
+
+
+def _run(tmp_path: Path, *, visibility: str = "PUBLIC", patch_exit: int = 0) -> Run:
+    wrapper = tmp_path / "run-protect.ps1"
+    wrapper.write_text(_STAND_IN, encoding="utf-8")
+    log = tmp_path / "gh-calls.jsonl"
+    log.touch()
+    env = {
+        **os.environ,
+        "GH_STANDIN_LOG": str(log),
+        "GH_STANDIN_SCRIPT": str(_SCRIPT),
+        "GH_STANDIN_VISIBILITY": visibility,
+        "GH_STANDIN_PATCH_EXIT": str(patch_exit),
+    }
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-NonInteractive", "-File", str(wrapper)],
         capture_output=True,
         text=True,
         check=False,
+        env=env,
+        cwd=tmp_path,
     )
+    calls = [
+        json.loads(line)
+        for line in log.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    return Run(result.returncode, result.stdout + result.stderr, calls)
 
 
-# ---------------------------------------------------------------------------
-# Missing-check detection (mirrors the Where-Object filter in the script)
-# ---------------------------------------------------------------------------
-
-_MISSING_CHECK_FN = """\
-function Get-MissingChecks([string[]]$Required, [string[]]$Present) {
-    return $Required | Where-Object { $_ -notin $Present }
-}
-"""
+def _keys(node: Any) -> list[str]:
+    if isinstance(node, dict):
+        return [k for k, v in node.items() for k in (k, *_keys(v))]
+    if isinstance(node, list):
+        return [k for item in node for k in _keys(item)]
+    return []
 
 
-def test_no_missing_when_all_checks_present() -> None:
-    checks = ", ".join(f'"{c}"' for c in _REQUIRED_CHECKS)
-    result = _ps(
-        _MISSING_CHECK_FN
-        + f"""
-$required = @({checks})
-$present  = @({checks})
-$missing  = Get-MissingChecks $required $present
-if ($missing.Count -eq 0) {{ exit 0 }} else {{ exit 1 }}
-"""
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+def test_public_run_enables_secret_scanning_and_requires_six_checks(
+    tmp_path: Path,
+) -> None:
+    run = _run(tmp_path)
+    assert run.returncode == 0, run.output
 
-
-def test_missing_when_secret_scan_absent() -> None:
-    required = ", ".join(f'"{c}"' for c in _REQUIRED_CHECKS)
-    present = ", ".join(f'"{c}"' for c in _REQUIRED_CHECKS if c != "secret-scan")
-    result = _ps(
-        _MISSING_CHECK_FN
-        + f"""
-$required = @({required})
-$present  = @({present})
-$missing  = Get-MissingChecks $required $present
-if ($missing -contains 'secret-scan') {{ exit 0 }} else {{ exit 1 }}
-"""
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
-def test_missing_when_module_map_check_absent() -> None:
-    required = ", ".join(f'"{c}"' for c in _REQUIRED_CHECKS)
-    present = ", ".join(f'"{c}"' for c in _REQUIRED_CHECKS if c != "module-map-check")
-    result = _ps(
-        _MISSING_CHECK_FN
-        + f"""
-$required = @({required})
-$present  = @({present})
-$missing  = Get-MissingChecks $required $present
-if ($missing -contains 'module-map-check') {{ exit 0 }} else {{ exit 1 }}
-"""
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
-# ---------------------------------------------------------------------------
-# Protection body JSON — verify structure and required fields
-# ---------------------------------------------------------------------------
-
-_BODY_SCRIPT = """\
-$RequiredChecks = @("lint", "typecheck", "test", "audit", "secret-scan", "module-map-check")
-$Body = [ordered]@{
-    required_status_checks           = [ordered]@{
-        strict   = $true
-        contexts = $RequiredChecks
+    patch = run.call("PATCH")
+    assert f"repos/{_REPO}" in patch["args"]
+    assert "--input" in patch["args"]
+    assert run.body("PATCH") == {
+        "security_and_analysis": {
+            "secret_scanning": {"status": "enabled"},
+            "secret_scanning_push_protection": {"status": "enabled"},
+        }
     }
-    enforce_admins                   = $true
-    required_pull_request_reviews    = [ordered]@{
-        required_approving_review_count = 0
-        dismiss_stale_reviews           = $false
-        require_code_owner_reviews      = $false
-        require_last_push_approval      = $false
-    }
-    restrictions                     = $null
-    allow_force_pushes               = $false
-    allow_deletions                  = $false
-    required_linear_history          = $false
-    required_conversation_resolution = $false
-}
-$Json = $Body | ConvertTo-Json -Depth 10
-$Parsed = $Json | ConvertFrom-Json
-"""
+
+    assert f"repos/{_REPO}/branches/main/protection" in run.call("PUT")["args"]
+    checks = run.body("PUT")["required_status_checks"]
+    assert checks["contexts"] == _REQUIRED_CHECKS
+    assert checks["strict"] is True
 
 
-def test_body_includes_all_six_required_checks() -> None:
-    result = _ps(
-        _BODY_SCRIPT
-        + """
-$c = $Parsed.required_status_checks.contexts
-if ($c.Count -eq 6 `
-    -and $c -contains 'lint' `
-    -and $c -contains 'typecheck' `
-    -and $c -contains 'test' `
-    -and $c -contains 'audit' `
-    -and $c -contains 'secret-scan' `
-    -and $c -contains 'module-map-check') { exit 0 } else {
-    Write-Host "contexts: $($c -join ', ')"
-    exit 1
-}
-"""
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+def test_branch_rules_allow_no_bypass_and_bind_admins(tmp_path: Path) -> None:
+    # #349: every change, the orchestrator's included, goes through a pull request.
+    run = _run(tmp_path)
+    assert run.returncode == 0, run.output
+    body = run.body("PUT")
+    assert not [k for k in _keys(body) if "bypass" in k]
+    assert body["enforce_admins"] is True
+    reviews = body["required_pull_request_reviews"]
+    assert reviews["required_approving_review_count"] == 0
+    assert body["allow_force_pushes"] is False
+    assert body["allow_deletions"] is False
 
 
-def test_body_strict_mode_enabled() -> None:
-    result = _ps(
-        _BODY_SCRIPT
-        + """
-if ($Parsed.required_status_checks.strict -eq $true) { exit 0 } else { exit 1 }
-"""
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+def test_branch_rules_are_applied_before_secret_scanning(tmp_path: Path) -> None:
+    run = _run(tmp_path)
+    methods = [c["args"][2] for c in run.calls if c["args"][:2] == ["api", "--method"]]
+    assert methods == ["PUT", "PATCH"]
 
 
-def test_body_enforce_admins_true() -> None:
-    result = _ps(
-        _BODY_SCRIPT
-        + """
-if ($Parsed.enforce_admins -eq $true) { exit 0 } else { exit 1 }
-"""
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+def test_public_refusal_fails_the_run(tmp_path: Path) -> None:
+    run = _run(tmp_path, visibility="PUBLIC", patch_exit=1)
+    assert run.returncode != 0, run.output
+    assert run.call("PUT")  # main is protected even though the run failed
 
 
-def test_body_allow_force_pushes_false() -> None:
-    result = _ps(
-        _BODY_SCRIPT
-        + """
-if ($Parsed.allow_force_pushes -eq $false) { exit 0 } else { exit 1 }
-"""
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+@pytest.mark.parametrize("visibility", ["PRIVATE", "INTERNAL"])
+def test_private_refusal_reports_once_and_applies_branch_rules(
+    tmp_path: Path, visibility: str
+) -> None:
+    run = _run(tmp_path, visibility=visibility, patch_exit=1)
+    assert run.returncode == 0, run.output
+    assert run.body("PUT")["required_status_checks"]["contexts"] == _REQUIRED_CHECKS
+    lines = [ln for ln in run.output.splitlines() if "GitHub Secret Protection" in ln]
+    assert len(lines) == 1, run.output
+    assert "no secret scanning" in lines[0]
 
 
-def test_body_allow_deletions_false() -> None:
-    result = _ps(
-        _BODY_SCRIPT
-        + """
-if ($Parsed.allow_deletions -eq $false) { exit 0 } else { exit 1 }
-"""
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+def test_verification_reports_both_features(tmp_path: Path) -> None:
+    run = _run(tmp_path)
+    assert run.returncode == 0, run.output
+    assert ["api", f"repos/{_REPO}"] in [c["args"] for c in run.calls]
+    lines = run.output.splitlines()
+    assert any("secret_scanning: enabled" in ln for ln in lines), run.output
+    assert any("secret_scanning_push_protection: enabled" in ln for ln in lines)
 
 
-def test_body_pr_reviews_required() -> None:
-    result = _ps(
-        _BODY_SCRIPT
-        + """
-if ($Parsed.required_pull_request_reviews -ne $null) { exit 0 } else { exit 1 }
-"""
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
-def test_body_requires_a_pr_with_no_approvals_and_no_bypass() -> None:
-    result = _ps(
-        _BODY_SCRIPT
-        + """
-$pr = $Parsed.required_pull_request_reviews
-$keys = @($pr.PSObject.Properties.Name)
-if ($pr.required_approving_review_count -eq 0 `
-    -and (@($keys | Where-Object { $_ -like 'bypass*' }).Count -eq 0) `
-    -and $Parsed.enforce_admins -eq $true) { exit 0 } else {
-    Write-Host "keys: $($keys -join ', ')"
-    exit 1
-}
-"""
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
-def test_script_grants_no_pull_request_bypass() -> None:
-    """The real script, not the replica above: its PUT body names no bypass (#349).
-
-    Every change reaches the default branch through a PR, the orchestrator's included,
-    so protection carries no exception for any user, team or app.
-    """
-    source = (_ROOT / ".github" / "tasks" / "protect.ps1").read_text(encoding="utf-8")
-    # No allowance key of any kind in the PUT body — users, teams and apps alike.
-    assert re.search(r"^\s*bypass_\w+\s*=", source, flags=re.MULTILINE) is None
-    assert "enforce_admins                   = $true" in source
-    assert "required_approving_review_count = 0" in source
-
-
-# ---------------------------------------------------------------------------
-# API call shape — mock gh and verify endpoint + method
-# ---------------------------------------------------------------------------
-
-_MOCK_GH = """\
-$script:ghCalls = @()
-function gh {
-    $script:ghCalls += ,$args
-    $global:LASTEXITCODE = 0
-    return '{}'
-}
-"""
-
-
-def test_api_uses_put_method() -> None:
-    result = _ps(
-        _MOCK_GH
-        + """
-'{}' | gh api --method PUT repos/owner/repo/branches/main/protection --input - | Out-Null
-$call = ($script:ghCalls[0]) -join ' '
-if ($call -match '--method' -and $call -match 'PUT') { exit 0 } else {
-    Write-Host "call: $call"
-    exit 1
-}
-"""
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
-def test_api_targets_branches_main_protection() -> None:
-    result = _ps(
-        _MOCK_GH
-        + """
-'{}' | gh api --method PUT repos/owner/repo/branches/main/protection --input - | Out-Null
-$call = ($script:ghCalls[0]) -join ' '
-if ($call -match 'branches/main/protection') { exit 0 } else {
-    Write-Host "call: $call"
-    exit 1
-}
-"""
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
-def test_api_uses_input_flag() -> None:
-    result = _ps(
-        _MOCK_GH
-        + """
-'{}' | gh api --method PUT repos/owner/repo/branches/main/protection --input - | Out-Null
-$call = ($script:ghCalls[0]) -join ' '
-if ($call -match '--input') { exit 0 } else {
-    Write-Host "call: $call"
-    exit 1
-}
-"""
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+def test_verification_flags_features_left_off(tmp_path: Path) -> None:
+    run = _run(tmp_path, visibility="PRIVATE", patch_exit=1)
+    assert "secret_scanning: disabled" in run.output
+    assert "secret_scanning_push_protection: disabled" in run.output
