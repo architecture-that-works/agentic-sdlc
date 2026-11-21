@@ -56,7 +56,7 @@ function gh {
     if ($argv -contains 'PUT') { return '{}' }
     if ($joined -eq 'api repos/owner/repo/branches/main/protection') {
         return (@{
-            required_status_checks        = @{ strict = $true; contexts = @('lint','typecheck','test','audit','checks','eval') }
+            required_status_checks        = @{ strict = ($env:GH_STANDIN_STRICT -eq 'true'); contexts = @('lint','typecheck','test','audit','checks','eval') }
             required_pull_request_reviews = @{ required_approving_review_count = 0 }
             enforce_admins                = @{ enabled = $true }
         } | ConvertTo-Json -Compress -Depth 5)
@@ -112,6 +112,7 @@ def _run(
     patch_exit: int = 0,
     merge_exit: int = 0,
     squash_title: str = "PR_TITLE",
+    strict: bool = False,
 ) -> Run:
     wrapper = tmp_path / "run-protect.ps1"
     wrapper.write_text(_STAND_IN, encoding="utf-8")
@@ -125,6 +126,7 @@ def _run(
         "GH_STANDIN_PATCH_EXIT": str(patch_exit),
         "GH_STANDIN_MERGE_EXIT": str(merge_exit),
         "GH_STANDIN_SQUASH_TITLE": squash_title,
+        "GH_STANDIN_STRICT": "true" if strict else "false",
     }
     result = subprocess.run(
         [PWSH, "-NoProfile", "-NonInteractive", "-File", str(wrapper)],
@@ -169,7 +171,21 @@ def test_public_run_enables_secret_scanning_and_requires_six_checks(
     assert f"repos/{_REPO}/branches/main/protection" in run.call("PUT")["args"]
     checks = run.body("PUT")["required_status_checks"]
     assert checks["contexts"] == _REQUIRED_CHECKS
-    assert checks["strict"] is True
+    assert checks["strict"] is False
+
+
+def test_verification_reports_up_to_date_rule_off(tmp_path: Path) -> None:
+    run = _run(tmp_path)
+    assert run.returncode == 0, run.output
+    assert "✅ Up-to-date requirement off" in run.output
+    assert "still required to be up to date" not in run.output
+
+
+def test_verification_flags_up_to_date_rule_still_on(tmp_path: Path) -> None:
+    run = _run(tmp_path, strict=True)
+    assert run.returncode == 0, run.output
+    assert "⚠️  Branches are still required to be up to date" in run.output
+    assert "Up-to-date requirement off" not in run.output
 
 
 def test_branch_rules_allow_no_bypass_and_bind_admins(tmp_path: Path) -> None:
