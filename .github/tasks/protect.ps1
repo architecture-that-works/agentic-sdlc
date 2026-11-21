@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     Configures branch protection on 'main' with:
-      - Required status checks: lint, typecheck, test, audit, secret-scan, checks, eval
+      - Required status checks: lint, typecheck, test, audit, checks, eval
         (eval is skipped — reported as success — on PRs that touch no model-facing path)
       - Require branches to be up-to-date before merging (strict)
       - Require a pull request before merging (no approval count required), with no
@@ -39,7 +39,7 @@ if ($LASTEXITCODE -ne 0 -or -not $Repo) {
 $Branch         = "main"
 # Job names in checks.yml. Every .github/checks/check-*.ps1 runs inside the `checks`
 # job; no check has a job of its own, so requiring one would block every merge.
-$RequiredChecks = @("lint", "typecheck", "test", "audit", "secret-scan", "checks", "eval")
+$RequiredChecks = @("lint", "typecheck", "test", "audit", "checks", "eval")
 
 Write-Host ""
 Write-Host "🔒 Applying branch protection to '$Branch' in '$Repo'..." -ForegroundColor Cyan

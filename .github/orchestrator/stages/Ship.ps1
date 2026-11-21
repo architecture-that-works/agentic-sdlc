@@ -47,8 +47,8 @@ function Get-FailedCheckLog {
 # repo), KANBAN_LOCAL_CI makes ship run CI here instead of polling `gh pr checks`.
 # Mirrors checks.yml's lint / typecheck / test / audit jobs — keep the two in step;
 # test_ship.py fails when a checks.yml `uv run` command is missing here. The checks
-# job is every .github/checks/check-*.ps1, the same rule as CI. eval and secret-scan
-# stay CI-only.
+# job is every .github/checks/check-*.ps1, the same rule as CI. eval stays
+# CI-only.
 $LocalCiJobs = [ordered]@{
     'lint'      = @('uv', 'run', 'ruff', 'check', '.')
     'format'    = @('uv', 'run', 'ruff', 'format', '--check', '.')
