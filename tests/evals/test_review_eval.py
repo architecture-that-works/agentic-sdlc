@@ -35,6 +35,16 @@ def verdict_of(result: dict) -> str | None:
     return answer.get("verdict") if isinstance(answer, dict) else None
 
 
+def wrong_results(results: list[dict], approve: bool) -> list[dict]:
+    """The results whose verdict is not the expected one — a missing answer is always wrong.
+
+    The review stage fails the attempt on a result without a checked answer; it never
+    reads that as a rejection, so neither does the eval.
+    """
+    expected = "approved" if approve else "rejected"
+    return [r for r in results if verdict_of(r) != expected]
+
+
 def review(change: str) -> dict:
     out = subprocess.run(
         [
@@ -69,7 +79,7 @@ def test_review_verdict(case) -> None:
     stage_models()  # one lookup before the threads, not one per thread
     with ThreadPoolExecutor(max_workers=RUNS) as pool:
         reports = list(pool.map(review, [case["input"]] * RUNS))
-    wrong = [r for r in reports if (verdict_of(r) == "approved") is not case["approve"]]
+    wrong = wrong_results(reports, case["approve"])
     expected = "approve" if case["approve"] else "reject"
     assert not wrong, (
         f"{len(wrong)} of {RUNS} reviews did not {expected}:\n\n"
@@ -97,6 +107,20 @@ def test_verdict_of_reads_the_checked_field_the_review_stage_reads() -> None:
         verdict_of({"type": "result", "subtype": "error_max_structured_output_retries"})
         is None
     )
+
+
+def test_a_result_without_a_checked_answer_fails_either_case() -> None:
+    approved = {"structured_output": {"verdict": "approved", "report": "Looks good."}}
+    rejected = {"structured_output": {"verdict": "rejected", "report": "Fix 1."}}
+    no_answer = {"type": "result", "subtype": "success", "result": "REJECTED"}
+    assert wrong_results([approved, rejected, no_answer], approve=True) == [
+        rejected,
+        no_answer,
+    ]
+    assert wrong_results([approved, rejected, no_answer], approve=False) == [
+        approved,
+        no_answer,
+    ]
 
 
 def test_the_review_cases_are_twins() -> None:
