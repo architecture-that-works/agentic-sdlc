@@ -71,7 +71,7 @@ For each kind of work, read these files before opening anything else. If an unex
 
 | Working on... | Read first (nothing else unless surprised) |
 |---|---|
-| orchestrator change | `.github/orchestrator/Orchestrator.psm1` (load order + conductor), `lib/Config.ps1`, the affected stage file (`stages/Implement.ps1` / `stages/Review.ps1` / `stages/Ship.ps1`) or `lib/GitHub.ps1`, or the task entry (`.github/tasks/hitl.ps1`) |
+| orchestrator change | `.github/orchestrator/Orchestrator.psm1` (load order + conductor), `lib/Config.ps1`, the affected stage file (`stages/Implement.ps1` / `stages/Review.ps1` / `stages/Ship.ps1`) or `lib/GitHub.ps1`, or the task entry (`.github/tasks/hitl.ps1`); for implement, `tests/orchestrator/test_implement_refusal.py` |
 | label / lane / state-machine change | `.github/orchestrator/lib/Config.ps1` (`$PipelineStates` — the one table), `lib/GitHub.ps1` (`Set-AgentState`), `lib/Reconcile.ps1`, `tests/orchestrator/test_reconcile.py`, `tests/test_kanban_state.py` |
 | recovery / stuck-issue change | `.github/orchestrator/lib/Reconcile.ps1`, `lib/Config.ps1` (`$PipelineStates`, `StuckAfterMinutes`, `MaxReconcile`), `.github/tasks/reconcile.ps1`, `.github/tasks/retry.ps1`, `.github/workflows/afk.yml`, `tests/orchestrator/test_reconcile.py` |
 | refine-stage change | `.github/orchestrator/stages/Refine.ps1` (`Invoke-Refine`, `Format-DecisionQuestions`), `stages/Architect.ps1`, `stages/Plan.ps1`, `.github/workflows/afk.yml`, `.github/tasks/refine.ps1`, `tests/orchestrator/test_refine.py`, `tests/orchestrator/test_architect.py` |

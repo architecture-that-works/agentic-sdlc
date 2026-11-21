@@ -91,6 +91,19 @@ made every pipeline-improvement issue hands-on while adding no merge-time protec
   the secrets denylist still bites) and `tests/orchestrator/test_ship.py` (the hold fires on an
   out-of-allowlist path, and an in-allowlist PR still merges).
 
+### Protected paths
+
+The engine itself does not edit its protected paths — among them `.devcontainer/`, `.claude/`,
+`.vscode/`, `.pre-commit-config.yaml`, `.mcp.json` and `pyrightconfig.json` (the full list is in
+Claude Code's [Permission modes](https://code.claude.com/docs/en/permission-modes#protected-paths) documentation).
+In an unattended run a write to one of them is refused, an allow rule does not change that, and the
+agent must not work around it with a shell command. When the engine refuses an edit, the
+orchestrator reads the refusal from the engine's own run result (never the agent's prose) and ends
+the round after that one attempt on `agent:failed`, with no review and no retry: it pushes the
+attempt's other work to the feature branch without opening a PR, and names each refused file in a
+`🤖❌ Engine refused an edit` comment. The owner then makes the protected change on that branch
+and comments on the issue, which starts a new round that builds on the branch and opens the PR.
+
 ---
 
 ## Public repository
