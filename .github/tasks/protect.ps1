@@ -8,7 +8,11 @@
     Configures branch protection on 'main' with:
       - Required status checks: lint, typecheck, test, audit, checks, eval
         (eval is skipped — reported as success — on PRs that touch no model-facing path)
-      - Require branches to be up-to-date before merging (strict)
+      - A branch need not be up to date before merging (strict off), so a pull request held
+        for the owner stays mergeable after another one merges. GitHub still blocks a merge
+        with a conflict or with a failed or missing required check, and checks.yml runs on
+        every push to the default branch, so two changes that only fail together show up on
+        the first merge
       - Require a pull request before merging (no approval count required), with no
         bypass allowances for any user, team or app — every change, the orchestrator's
         included, reaches the default branch through a pull request
@@ -68,7 +72,7 @@ Write-Host "   Required checks: $($RequiredChecks -join ', ')" -ForegroundColor 
 
 $BodyObject = [ordered]@{
     required_status_checks           = [ordered]@{
-        strict   = $true
+        strict   = $false
         contexts = $RequiredChecks
     }
     enforce_admins                   = $true
@@ -171,9 +175,9 @@ if ($Missing.Count -gt 0) {
 }
 
 if ($Protection.required_status_checks.strict) {
-    Write-Host "  ✅ Strict mode (up-to-date requirement) enabled." -ForegroundColor Green
+    Write-Host "  ⚠️  Branches are still required to be up to date before merging (strict on) — re-run protect to turn it off." -ForegroundColor Yellow
 } else {
-    Write-Host "  ⚠️  Strict mode not enabled — branches may not be required to be up to date." -ForegroundColor Yellow
+    Write-Host "  ✅ Up-to-date requirement off (branches need not be up to date before merging)." -ForegroundColor Green
 }
 
 if ($Protection.required_pull_request_reviews) {

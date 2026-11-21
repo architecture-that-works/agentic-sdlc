@@ -48,16 +48,7 @@ Read the owner's input in full. Do not ask clarifying questions before drafting.
 
 ### Step 2 — Draft title and body
 
-Produce one draft:
-
-```
-**Goal**: [single non-technical outcome sentence]
-**Description**: [why this matters; link to existing context if any]
-**Requirements**:
-1. [actionable step]
-**Acceptance Criteria**:
-- [verifiable boundary]
-```
+Produce one draft whose body is the issue template, `.github/ISSUE_TEMPLATE/issue.md`: every heading below its front matter, in its order and style, filled from the owner's input. The template is the one place the headings are written — read it rather than recalling them.
 
 Fill every heading. If the owner's input does not supply enough for Requirements or Acceptance Criteria, use explicit placeholder prompts (see REFERENCE.md § Body Schema Template) — never omit a heading.
 
@@ -96,8 +87,8 @@ The following constraints close specific loopholes observed in the baseline:
 **C-2 — Never add labels.**
 The `gh issue create` command MUST NOT include any `--label` flag. Labels are the pipeline's exclusive output. Adding labels "as a convenience" or "to help routing" is a violation.
 
-**C-3 — Four headings, always.**
-Every created issue body MUST contain all four headings: `**Goal**`, `**Description**`, `**Requirements**`, `**Acceptance Criteria**`. Omitting any heading, even when the owner's input is thin, is a violation. Use placeholder prompts rather than omitting.
+**C-3 — Every template heading, always.**
+Every created issue body MUST contain every heading of the issue template, `.github/ISSUE_TEMPLATE/issue.md`. Omitting any heading, even when the owner's input is thin, is a violation. Use placeholder prompts rather than omitting.
 
 **C-4 — No pipeline-stage work.**
 Intake drafts and creates. It does not refine, architect, plan, or implement. If the owner asks intake to do any of those, route to the correct skill.

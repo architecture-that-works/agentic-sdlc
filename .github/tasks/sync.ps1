@@ -17,6 +17,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# The orchestrator module gives the issue template's headings (Get-IssueHeadings).
+Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
+
 # ── Load .env ─────────────────────────────────────────────────────────────────
 
 # tasks/ is two levels below the repo root (.github/tasks/).
@@ -95,6 +98,26 @@ if ($UnfencedTitles.Count -gt 0) {
 if ($Found.Count -eq 0) {
     Write-Host "✅ No pending ISSUE blocks found in ISSUES.md." -ForegroundColor Green
     exit 0
+}
+
+# Every block body carries every heading of the issue template (#369). Refuse the
+# whole run — dry run included — before any issue is created.
+$Headings   = @(@(Get-IssueHeadings).Name)
+$MissingAny = [System.Collections.Generic.List[string]]::new()
+foreach ($match in $Found) {
+    $blockTitle = $match.Groups[1].Value.Trim()
+    $blockBody  = $match.Groups[2].Value
+    $blockBody  = $blockBody -replace '(?m)^LABELS:\s*.+(\r?\n|$)', ''
+    $blockBody  = $blockBody -replace '(?m)^ESTIMATE:\s*\d+(\r?\n|$)', ''
+    $blockBody  = $blockBody -replace '(?m)^PRIORITY:\s*P[0-4](\r?\n|$)', ''
+    foreach ($h in $Headings) {
+        if ($blockBody -notmatch [regex]::Escape("**$h**")) { $MissingAny.Add("'$blockTitle' lacks **$h**") }
+    }
+}
+if ($MissingAny.Count -gt 0) {
+    Write-Host "❌ ISSUE block(s) missing a heading of .github/ISSUE_TEMPLATE/issue.md — nothing was synced:" -ForegroundColor Red
+    foreach ($m in $MissingAny) { Write-Host "   • $m" -ForegroundColor Red }
+    exit 1
 }
 
 Write-Host "🚀 Found $($Found.Count) issue(s) to synchronize → project '$ProjectName'" -ForegroundColor Cyan

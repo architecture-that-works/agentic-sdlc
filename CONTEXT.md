@@ -61,7 +61,7 @@ Navigation index for agents — how to use it is the Context Protocol in `AGENTS
 | skills | `.agents/skills/` | `.agents/skills/` | one directory per skill, each with `SKILL.md`; `review/answer.schema.json` defines the review's checked answer (`verdict`, `report`), passed to the engine by `stages/Review.ps1` and the review eval |
 | ADRs (this project) | `docs/adr/` | `docs/adr/` | ADR-000 is the blank form; this project's ADRs start at ADR-001 |
 | CI | `.github/workflows/` | (cross-cutting) | `checks.yml` (lint/typecheck/test/audit/checks), `afk.yml` (the pipeline, driven by issue events; hourly reconcile of states nothing is working on, incl. usage-limit resume; `stage` dispatch for overrides), `build.yml`, `deploy.yml` |
-| contributor docs | `.github/ISSUE_TEMPLATE/`, `CONTRIBUTING.md` | (cross-cutting) | `issue.md` (the four ISSUES.md headings, no labels), `config.yml` (blank issues off), `CONTRIBUTING.md` (how a change becomes a merged PR); `tests/test_issue_template.py` keeps the headings in step with ISSUES.md and the intake skill |
+| contributor docs | `.github/ISSUE_TEMPLATE/`, `CONTRIBUTING.md` | (cross-cutting) | `issue.md` (the one place an issue's headings are written, no labels — read by `Get-IssueTemplate` / `Get-IssueHeadings` in `lib/Util.ps1` for refine's check, the epic child-issue body and `sync.ps1`'s block check), `config.yml` (blank issues off), `CONTRIBUTING.md` (how a change becomes a merged PR); `tests/test_issue_template.py` asserts ISSUES.md does not repeat the headings |
 | `<domain>` | `src/<domain>/` | declared on first feature | declared on first feature |
 
 ## Issue-Type → Files Index
@@ -75,7 +75,7 @@ For each kind of work, read these files before opening anything else. If an unex
 | label / lane / state-machine change | `.github/orchestrator/lib/Config.ps1` (`$PipelineStates` — the one table), `lib/GitHub.ps1` (`Set-AgentState`), `lib/Reconcile.ps1`, `tests/orchestrator/test_reconcile.py`, `tests/test_kanban_state.py` |
 | recovery / stuck-issue change | `.github/orchestrator/lib/Reconcile.ps1`, `lib/Config.ps1` (`$PipelineStates`, `StuckAfterMinutes`, `MaxReconcile`), `.github/tasks/reconcile.ps1`, `.github/tasks/retry.ps1`, `.github/workflows/afk.yml`, `tests/orchestrator/test_reconcile.py` |
 | refine-stage change | `.github/orchestrator/stages/Refine.ps1` (`Invoke-Refine`, `Format-DecisionQuestions`), `stages/Architect.ps1`, `stages/Plan.ps1`, `.github/workflows/afk.yml`, `.github/tasks/refine.ps1`, `tests/orchestrator/test_refine.py`, `tests/orchestrator/test_architect.py` |
-| sync-issues change | `.github/tasks/sync.ps1`, `tests/orchestrator/test_sync_issues.py` |
+| sync-issues change | `.github/tasks/sync.ps1`, `tests/orchestrator/test_sync_issues.py`; for the heading check, `.github/ISSUE_TEMPLATE/issue.md`, `lib/Util.ps1` (`Get-IssueHeadings`), `tests/orchestrator/test_issue_headings.py` |
 | `src/utils/` change | `src/utils/m_*.py`, matching `tests/utils/test_*.py` |
 | `src/tools/` change | `src/tools/*.py`, matching `tests/tools/test_*.py` |
 | eval change | the target's `tests/evals/test_*_eval.py` + `goldens/*.jsonl`, `tests/evals/stage_models.py` (the stages' models, read through `Get-TaskModel` in `.github/orchestrator/lib/Config.ps1`), `tests/evals/eval_goldens.py`, `tests/README.md` § Evals, `.github/workflows/checks.yml` (`eval-scope` `PATHS_*`, `eval` job) |

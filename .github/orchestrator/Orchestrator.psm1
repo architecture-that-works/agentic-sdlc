@@ -12,7 +12,7 @@
 
         lib/Config     settings, run context (Get-OrchestratorContext), the
                        $PipelineStates label table, model selection (Get-TaskModel)
-        lib/Util       logging, runtime, lock, ISSUES.md reader, engine ping, usage limit
+        lib/Util       logging, runtime, lock, issue template reader, engine ping, usage limit
         lib/GitHub     labels, lanes, comments, board, issue-body carrier sections
         lib/Reconcile  re-entry (Restart-Issue) and the hourly warden over stuck states
         engines/       Claude and Gemini adapters (streaming, commit messages)
