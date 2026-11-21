@@ -44,8 +44,13 @@ function gh {
             ConvertTo-Json -Compress)
     }
     if ($argv -contains 'PATCH') {
-        $global:LASTEXITCODE = [int]$env:GH_STANDIN_PATCH_EXIT
-        if ($global:LASTEXITCODE -ne 0) { return 'Secret scanning is not available (HTTP 422)' }
+        if ($stdin -like '*security_and_analysis*') {
+            $global:LASTEXITCODE = [int]$env:GH_STANDIN_PATCH_EXIT
+            if ($global:LASTEXITCODE -ne 0) { return 'Secret scanning is not available (HTTP 422)' }
+        } else {
+            $global:LASTEXITCODE = [int]$env:GH_STANDIN_MERGE_EXIT
+            if ($global:LASTEXITCODE -ne 0) { return 'Merge settings refused (HTTP 403)' }
+        }
         return '{}'
     }
     if ($argv -contains 'PUT') { return '{}' }
@@ -58,7 +63,12 @@ function gh {
     }
     if ($joined -eq 'api repos/owner/repo') {
         $status = if ([int]$env:GH_STANDIN_PATCH_EXIT -eq 0) { 'enabled' } else { 'disabled' }
-        return (@{ security_and_analysis = @{
+        return (@{
+          allow_squash_merge = $true; allow_merge_commit = $false; allow_rebase_merge = $false
+          squash_merge_commit_title = $env:GH_STANDIN_SQUASH_TITLE
+          squash_merge_commit_message = 'COMMIT_MESSAGES'
+          delete_branch_on_merge = $true; allow_update_branch = $true
+          security_and_analysis = @{
             secret_scanning                 = @{ status = $status }
             secret_scanning_push_protection = @{ status = $status }
         } } | ConvertTo-Json -Compress -Depth 5)
@@ -78,16 +88,31 @@ class Run:
     output: str
     calls: list[dict[str, Any]]
 
-    def call(self, method: str) -> dict[str, Any]:
-        matches = [c for c in self.calls if method in c["args"]]
+    def call(self, method: str, containing: str = "") -> dict[str, Any]:
+        matches = [
+            c for c in self.calls if method in c["args"] and containing in c["stdin"]
+        ]
         assert len(matches) == 1, f"expected one {method} call, got {self.calls}"
         return matches[0]
 
-    def body(self, method: str) -> dict[str, Any]:
-        return json.loads(self.call(method)["stdin"])
+    def body(self, method: str, containing: str = "") -> dict[str, Any]:
+        return json.loads(self.call(method, containing)["stdin"])
+
+    def secret_patch(self) -> dict[str, Any]:
+        return self.call("PATCH", "security_and_analysis")
+
+    def merge_patch(self) -> dict[str, Any]:
+        return self.call("PATCH", "allow_squash_merge")
 
 
-def _run(tmp_path: Path, *, visibility: str = "PUBLIC", patch_exit: int = 0) -> Run:
+def _run(
+    tmp_path: Path,
+    *,
+    visibility: str = "PUBLIC",
+    patch_exit: int = 0,
+    merge_exit: int = 0,
+    squash_title: str = "PR_TITLE",
+) -> Run:
     wrapper = tmp_path / "run-protect.ps1"
     wrapper.write_text(_STAND_IN, encoding="utf-8")
     log = tmp_path / "gh-calls.jsonl"
@@ -98,6 +123,8 @@ def _run(tmp_path: Path, *, visibility: str = "PUBLIC", patch_exit: int = 0) -> 
         "GH_STANDIN_SCRIPT": str(_SCRIPT),
         "GH_STANDIN_VISIBILITY": visibility,
         "GH_STANDIN_PATCH_EXIT": str(patch_exit),
+        "GH_STANDIN_MERGE_EXIT": str(merge_exit),
+        "GH_STANDIN_SQUASH_TITLE": squash_title,
     }
     result = subprocess.run(
         [PWSH, "-NoProfile", "-NonInteractive", "-File", str(wrapper)],
@@ -129,10 +156,10 @@ def test_public_run_enables_secret_scanning_and_requires_six_checks(
     run = _run(tmp_path)
     assert run.returncode == 0, run.output
 
-    patch = run.call("PATCH")
+    patch = run.secret_patch()
     assert f"repos/{_REPO}" in patch["args"]
     assert "--input" in patch["args"]
-    assert run.body("PATCH") == {
+    assert run.body("PATCH", "security_and_analysis") == {
         "security_and_analysis": {
             "secret_scanning": {"status": "enabled"},
             "secret_scanning_push_protection": {"status": "enabled"},
@@ -161,7 +188,10 @@ def test_branch_rules_allow_no_bypass_and_bind_admins(tmp_path: Path) -> None:
 def test_branch_rules_are_applied_before_secret_scanning(tmp_path: Path) -> None:
     run = _run(tmp_path)
     methods = [c["args"][2] for c in run.calls if c["args"][:2] == ["api", "--method"]]
-    assert methods == ["PUT", "PATCH"]
+    assert methods == ["PUT", "PATCH", "PATCH"]
+    patches = [c for c in run.calls if "PATCH" in c["args"]]
+    assert "allow_squash_merge" in patches[0]["stdin"]
+    assert "security_and_analysis" in patches[1]["stdin"]
 
 
 def test_public_refusal_fails_the_run(tmp_path: Path) -> None:
@@ -195,3 +225,70 @@ def test_verification_flags_features_left_off(tmp_path: Path) -> None:
     run = _run(tmp_path, visibility="PRIVATE", patch_exit=1)
     assert "secret_scanning: disabled" in run.output
     assert "secret_scanning_push_protection: disabled" in run.output
+
+
+_MERGE_SETTINGS = {
+    "allow_squash_merge": True,
+    "allow_merge_commit": False,
+    "allow_rebase_merge": False,
+    "squash_merge_commit_title": "PR_TITLE",
+    "squash_merge_commit_message": "COMMIT_MESSAGES",
+    "delete_branch_on_merge": True,
+    "allow_update_branch": True,
+}
+
+
+def test_merge_settings_are_sent_in_a_call_of_their_own(tmp_path: Path) -> None:
+    run = _run(tmp_path)
+    assert run.returncode == 0, run.output
+    patch = run.merge_patch()
+    assert f"repos/{_REPO}" in patch["args"]
+    assert "--input" in patch["args"]
+    assert json.loads(patch["stdin"]) == _MERGE_SETTINGS
+    assert "security_and_analysis" not in patch["stdin"]
+    assert not [k for k in _MERGE_SETTINGS if k in run.secret_patch()["stdin"]]
+
+
+@pytest.mark.parametrize("visibility", ["PRIVATE", "INTERNAL"])
+def test_private_refusal_of_secret_scanning_keeps_merge_settings(
+    tmp_path: Path, visibility: str
+) -> None:
+    run = _run(tmp_path, visibility=visibility, patch_exit=1)
+    assert run.returncode == 0, run.output
+    assert json.loads(run.merge_patch()["stdin"]) == _MERGE_SETTINGS
+    patches = [c for c in run.calls if "PATCH" in c["args"]]
+    assert patches[0] is run.merge_patch()
+    assert patches[1] is run.secret_patch()
+
+
+def test_public_refusal_of_secret_scanning_keeps_merge_settings(
+    tmp_path: Path,
+) -> None:
+    run = _run(tmp_path, visibility="PUBLIC", patch_exit=1)
+    assert run.returncode != 0, run.output
+    assert json.loads(run.merge_patch()["stdin"]) == _MERGE_SETTINGS
+
+
+def test_merge_settings_failure_fails_the_run(tmp_path: Path) -> None:
+    run = _run(tmp_path, merge_exit=1)
+    assert run.returncode != 0, run.output
+    assert "Failed to apply merge settings" in run.output
+    assert not [c for c in run.calls if "security_and_analysis" in c["stdin"]]
+
+
+def test_verification_reports_each_merge_setting(tmp_path: Path) -> None:
+    run = _run(tmp_path)
+    assert run.returncode == 0, run.output
+    lines = run.output.splitlines()
+    for key, value in _MERGE_SETTINGS.items():
+        want = str(value).lower() if isinstance(value, bool) else value
+        assert any("✅" in ln and f"{key}: {want}" in ln for ln in lines), run.output
+
+
+def test_verification_flags_a_merge_setting_that_differs(tmp_path: Path) -> None:
+    run = _run(tmp_path, squash_title="COMMIT_OR_PR_TITLE")
+    lines = run.output.splitlines()
+    assert any(
+        "⚠️" in ln and "squash_merge_commit_title: COMMIT_OR_PR_TITLE" in ln
+        for ln in lines
+    ), run.output
