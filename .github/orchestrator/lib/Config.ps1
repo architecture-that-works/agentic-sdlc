@@ -28,21 +28,22 @@ $KanbanLogFile = "$_Root\logs\kanban.log"
 # ── Orchestrator defaults ─────────────────────────────────────────────────────
 # All values are overridable per-machine via .env (KANBAN_* env vars take
 # precedence). Estimate (Fibonacci SP) drives model + turn-budget selection:
-#   Implement : SP > OpusImplementThreshold → Opus; else Sonnet
-#   Review    : SP > OpusReviewThreshold    → Opus; else Sonnet
-#   Aux tasks : always Haiku (commit messages, context updates)
+#   Refine, its questioning, plan : always Opus
+#   Implement                     : SP > OpusImplementThreshold → Opus; else Sonnet
+#   Review                        : always Opus
+#   CONTEXT.md update after merge : always Sonnet
+#   Commit messages, engine check : always Haiku
 $OrchestratorConfig = @{
-    # Models
-    ModelSonnet = 'claude-sonnet-4-6'          # implement (low-SP), review (low-SP), refine, context-update
-    ModelOpus   = 'claude-opus-4-7'            # implement (high-SP), review (high-SP)
-    ModelHaiku  = 'claude-haiku-4-5-20251001'  # commit messages, auxiliary one-shot calls
+    # Models — Source: Anthropic models overview, checked 2026-11-20
+    ModelSonnet = 'claude-sonnet-5-5'  # implement (low-SP), context-update after merge
+    ModelOpus   = 'claude-opus-5-5'   # refine, its questioning, plan, implement (high-SP), review
+    ModelHaiku  = 'claude-haiku-5-5'  # commit messages, auxiliary one-shot calls
 
     ModelGeminiPro   = 'gemini-3.1-pro'
     ModelGeminiFlash = 'gemini-3.5-flash'
 
-    # Model tier thresholds (story points): SP > threshold → Opus for that phase
-    OpusImplementThreshold = 5   # 1–5 → Sonnet implement  |  8–21 → Opus implement
-    OpusReviewThreshold    = 3   # 1–3 → Sonnet review     |  5–21 → Opus review
+    # Model tier threshold (story points): SP > threshold → Opus for implement
+    OpusImplementThreshold = 2   # 1–2 → Sonnet implement  |  3+ → Opus implement
 
     # Plan-step routing (story points): SP >= threshold → the issue is an epic and
     # the Plan step decomposes it into child issues (Lean PRD synthesis, Plan.ps1)
@@ -353,13 +354,17 @@ function Get-PhaseModel {
     if ($KanbanEngine -eq 'gemini') {
         switch ($Phase) {
             'implement' { if ($Estimate -gt $OrchestratorConfig.OpusImplementThreshold) { return $KanbanModel_GeminiPro } else { return $KanbanModel_GeminiFlash } }
-            'review'    { if ($Estimate -gt $OrchestratorConfig.OpusReviewThreshold)    { return $KanbanModel_GeminiPro } else { return $KanbanModel_GeminiFlash } }
+            'review'    { return $KanbanModel_GeminiPro }
+            'refine'    { return $KanbanModel_GeminiPro }
+            'plan'      { return $KanbanModel_GeminiPro }
             default     { return $KanbanModel_GeminiFlash }
         }
     } else {
         switch ($Phase) {
             'implement' { if ($Estimate -gt $OrchestratorConfig.OpusImplementThreshold) { return $KanbanModel_Opus } else { return $KanbanModel_Sonnet } }
-            'review'    { if ($Estimate -gt $OrchestratorConfig.OpusReviewThreshold)    { return $KanbanModel_Opus } else { return $KanbanModel_Sonnet } }
+            'review'    { return $KanbanModel_Opus }
+            'refine'    { return $KanbanModel_Opus }
+            'plan'      { return $KanbanModel_Opus }
             default     { return $KanbanModel_Aux }
         }
     }

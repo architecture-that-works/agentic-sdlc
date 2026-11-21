@@ -362,9 +362,9 @@ Rules:
 "@
 
     $raw = if ($KanbanEngine -eq 'gemini') {
-        Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String)
+        Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiPro 2>&1 | Out-String)
     } else {
-        Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
+        Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Opus 2>&1 | Out-String)
     }
     if ($LASTEXITCODE -ne 0) { throw "Claude PRD synthesis failed: $raw" }
     $json = $raw.Trim()

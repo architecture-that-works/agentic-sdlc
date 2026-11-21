@@ -44,8 +44,9 @@
     iterating on the grill-me system prompt itself.
 
 .PARAMETER Model
-    Override the Claude model. Defaults to the orchestrator's Sonnet tier when
-    available; falls back to ``claude-sonnet-4-6`` for standalone runs.
+    Override the Claude model. Defaults to the orchestrator's Opus tier when
+    loaded through the module; set KANBAN_MODEL_OPUS or pass -Model explicitly
+    for standalone runs.
 
 .PARAMETER MaxTurns
     Maximum agentic turns for the subagent. Defaults to 25 — generous enough

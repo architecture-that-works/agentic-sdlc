@@ -137,8 +137,8 @@ TASK:
 function Resolve-GrillModel {
     param([string]$Requested)
     if ($Requested) { return $Requested }
-    if ($env:KANBAN_MODEL_SONNET) { return $env:KANBAN_MODEL_SONNET }
-    return 'claude-sonnet-4-6'
+    if ($env:KANBAN_MODEL_OPUS) { return $env:KANBAN_MODEL_OPUS }
+    return $KanbanModel_Opus
 }
 
 # Strips Markdown code fences from a Claude response. The subagent is told to

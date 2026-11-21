@@ -123,9 +123,9 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 "@
 
         $raw = if ($KanbanEngine -eq 'gemini') {
-            Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String)
+            Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiPro 2>&1 | Out-String)
         } else {
-            Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
+            Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Opus 2>&1 | Out-String)
         }
         if ($LASTEXITCODE -ne 0) { throw "Claude refinement failed: $raw" }
 
@@ -278,9 +278,9 @@ Return ONLY JSON, no fences:
 "@
 
     $raw = if ($KanbanEngine -eq 'gemini') {
-        Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String)
+        Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiPro 2>&1 | Out-String)
     } else {
-        Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
+        Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Opus 2>&1 | Out-String)
     }
     $parsed = $null
     if ($LASTEXITCODE -eq 0) {
@@ -395,9 +395,9 @@ Return ONLY valid JSON — no fences, no prose — matching this shape:
 
     # No plan, no readiness: a failure fails this attempt and the conductor retries.
     $raw = if ($KanbanEngine -eq 'gemini') {
-        Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiFlash 2>&1 | Out-String)
+        Remove-GeminiNoise -Text ($prompt | agy --model $KanbanModel_GeminiPro 2>&1 | Out-String)
     } else {
-        Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Sonnet 2>&1 | Out-String)
+        Remove-ClaudeNoise -Text ($prompt | claude --model $KanbanModel_Opus 2>&1 | Out-String)
     }
     if ($LASTEXITCODE -ne 0 -or -not "$raw".Trim()) {
         throw "Plan: the engine returned no implementation plan (exit code $LASTEXITCODE):`n$("$raw".Trim())"
