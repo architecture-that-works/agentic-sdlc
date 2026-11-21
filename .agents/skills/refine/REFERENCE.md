@@ -83,10 +83,6 @@ After every grilling round:
 
 <project-description>
 
-| Key   | Value                          |
-|-------|--------------------------------|
-| Project Type | application \| data \| agent |
-
 ---
 
 ## Glossary

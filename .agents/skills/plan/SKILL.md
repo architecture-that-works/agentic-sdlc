@@ -15,9 +15,9 @@ Prevents unbounded scope and re-proposed rejected ideas by turning the Agent Bri
 
 **Owns:** Lean PRD synthesis, tracer bullet framing, user story format, issue decomposition and `human:*` labelling, deduplication against open issues and `.out-of-scope.md`, testing decisions per PRD.
 
-**Does not own:** Domain glossary or shared language (→ `refine`), static analysis or blast-radius data (→ `architect`), code implementation (→ `implement`), PR creation or branch naming (→ `version-control`).
+**Does not own:** Domain glossary or shared language (→ `refine`), static analysis or blast-radius data (→ `architect`), code implementation (→ `implement`), PR creation or branch naming (the orchestrator).
 
-**Interfaces with:** `refine` — Agent Brief is the primary input. `architect` — blast-radius findings gate scope decisions. `implement` — testing decisions in the PRD define acceptance criteria for the RED phase. `version-control` — issues created here are the targets for feature branches.
+**Interfaces with:** `refine` — Agent Brief is the primary input. `architect` — blast-radius findings gate scope decisions. `implement` — testing decisions in the PRD define acceptance criteria for the RED phase.
 
 ## When to Use
 

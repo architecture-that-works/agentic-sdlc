@@ -99,7 +99,7 @@ Nothing found: the verdict, `What this change does:`, `Looks good.` and one line
 
 A rejection hands the numbered findings to `implement`, which fixes the root cause and pushes; the next review re-reads the *current* diff — a fix may already have resolved an earlier finding. Each rejection is one attempt. After `MaxRetries` (3) the issue lands on `agent:failed` with every attempt listed and a human takes over; no label is set by hand (ADR-015). Do not attempt a fourth round.
 
-HITL: the same loop by hand on the feature branch (an isolated worktree if the main checkout must stay clean → `version-control`). On the third unresolved round post the escalation comment from REFERENCE and stop.
+HITL: the same loop by hand on the feature branch (an isolated worktree if the main checkout must stay clean). On the third unresolved round post the escalation comment from REFERENCE and stop.
 
 ### Senior Architect Standard Enforcement
 

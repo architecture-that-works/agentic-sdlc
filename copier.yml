@@ -7,12 +7,6 @@ description:
     help: "One-line project description"
     default: "Add your description here"
 
-project_type:
-    type: str
-    choices: [application, agent, ml]
-    default: application
-    help: "Target project type — determines starter directory structure and which domain skill the implement stage invokes"
-
 _templates_suffix: ".jinja2"
 
 # A root file with a .jinja2 twin is dual-use. tests/template/ tests the template itself

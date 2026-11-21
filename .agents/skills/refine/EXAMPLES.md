@@ -20,7 +20,7 @@ Agent estimates context fill: ~18k tokens. Smart Zone — proceed.
 ### Step 1 — Codebase orientation
 
 Agent reads (in order):
-1. `CONTEXT.md` — identifies `project_type: application`, no SSE in bounded contexts.
+1. `CONTEXT.md` — no SSE in bounded contexts.
 2. `AGENTS.md` — confirms skill sequence: refine → architecture → plan → tdd.
 3. List `docs/adr/` — loads any ADR whose title matches the task.
 4. `src/main.py` — finds `HTTPHandler` serving `GET /hello` only.
@@ -141,8 +141,8 @@ two consecutive sentences.
 > - "the request pipeline" → appears to mean the HTTP middleware chain
 >
 > These are distinct concepts. I recommend:
-> - **ETL Pipeline** — the Medallion data flow owned by `data-engineering`
-> - **Request Pipeline** — the HTTP handler chain owned by `application-engineering`
+> - **ETL Pipeline** — the Medallion data flow (Raw → Bronze → Silver → Gold)
+> - **Request Pipeline** — the HTTP middleware chain in front of each handler
 >
 > Which term applies to what you are designing right now?
 
