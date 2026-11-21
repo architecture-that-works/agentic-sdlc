@@ -488,6 +488,10 @@ function Invoke-CommitAndPR {
     # merged in (Update-Branch), not rebased onto, and a resumed branch is checked out
     # from origin (New-FeatureBranch, #154), so HEAD always descends from the pushed tip
     # and the push fast-forwards. A rejection means someone else pushed — surface it.
+    #
+    # Never push for an issue that shipped while the agent ran (#377): GitHub deleted
+    # the branch at the merge, and the push would re-create it.
+    Assert-NotShipped -IssueNumber $Number
     $pushOut = git push --quiet origin "HEAD:refs/heads/$Branch" 2>&1 | Out-String
     $commands.Add([pscustomobject]@{ Name = 'git push'; Exit = $LASTEXITCODE })
     if ($LASTEXITCODE -ne 0) {
@@ -498,10 +502,14 @@ function Invoke-CommitAndPR {
         return @{ PrUrl = $null; Commands = $commands.ToArray(); Pushed = $true }
     }
 
+    # A merged PR is not open, so the lookup would find none and a second PR would be
+    # opened for a shipped issue (#377).
+    Assert-NotShipped -IssueNumber $Number
     $body = Format-PullRequestBody -Template $prTemplate -Number $Number `
         -Implemented $Implemented -LeftUndone $LeftUndone -IssuesDiscovered $IssuesDiscovered `
         -Commands (@($PriorCommands) + $commands.ToArray())
     $existing = gh pr list --head $Branch --json url --limit 1 | ConvertFrom-Json
+    $notDraft = $false
     $tmp = New-TemporaryFile
     try {
         $body | Out-File $tmp.FullName -Encoding utf8
@@ -512,19 +520,32 @@ function Invoke-CommitAndPR {
             if ($LASTEXITCODE -ne 0) { throw "Updating the description of $prUrl failed for issue #${Number}:`n$($editOut.Trim())" }
             Write-Log "  PR already exists, description rewritten: $prUrl" -Color DarkGray
         } else {
-            $prUrl = gh pr create `
-                --title "feat(#${Number}): $Title" `
-                --body-file $tmp.FullName `
-                --head $Branch 2>$null
-            if ($LASTEXITCODE -ne 0) { throw "PR creation failed for issue #$Number" }
-            $prUrl = "$prUrl".Trim()
+            # Opened as a draft (#377): GitHub refuses to merge a draft, so nobody merges
+            # the PR before the workflow releases it (ship marks it ready). A repository
+            # without drafts refuses --draft; only then is it opened ready.
+            Assert-NotShipped -IssueNumber $Number
+            $createArgs = @('pr', 'create', '--title', "feat(#${Number}): $Title", '--body-file', $tmp.FullName, '--head', $Branch)
+            $createOut  = gh @createArgs --draft 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0 -and (Test-DraftUnsupported -Output $createOut)) {
+                Write-Log "  ⚠️ This repository does not support draft pull requests — opening the PR ready for review." -Color Yellow
+                $notDraft  = $true
+                $createOut = gh @createArgs 2>&1 | Out-String
+            }
+            if ($LASTEXITCODE -ne 0) { throw "PR creation failed for issue #${Number}:`n$($createOut.Trim())" }
+            $prUrl = @($createOut -split '\r?\n' | Where-Object { $_ -match '^\s*https?://' } | Select-Object -Last 1)[0]
+            $prUrl = if ($prUrl) { $prUrl.Trim() } else { $createOut.Trim() }
             Write-Log "  PR created: $prUrl" -Color Green
         }
     } finally {
         Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
     }
 
-    Add-Comment -Number $Number -Body "· PR opened — $prUrl"
+    $opened = "· PR opened — $prUrl"
+    if ($notDraft) {
+        $opened += "`n`nThis pull request is not a draft — the repository does not support drafts — so nothing " +
+                   "stops a merge before the workflow releases it. Merge it only once the workflow holds it for you."
+    }
+    Add-Comment -Number $Number -Body $opened
     return @{ PrUrl = $prUrl; Commands = $commands.ToArray() }
 }
 
@@ -537,6 +558,8 @@ function Invoke-Implement {
     if ($IssueNumber -eq 0) {
         throw "No issue found — Invoke-Implement must be called with an explicit IssueNumber."
     }
+    # Every attempt starts here: an issue that shipped since the last one gets no more work (#377).
+    Assert-NotShipped -IssueNumber $IssueNumber
 
     # Thin readiness re-check — alignment (refine/architect/plan) is a pre-backlog
     # gate; the orchestrator only picks agent:backlog issues, so a fully-aligned
@@ -555,6 +578,17 @@ function Invoke-Implement {
         Write-Log "  Creating feature branch for issue #$IssueNumber..." -Color DarkGray
         Add-Comment -Number $IssueNumber -Body "· picked up — branch ``$expectedBranch``"
         $branch = New-FeatureBranch -Number $IssueNumber -Title $meta.title
+    }
+
+    # Take the PR back before anything changes it (#377): a PR marked ready is the one
+    # to merge, and this round is about to change it. Ship marks it ready again when it
+    # holds the PR for the owner or merges it. Every entry, so a PR opened ready before
+    # drafts existed, or a held PR under revision, is covered too.
+    $prRaw  = "$(gh pr list --head $branch --json number,url,isDraft --limit 1 2>$null)".Trim()
+    $openPR = if ($prRaw.StartsWith('[')) { @($prRaw | ConvertFrom-Json) } else { @() }
+    if ($openPR.Count -gt 0 -and $openPR[0].PSObject.Properties['isDraft'] -and -not $openPR[0].isDraft) {
+        Write-Log "  PR #$($openPR[0].number) is ready for review — back to draft while the workflow works on it." -Color DarkGray
+        $null = Set-PRReady -PRNumber $openPR[0].number -Undo
     }
 
     # Bring the branch up to date with the default branch BEFORE writing code, not
@@ -589,12 +623,9 @@ function Invoke-Implement {
         $list = ($conflicts | ForEach-Object { "- ``$_``" }) -join "`n"
         Add-Comment -Number $IssueNumber -Body ("🤖⚠️ Merge conflict with $KanbanDefaultBranch — the agent resolves it first`n`n" +
             "Merging ``$KanbanDefaultBranch`` into ``$branch`` conflicts in:`n`n$list")
-    } elseif (-not $Force) {
-        $existingPR = gh pr list --head $branch --json number,url --limit 1 | ConvertFrom-Json
-        if ($existingPR.Count -gt 0) {
-            Write-Log "  PR #$($existingPR[0].number) already exists — skipping implement." -Color DarkGray
-            return $existingPR[0].url
-        }
+    } elseif (-not $Force -and $openPR.Count -gt 0) {
+        Write-Log "  PR #$($openPR[0].number) already exists — skipping implement." -Color DarkGray
+        return $openPR[0].url
     }
 
     Write-Log "▶ Implement — issue #$IssueNumber on $branch" -Color Cyan
@@ -646,6 +677,7 @@ function Invoke-Implement {
                 $commitCmds   = @($commitResult.Commands)
                 if (-not $commitResult.Pushed) { $pushNote = "The attempt changed nothing else, so nothing was pushed." }
             } catch {
+                if ("$($_.Exception.Message)" -like 'ISSUE-SHIPPED|*') { throw }
                 Write-Log "  ⚠️ Could not push the attempt's other work: $_" -Color Yellow
                 $pushNote = "⚠️ The attempt's other work could not be pushed to the branch:`n``````text`n$("$_".Trim())`n``````"
             }
@@ -720,7 +752,8 @@ function Invoke-Implement {
         # with conflict markers and no instructions about them. The next attempt merges
         # again and sees the conflict fresh.
         if (Test-MergeInProgress) { git merge --abort 2>&1 | Out-Null }
-        if (-not $testsFailed) {
+        # The shipped stop is the conductor's to announce (#377), once.
+        if (-not $testsFailed -and "$($_.Exception.Message)" -notlike 'ISSUE-SHIPPED|*') {
             $errBlock = Format-ErrorBlock -Raw "$_"
             Add-Comment -Number $IssueNumber -Body "🤖❌ Implement Failed`n`n$errBlock"
         }

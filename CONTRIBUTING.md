@@ -11,6 +11,10 @@ Description, Requirements, Acceptance Criteria). Do not set labels; the workflow
 
 - The workflow may ask questions in the issue. Answer them there, in a comment.
 - The workflow then opens the pull request and runs the checks.
+- A draft pull request is the workflow's work in progress. Do not merge it: GitHub refuses
+  to, and the workflow may still change it.
+- A pull request marked ready for review is the one to merge. The workflow marks it ready
+  when it holds it for the owner, or right before it merges it itself.
 - Some pull requests are held for approval (label `human:approval`). The owner merges those.
 
 ## Whose issues the workflow acts on

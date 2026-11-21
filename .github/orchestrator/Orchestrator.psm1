@@ -308,6 +308,10 @@ function Invoke-Orchestration {
                             '(The agent analysed the request but produced no code changes.)'
                         }
                         Add-Comment -Number $IssueNumber -Body "🤖 Question answered — no code changes needed.`n`n$answerBody"
+                        # Back to the owner: implement took the PR back to draft (#377).
+                        $heldBranch = Get-BranchName -Number $IssueNumber -Title $meta.title
+                        $heldPR     = @(gh pr list --head $heldBranch --json number --limit 1 | ConvertFrom-Json)
+                        if ($heldPR.Count -gt 0) { $null = Set-PRReady -PRNumber $heldPR[0].number }
                         Set-AgentState -IssueNumber $IssueNumber -Label 'human:approval'
                         Write-Log "⏸ Issue #$IssueNumber — no commits; answered question and returned to human:approval." -Color Yellow
                         Reset-AttemptCount -IssueNumber $IssueNumber
@@ -322,6 +326,7 @@ function Invoke-Orchestration {
                 }
 
                 $branch = Get-BranchName -Number $IssueNumber -Title $meta.title
+                Assert-NotShipped -IssueNumber $IssueNumber
                 $prList = gh pr list --head $branch --json number --limit 1 | ConvertFrom-Json
                 if ($prList.Count -eq 0) { throw "No PR found for branch $branch after implement stage." }
                 $prNum = $prList[0].number
@@ -348,6 +353,18 @@ function Invoke-Orchestration {
                 # A spent usage allowance is not the agent's failure: pause, count nothing.
                 $until = Test-EngineUsageLimit
                 if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Stage 'implement' -Until $until; return }
+                # The issue shipped — its PR was merged by hand mid-round (#377). Not a
+                # failure: say so once and stop. No label (agent:shipped is terminal and
+                # no state allows a move from it), no attempt, no retry, nothing pushed.
+                # Also checked on any other failure, so a retry never starts for it.
+                if ($reason -like 'ISSUE-SHIPPED|*' -or (Test-IssueShipped -IssueNumber $IssueNumber)) {
+                    $shippedBranch = Get-BranchName -Number $IssueNumber -Title $meta.title
+                    $mergedPR = @(gh pr list --head $shippedBranch --state merged --json number --limit 1 2>$null | ConvertFrom-Json)
+                    $which    = if ($mergedPR.Count -gt 0) { " (PR #$($mergedPR[0].number) merged)" } else { '' }
+                    Add-Comment -Number $IssueNumber -Body "🤖⏹ Stopped — issue already shipped$which; this round pushes nothing more and opens no pull request."
+                    Write-Log "⏹ Issue #$IssueNumber already shipped — round stopped." -Color Yellow
+                    return
+                }
                 # Exhausted turn budget: not a transient API error; fail immediately without retry.
                 if ($reason -match 'ran out of turns') {
                     Set-AgentFailedState -IssueNumber $IssueNumber -FailedAt $currentStage -Reason $reason

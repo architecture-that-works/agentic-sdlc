@@ -359,7 +359,7 @@ $script:RealGit  = (Get-Command git -CommandType Application | Select-Object -Fi
 function script:uv { $global:LASTEXITCODE = 0; '' }
 function script:Add-Comment { param($Number, $Body) $script:Comments.Add($Body) }
 function script:Test-RemoteBranch { param($Branch) $false }
-function script:gh { $script:Log.Add('gh'); $global:LASTEXITCODE = 0; '[]' }
+function script:gh { if ($args[0] -eq 'pr') { $script:Log.Add('gh') }; $global:LASTEXITCODE = 0; '[]' }
 function script:git {
     if ($args[0] -eq 'push')  { $script:Log.Add('push'); $global:LASTEXITCODE = 0; return }
     if ($args[0] -eq 'fetch') { $global:LASTEXITCODE = 0; return }
