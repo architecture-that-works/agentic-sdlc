@@ -1,4 +1,4 @@
-"""Smoke tests: verify copier generates a working project for each project_type."""
+"""Smoke tests: verify copier generates a working project."""
 
 import re
 import shutil
@@ -16,14 +16,12 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
     # without it, Copier defaults to the latest git tag (v0.1.1, long stale), so this
     # smoke test was silently exercising a months-old snapshot instead of the current
     # template (surfaced by the devcontainer image assertion below going stale).
-    project_type = "application"
     copier.run_copy(
         src_path=str(TEMPLATE_ROOT),
         dst_path=str(tmp_path),
         data={
-            "project_name": f"smoke-{project_type}",
+            "project_name": "smoke-app",
             "description": "Template smoke test",
-            "project_type": project_type,
         },
         defaults=True,
         unsafe=True,
@@ -32,8 +30,8 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
     )
 
     pyproject = (tmp_path / "pyproject.toml").read_text()
-    assert f'name = "smoke-{project_type}"' in pyproject, (
-        f"pyproject.toml has wrong project name for project_type={project_type!r}:\n{pyproject}"
+    assert 'name = "smoke-app"' in pyproject, (
+        f"pyproject.toml has wrong project name:\n{pyproject}"
     )
 
     devcontainer_json = tmp_path / ".devcontainer" / "devcontainer.json"
@@ -87,17 +85,15 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
     assert ".env" in dockerignore_content, ".dockerignore must exclude .env"
 
     assert (tmp_path / "src" / "main.py").exists(), (
-        f"Generated project missing src/main.py for project_type={project_type!r}"
+        "Generated project missing src/main.py"
     )
 
     assert (tmp_path / ".env.example").exists(), (
-        f"Generated project missing .env.example for project_type={project_type!r}"
+        "Generated project missing .env.example"
     )
 
     agents_md_content = (tmp_path / "AGENTS.md").read_text()
-    assert "{{" not in agents_md_content, (
-        f"AGENTS.md must not contain Jinja2 syntax for project_type={project_type!r}"
-    )
+    assert "{{" not in agents_md_content, "AGENTS.md must not contain Jinja2 syntax"
 
     # Template-only directories must not travel.
     for stale in (".template", "template", "adr-staging", "tests/template"):
@@ -145,7 +141,7 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
         check=False,
     )
     assert result.returncode == 0, (
-        f"pytest failed for project_type={project_type!r}:\n"
+        "pytest failed in generated project:\n"
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
@@ -188,7 +184,6 @@ def test_pre_commit_config_inherited_via_copier(tmp_path: Path) -> None:
         data={
             "project_name": "smoke-precommit",
             "description": "Pre-commit smoke test",
-            "project_type": "application",
         },
         defaults=True,
         unsafe=True,
@@ -222,7 +217,6 @@ def test_skills_travel_via_copier(tmp_path: Path) -> None:
         data={
             "project_name": "smoke-skills",
             "description": "Skills travel smoke test",
-            "project_type": "application",
         },
         defaults=True,
         unsafe=True,
@@ -244,9 +238,17 @@ def test_skills_travel_via_copier(tmp_path: Path) -> None:
     )
     assert skill_names, "No skill names found in ## Skills table of generated AGENTS.md"
 
+    skills_dir = tmp_path / ".agents" / "skills"
     for name in skill_names:
-        skill_md = tmp_path / ".agents" / "skills" / name / "SKILL.md"
+        skill_md = skills_dir / name / "SKILL.md"
         assert skill_md.exists(), (
             f"Skill '{name}' listed in AGENTS.md §Skills but "
             f".agents/skills/{name}/SKILL.md not found in generated project"
         )
+
+    unlisted = sorted(
+        p.name for p in skills_dir.iterdir() if p.is_dir() and p.name not in skill_names
+    )
+    assert not unlisted, (
+        f"Skill folders not listed in AGENTS.md §Skills of generated project: {unlisted}"
+    )

@@ -77,23 +77,15 @@ Invoke the matching skill before implementing manually. Each lives at
 |-------|----------------|
 | `diagnosis` | Implementation or CI fails and the root cause is unclear — before attempting a fix |
 | `intake` | When converting raw owner thoughts into a pipeline-ready issue, before any pipeline stage runs |
-| `version-control` | Branching (`feature/{number}-{slug}`), commits, PRs |
-| `write-skills` | Creating or updating skills in `.agents/skills/` |
 
-### Domain — extend `implement` REFACTOR; load exactly one
+- Branch names: `feature/{number}-{slug}`.
+- Commit messages: `<type>(#<issue>): <subject>` — Conventional Commits, issue number as scope.
 
-| Skill | When to invoke |
-|-------|----------------|
-| `application-engineering` | AI-backed REST APIs, single-call Claude integration, OTel, SSE, auth. Default for `project_type: application` |
-| `data-engineering` | Medallion pipeline, SQLAlchemy, Polars, DuckLake |
-| `agentic-engineering` | Plan-Act-Observe loops, multi-turn tool use, agent state, multi-agent coordination |
-
-If an endpoint invokes an agent loop, load both `application-engineering` (the endpoint) and
-`agentic-engineering` (the loop).
+A project that wants a stack guide writes it as a plain document under `docs/`, not a skill.
 
 ## Conditional Context
 
 Load only when the task needs it:
 
 - Testing conventions, fixtures, coverage floor — `tests/README.md`
-- Skill invocation protocol and lifecycle — `.agents/skills/README.md`
+- What a skill is and how to load one — `.agents/skills/README.md`

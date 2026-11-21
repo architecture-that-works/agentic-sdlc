@@ -22,9 +22,9 @@ through its callers).
 
 **Owns:** Red-Green-Refactor loop enforcement, the smallest-complete-change rule (reach of a change, reuse ladder, lean refactor), acceptance criteria traceability to the PRD, mocking rules, deep-module REFACTOR target, test suite ergonomics with pytest.
 
-**Does not own:** Test infrastructure provisioning (`tests/README.md`), root-cause analysis of a failure (→ `diagnosis`), PR creation (→ `version-control`), code review (→ `review`), performance infrastructure (→ domain skills).
+**Does not own:** Test infrastructure provisioning (`tests/README.md`), root-cause analysis of a failure (→ `diagnosis`), PR creation (the orchestrator), code review (→ `review`), performance infrastructure.
 
-**Interfaces with:** `plan` — testing decisions in the PRD drive the RED phase. `diagnosis` — a bug fix starts from its root-cause statement. Domain skills (`application-engineering`, `data-engineering`, `agentic-engineering`) — extend the REFACTOR phase with domain-specific patterns; the lean rules below apply to them unchanged. `review` — judges the change against these rules, the one standard for both stages; reads the closing `Left undone:` / `Issues discovered:` lines.
+**Interfaces with:** `plan` — testing decisions in the PRD drive the RED phase. `diagnosis` — a bug fix starts from its root-cause statement. `review` — judges the change against these rules, the one standard for both stages; reads the closing `Left undone:` / `Issues discovered:` lines.
 
 ## When to Use
 
@@ -38,7 +38,6 @@ through its callers).
 
 - GitHub Issue with acceptance criteria or testing decisions from the Lean PRD
 - Existing test suite (read before writing new tests)
-- Domain skill loaded for the REFACTOR phase (`application-engineering`, `data-engineering`, or `agentic-engineering`)
 
 ## Primary Outputs
 
@@ -117,7 +116,6 @@ Once GREEN, refactor to make the implementation deep: maximum behaviour behind t
 - Code you move or merge keeps its error handling and validation
 - Split a function by job, never by line count — a helper that exists only to make a function shorter is one more name the reader must chase
 - Comment only the *why* the code cannot show, in one line- Never cut: validation at trust boundaries, error handling that prevents data loss, security, anything the issue asked for
-- Domain skills extend this phase with language-specific patterns
 
 ### Acceptance Criteria Traceability
 

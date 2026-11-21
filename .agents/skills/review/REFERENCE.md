@@ -101,7 +101,7 @@ The loop is the pipeline's implement ↔ review bounce; there is no separate fix
    `.github/orchestrator/lib/Config.ps1`) the issue lands on `agent:failed`.
 
 **HITL variant.** Fix on the feature branch — or an isolated worktree when the main checkout
-must stay clean (→ `version-control`) — then re-run the review against the current diff:
+must stay clean — then re-run the review against the current diff:
 
 ```bash
 uv run pytest -x

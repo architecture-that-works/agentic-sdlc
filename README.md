@@ -25,8 +25,7 @@ PowerShell 7+, and the GitHub CLI (`gh`).
 uvx copier copy gh:architecture-that-works/agentic-sdlc path/to/new-project
 ```
 
-Copier prompts for `project_name`, `description`, and `project_type` (`application` — the
-default, `agent`, or `ml`). Then `uv sync` and `uv run pytest`.
+Copier prompts for `project_name` and `description`. Then `uv sync` and `uv run pytest`.
 
 To check the hello-world server: `docker build -t app:dev . && docker run --rm -p 8000:8000 app:dev`,
 then open `http://localhost:8000` (project page) and `curl http://localhost:8000/healthz` (`ok`).
@@ -143,7 +142,7 @@ agent failure:
 | `review` | Regressions and principle violations reaching the merge |
 | `ship` | Security gaps, supply-chain risk, lost architectural decisions |
 
-The full skill index — including cross-cutting and domain skills — is in [`AGENTS.md`](AGENTS.md).
+The full skill index — the stages and the cross-cutting skills — is in [`AGENTS.md`](AGENTS.md).
 
 ## Repository structure
 

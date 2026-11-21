@@ -144,7 +144,7 @@ If the failure only occurs in CI, replicate the CI environment locally:
 
 ```bash
 # 1. Identify the env vars set in CI (from the workflow YAML)
-#    e.g. .github/workflows/ci.yml sets: DATABASE_URL, LOG_LEVEL, PYTHONDONTWRITEBYTECODE
+#    e.g. .github/workflows/checks.yml sets: DATABASE_URL, LOG_LEVEL, PYTHONDONTWRITEBYTECODE
 
 # 2. Set those vars locally and re-run
 DATABASE_URL=sqlite:///test.db LOG_LEVEL='' uv run pytest tests/path/test_foo.py::test_name

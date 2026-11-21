@@ -7,7 +7,7 @@ and quick start. See [EXAMPLES.md](EXAMPLES.md) for worked Red-Green-Refactor se
 
 ## Coding Principles
 
-The single shared standard that `review` and the domain skills enforce. Skills cite this section
+The single shared standard that `implement` and `review` enforce. Skills cite this section
 by path (`.agents/skills/implement/REFERENCE.md` § Coding Principles); rules are not duplicated.
 
 1. **Prefer simple over clever.** The most readable solution wins. Between two correct
@@ -98,10 +98,6 @@ re-run the full test suite; repeat from the top.
 7. **Moved code:** Any error handling or validation the move dropped. Restore it.
 8. **Comments:** Any comment that says what the code does. Delete it, or rewrite it as the
    one-line why.
-
-**Domain extension:** After this checklist, load the domain skill (`application-engineering`,
-`data-engineering`, or `agentic-engineering`) for language- and stack-specific REFACTOR
-patterns. Do not apply domain patterns before the checklist above completes.
 
 ---
 

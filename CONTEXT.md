@@ -3,10 +3,6 @@
 
 __PROJECT_DESCRIPTION__
 
-| Key | Value |
-|-----|-------|
-| Project Type | __PROJECT_TYPE__ |
-
 ---
 
 ## Glossary
