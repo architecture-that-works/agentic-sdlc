@@ -137,8 +137,16 @@ TASK:
 function Resolve-GrillModel {
     param([string]$Requested)
     if ($Requested) { return $Requested }
-    if ($env:KANBAN_MODEL_SONNET) { return $env:KANBAN_MODEL_SONNET }
-    return 'claude-sonnet-4-6'
+    if ($env:KANBAN_MODEL_OPUS) { return $env:KANBAN_MODEL_OPUS }
+    if ($KanbanModel_Opus) { return $KanbanModel_Opus }
+    # Config.ps1 not loaded (standalone/eval context): read ModelOpus directly from
+    # the config file without dot-sourcing it — dot-sourcing runs git operations that
+    # are unavailable outside the full module context and would throw.
+    $configPath = Join-Path $PSScriptRoot 'Config.ps1'
+    $m = Select-String -Path $configPath -Pattern "ModelOpus\s*=\s*'([^']+)'" |
+        Select-Object -First 1
+    if ($m) { return $m.Matches[0].Groups[1].Value }
+    throw "Resolve-GrillModel: cannot determine the Opus model tier — set KANBAN_MODEL_OPUS or verify '$configPath' contains a ModelOpus entry."
 }
 
 # Strips Markdown code fences from a Claude response. The subagent is told to
@@ -264,6 +272,7 @@ function Invoke-Grill {
     $raw = $fullPrompt | claude `
         --model $resolvedModel `
         --allowedTools 'Read,Glob,Grep' `
+        --tools        'Read,Glob,Grep' `
         --max-turns   $MaxTurns `
         --output-format stream-json --verbose 2>&1 | Out-String
     $exit = $LASTEXITCODE
