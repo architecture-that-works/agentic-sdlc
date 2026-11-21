@@ -61,6 +61,7 @@ Navigation index for agents — how to use it is the Context Protocol in `AGENTS
 | skills | `.agents/skills/` | `.agents/skills/` | one directory per skill, each with `SKILL.md` |
 | ADRs (this project) | `docs/adr/` | `docs/adr/` | ADR-000 is the blank form; this project's ADRs start at ADR-001 |
 | CI | `.github/workflows/` | (cross-cutting) | `checks.yml` (lint/typecheck/test/audit/checks), `afk.yml` (the pipeline, driven by issue events; hourly reconcile of states nothing is working on, incl. usage-limit resume; `stage` dispatch for overrides), `build.yml`, `deploy.yml` |
+| contributor docs | `.github/ISSUE_TEMPLATE/`, `CONTRIBUTING.md` | (cross-cutting) | `issue.md` (the four ISSUES.md headings, no labels), `config.yml` (blank issues off), `CONTRIBUTING.md` (how a change becomes a merged PR); `tests/test_issue_template.py` keeps the headings in step with ISSUES.md and the intake skill |
 | `<domain>` | `src/<domain>/` | declared on first feature | declared on first feature |
 
 ## Issue-Type → Files Index
