@@ -48,9 +48,13 @@ function Get-CommitCheckRuns {
 # The verdict on one commit, from its check runs — a pure function. Runs on another
 # commit are ignored; of several runs with one name (a re-run) the newest counts.
 #   failed   any run on the commit ended failure, cancelled or timed_out, required or not
-#   green    every required name completed as success, or as skipped (nothing failed)
+#   green    every required name concluded success or skipped (nothing failed)
 #   missing  a required name has no run on the commit yet
-#   pending  a required name has a run that has not passed yet
+#   pending  a required name has a run with no passing conclusion yet (none, or
+#            neutral / action_required / stale)
+# Only the conclusion is read, never the run's `status`: GitHub sets a conclusion
+# only once a run has finished, while a finished job's status has been seen stuck
+# at in_progress for over an hour, which kept a passed pull request from going green.
 # Returns { State, Failed (names), FailedRuns, Missing, Pending }.
 function Get-CheckVerdict {
     param([string[]]$RequiredNames, [object[]]$CheckRuns, [Parameter(Mandatory)][string]$Sha)
@@ -61,12 +65,12 @@ function Get-CheckVerdict {
         if (-not $latest.Contains($name) -or [long]$run.id -gt [long]$latest[$name].id) { $latest[$name] = $run }
     }
     $failedRuns = @($latest.Values | Where-Object {
-        $_.status -eq 'completed' -and "$($_.conclusion)" -in @('failure', 'cancelled', 'timed_out') })
+        "$($_.conclusion)" -in @('failure', 'cancelled', 'timed_out') })
     $missing = @(); $pending = @()
     foreach ($name in @($RequiredNames | Where-Object { $_ })) {
         if (-not $latest.Contains($name)) { $missing += $name; continue }
         $run = $latest[$name]
-        if ($run.status -ne 'completed' -or "$($run.conclusion)" -notin @('success', 'skipped')) { $pending += $name }
+        if ("$($run.conclusion)" -notin @('success', 'skipped')) { $pending += $name }
     }
     $state = if ($failedRuns.Count -gt 0) { 'failed' }
              elseif ($missing.Count -gt 0) { 'missing' }
