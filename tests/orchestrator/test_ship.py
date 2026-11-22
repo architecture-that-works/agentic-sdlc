@@ -75,7 +75,7 @@ function script:New-CheckRun {
     param([string]$Name, [long]$Id, [string]$Conclusion = 'success', [string]$Status = 'completed', [string]$Sha = $script:Sha)
     [pscustomobject]@{
         id = $Id; name = $Name; status = $Status; head_sha = $Sha
-        conclusion = $(if ($Status -eq 'completed') { $Conclusion } else { $null })
+        conclusion = $(if ($PSBoundParameters.ContainsKey('Conclusion') -or $Status -eq 'completed') { $Conclusion } else { $null })
         details_url = "https://github.com/octocat/sandbox/actions/runs/7/job/$Id"
     } }
 $script:Runs = @(
@@ -683,6 +683,27 @@ $rerun = @($script:Runs | Where-Object { $_.name -ne 'test' }) + @(New-CheckRun 
 """
     )
     assert out == {"old": "green", "rerun": "green"}
+
+
+def test_a_finished_run_whose_status_is_stuck_in_progress_is_decided_by_its_conclusion() -> (
+    None
+):
+    out = _run(
+        _CHECKS
+        + r"""
+$others = @($script:Runs | Where-Object { $_.name -ne 'audit' })
+$ok = $others + @(New-CheckRun audit 104 -Status in_progress -Conclusion success)
+$bad = $others + @(New-CheckRun audit 104 -Status in_progress -Conclusion failure)
+$names = (Get-OrchestratorContext).RequiredChecks
+$f = Get-CheckVerdict -RequiredNames $names -CheckRuns $bad -Sha $script:Sha
+[pscustomobject]@{
+    ok     = (Get-CheckVerdict -RequiredNames $names -CheckRuns $ok -Sha $script:Sha).State
+    bad    = $f.State
+    failed = @($f.Failed)
+} | ConvertTo-Json -Compress
+"""
+    )
+    assert out == {"ok": "green", "bad": "failed", "failed": ["audit"]}
 
 
 def test_no_path_merges_without_the_required_checks() -> None:
