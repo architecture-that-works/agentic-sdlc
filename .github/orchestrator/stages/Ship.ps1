@@ -106,15 +106,15 @@ function Get-FailedJobLogs {
 # ── Local CI (#314) ───────────────────────────────────────────────────────────
 # When GitHub Actions cannot run (observed: a spent Actions allowance on a private
 # repo), KANBAN_LOCAL_CI makes ship run CI here instead of reading the commit's check runs.
-# Mirrors checks.yml's lint / typecheck / test / audit jobs — keep the two in step;
-# test_ship.py fails when a checks.yml `uv run` command is missing here. The checks
-# job is every .github/checks/check-*.ps1, the same rule as CI. eval stays
-# CI-only.
+# Mirrors checks.yml's lint / typecheck / test / audit jobs — keep the two in step.
+# The test job is the one full test command (.github/tasks/test.ps1), the same
+# command CI runs. The checks job is every .github/checks/check-*.ps1, the same rule
+# as CI. eval stays CI-only.
 $LocalCiJobs = [ordered]@{
     'lint'      = @('uv', 'run', 'ruff', 'check', '.')
     'format'    = @('uv', 'run', 'ruff', 'format', '--check', '.')
     'typecheck' = @('uv', 'run', 'pyright')
-    'test'      = @('uv', 'run', 'pytest', '--cov=src', '--cov-report=term-missing', '--cov-fail-under=80')
+    'test'      = @('pwsh', '-NoProfile', '-File', '.github/tasks/test.ps1')
     'audit'     = @('uv', 'run', 'pip-audit')
 }
 

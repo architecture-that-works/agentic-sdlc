@@ -45,7 +45,9 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync
-      - run: uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+      # The one full test command: pytest with the src/ coverage gate, then the
+      # orchestrator's Pester journeys (hosted runners ship pwsh and Pester 5).
+      - run: pwsh -NoProfile -File .github/tasks/test.ps1
 
   audit:
     runs-on: ubuntu-latest

@@ -1,12 +1,32 @@
 # Testing Guide
 
-Conventions for writing and running the pytest suite in this folder. Referenced from
-`AGENTS.md` § Conditional Context as "testing conventions, fixtures, coverage floor."
+Conventions for writing and running the tests in this folder: the pytest suite, and the
+orchestrator's journeys in Pester. Referenced from `AGENTS.md` § Conditional Context as
+"testing conventions, fixtures, coverage floor."
 
 ## Running the Suite
 
+One command runs every test — pytest, then Pester — and is the command CI's `test` job,
+the implement stage's verification and ship's local CI all run:
+
 ```bash
-# Quick pass — same command CI uses:
+pwsh -NoProfile -File .github/tasks/test.ps1
+```
+
+It runs `uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80`, then one
+Pester run over `tests/journeys/` with the line coverage Pester measures for
+`.github/orchestrator/` (reported, not gated), and ends with one line per runner: passed or
+failed, how long it took, and Pester's coverage. It exits non-zero when either runner failed.
+It needs Pester 5; without it, it stops and prints the line that installs it:
+
+```powershell
+Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser -Force
+```
+
+pytest alone:
+
+```bash
+# Quick pass:
 uv run pytest
 
 # With coverage (required before committing):
@@ -130,28 +150,67 @@ Avoid copy-pasting similar test functions — parametrize instead.
 | `tests/test_main.py` | HTTP handler and entry point behaviour |
 | `tests/utils/test_m_*.py` | Generic utility module tests |
 | `tests/tools/test_*.py` | Developer tool tests (`commit`, `setup`) |
-| `tests/orchestrator/` | Orchestrator module tests — mirrors `.github/orchestrator/` |
+| `tests/journeys/` | The orchestrator's journeys, in Pester — one file per path an issue takes |
+| `tests/fakes/` | The fakes the journeys run on: GitHub, the engine, a git repository |
 | `tests/checks/` | Validator tests — mirrors `.github/checks/` |
 | tests/test_copier_template.py | Template generation and structure tests — template-only; copier excludes it from generated projects |
 | `tests/conftest.py` | Project-wide fixtures only |
 
-## Testing the orchestrator module
+## Testing the orchestrator: journeys
 
-`Orchestrator.psd1` exports an explicit list, so private functions are genuinely
-unreachable from a test. Dot-sourcing the `.psm1` populates *nothing* in the caller's
-scope — not even `Invoke-Orchestration`, which is defined in that file — and
-dot-sourcing a single stage file resolves its functions but not the module-scoped
-`$Kanban*` variables they read.
+The orchestrator is tested the way an issue travels through it. A **journey** is a Pester 5
+file in `tests/journeys/`, named after the path it follows (`Refine.Tests.ps1`: refine →
+architect → plan; `Build.Tests.ps1`: implement → review → ship). It enters only through the
+conductor, `Invoke-Orchestration -IssueNumber <n> -From refine|implement|comment`, and asserts
+only what the owner sees: the issue's label, the kind of comments posted (a 🤖 signal and its
+heading, or a · noise line), the pull request's state, and what was pushed to the remote.
+Nothing in a journey reaches into a private function.
 
-Run inside module scope instead:
+The orchestrator has three outside seams, and each has one fake in `tests/fakes/`:
+
+| Fake | Stands in for | What a test does with it |
+|------|---------------|--------------------------|
+| `tests/fakes/GitHub.ps1` | the `gh` command | Seeds issues and comments, reads labels, comments and pull requests back. It holds issues, labels, comments, pull requests and check runs in memory, records what changed, and records every label change as a transition. A `gh` call it does not know fails the test and names the call. |
+| `tests/fakes/Engine.ps1` | `Invoke-EngineTask`, the one function that starts a model | Scripts what each Task returns, in order: an outcome, a reply, a checked answer, refused edits, and for an implement task the files it edits. A Task with nothing scripted fails the test and names it. |
+| `tests/fakes/Repo.ps1` | the repository | Gives the journey a temporary git repository with a bare remote; git runs for real, so the test asks the remote what was pushed. |
+
+No journey writes its own stand-in for `gh`: every one uses the fake GitHub. The fakes replace
+`gh` and `Invoke-EngineTask` inside the module's scope with Pester mocks, so the
+orchestrator's own code runs unchanged and the `Engine` setting is not touched.
+`tests/journeys/Journey.ps1` loads the module once per run (only when it is not loaded yet)
+and starts each journey with a fresh set of fakes:
 
 ```powershell
-Import-Module .\.github\orchestrator\Orchestrator.psd1 -Force
-& (Get-Module Orchestrator) { Invoke-SomePrivateFunction -IssueNumber 1 }
+BeforeAll   { . (Join-Path $PSScriptRoot 'Journey.ps1') }
+BeforeEach  { $script:repo = Start-Journey -Name 'Build: held for the owner' }
+AfterEach   { Stop-Journey $script:repo }
+It 'holds a change to a governance file for the owner' {
+    Add-FakeIssue -Number 12 -Title 'Name the journeys' -Body (New-PlannedIssueBody -Number 12) -Labels 'agent:backlog'
+    Add-EngineResult -Task ImplementSmall -Edits @{ 'CONTEXT.md' = '...' } -Reply '- Left undone: none'
+    Add-EngineResult -Task CommitMessage -Reply 'docs(#12): name the journeys'
+    Add-EngineResult -Task Review -Answer @{ verdict = 'approved'; report = 'ok' }
+    Invoke-Orchestration -IssueNumber 12 -From implement
+    Get-FakePipelineLabel 12 | Should -Be 'human:approval'
+    Assert-JourneyClean
+}
 ```
 
-`tests/orchestrator/test_plan.py` is the worked example, and it is roughly five times
-faster this way.
+`tests/journeys/StateMachine.Tests.ps1` runs last in the same Pester run. It reads every label
+transition the journeys caused, fails — naming it — on one that `$PipelineStates` in
+`lib/Config.ps1` does not allow, and lists the designed transitions (the `AllowedFrom` entries)
+that no journey has exercised yet. Never widen `AllowedFrom` to make it pass.
+
+Pester alone, without pytest or coverage:
+
+```powershell
+Invoke-Pester tests/journeys                               # every journey, then the report
+Invoke-Pester tests/journeys/Build.Tests.ps1 -Output Detailed
+```
+
+Run alone, a journey file passes on its own; the state-machine report needs the journeys in
+the same run to see their transitions. `$env:JOURNEY_LOG = 1` shows the orchestrator's own
+log lines while a journey runs. The Python tests the journeys replace stay readable in git at
+commit `2d9477e` and remain the specification of what the later journeys must cover.
 
 **Never widen `FunctionsToExport` to make a test pass.** That is how an explicit API
 list decays back to `'*'`; `check-orchestrator-api.ps1` fails the build if an export goes
@@ -226,7 +285,7 @@ check (`pwsh -NoProfile -File .github/tasks/protect.ps1`). The pipeline's ship s
 Six commands, all clean, before any push:
 
 ```powershell
-uv run pytest ; uv run ruff check . ; uv run ruff format . ; uv run pyright
+pwsh -NoProfile -File .github/tasks/test.ps1 ; uv run ruff check . ; uv run ruff format . ; uv run pyright
 pwsh .github/checks/check-references.ps1
 pwsh .github/checks/check-orchestrator-api.ps1
 ```

@@ -13,7 +13,7 @@
     only builds and ships:
 
     Phase 1 Develop -- the engine implements every requirement; verifies with
-                       uv run pytest.
+                       the full test command (.github/tasks/test.ps1).
     Phase 2 PR      -- commits (engine-generated message), pushes, opens the PR or
                        rewrites its description, from the pull request template.
 
@@ -282,13 +282,15 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
 
     Write-Log "  Implementation finished for issue #$Number." -Color Green
 
-    # Independent verification — output posted as signal so the reviewer can read exact results.
-    Write-Log "  Running test suite independently..." -Color DarkGray
-    $testOutput = uv run pytest --tb=short -q 2>&1 | Out-String
-    $pytestExit = $LASTEXITCODE
-    $phaseOneCommands = @([pscustomobject]@{ Name = 'pytest'; Exit = $pytestExit })
+    # Independent verification — the one full test command (pytest, then Pester), run
+    # in the working tree it verifies; its output is posted as signal so the reviewer
+    # can read exact results. The command ends with one summary line per runner.
+    Write-Log "  Running the full test command independently..." -Color DarkGray
+    $testOutput = pwsh -NoProfile -File .github/tasks/test.ps1 2>&1 | Out-String
+    $testExit   = $LASTEXITCODE
+    $phaseOneCommands = @([pscustomobject]@{ Name = 'test'; Exit = $testExit })
 
-    if ($pytestExit -ne 0) {
+    if ($testExit -ne 0) {
         $errBlock = Format-ErrorBlock -Raw $testOutput
         Add-Comment -Number $Number -Body "🤖⚠️ Tests Failing`n`n$errBlock"
     } else {
@@ -313,7 +315,7 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
         ContextMdRead    = $proc.contextMdRead
         SkillRead        = $proc.skillRead
         TestedOnce       = $testedOnce
-        TestsPassed      = ($pytestExit -eq 0)
+        TestsPassed      = ($testExit -eq 0)
     }
 }
 
