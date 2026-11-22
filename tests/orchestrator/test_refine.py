@@ -80,7 +80,7 @@ def test_answer_check_records_answers_and_follow_ups() -> None:
 function script:Get-OwnerComments { param($IssueNumber, $Since)
     @([pscustomobject]@{ login = 'octocat'; created_at = '2026-09-23T11:00:00Z'; body = '1 allowlist. 2 not sure yet' }) }
 function script:claude { $script:ModelCalls++; $global:LASTEXITCODE = 0
-    '{"answers":[{"id":1,"status":"answered","decision":"Use an allowlist."},{"id":2,"status":"open","follow_up":"Config.ps1 or settings.json?"}],"new_questions":[{"text":"Include docs/?","recommendation":"yes"}]}' }
+    @{ type = 'result'; subtype = 'success'; result = '{"answers":[{"id":1,"status":"answered","decision":"Use an allowlist."},{"id":2,"status":"open","follow_up":"Config.ps1 or settings.json?"}],"new_questions":[{"text":"Include docs/?","recommendation":"yes"}]}' } | ConvertTo-Json -Compress }
 $r = Invoke-AnswerCheck -IssueNumber 50
 [pscustomobject]@{
     evaluated = $r.Evaluated; answered = $r.Answered; open = $r.Open; calls = $script:ModelCalls
@@ -123,7 +123,7 @@ def test_answer_check_reports_an_unusable_model_reply() -> None:
         + r"""
 function script:Get-OwnerComments { param($IssueNumber, $Since)
     @([pscustomobject]@{ login = 'octocat'; created_at = 'x'; body = 'ok' }) }
-function script:claude { $global:LASTEXITCODE = 0; 'I think so?' }
+function script:claude { $global:LASTEXITCODE = 0; @{ type = 'result'; subtype = 'success'; result = 'I think so?' } | ConvertTo-Json -Compress }
 $r = Invoke-AnswerCheck -IssueNumber 50
 [pscustomobject]@{ error = [bool]$r.Error; written = ($null -ne $script:Written) } | ConvertTo-Json -Compress
 """

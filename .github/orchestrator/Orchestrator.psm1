@@ -15,8 +15,11 @@
         lib/Util       logging, runtime, lock, issue template reader, engine ping, usage limit
         lib/GitHub     labels, lanes, comments, board, issue-body carrier sections
         lib/Reconcile  re-entry (Restart-Issue) and the hourly warden over stuck states
-        engines/       the Claude adapter (streaming, commit messages) — the one engine;
-                       a further engine is added as one complete definition once it fits the whole flow
+        engines/       the adapter the Engine setting names (engines/Claude.ps1 for
+                       'claude'): Invoke-EngineTask, the one function that starts a
+                       model, the commit message and the usage-limit wording. A further
+                       engine is added as one adapter file; the import stops when the
+                       Engine setting names an engine without one
         lib/Grill      refine's self-grill subagent (Invoke-Grill)
         stages/        Refine, Architect, Plan, Implement, Review, Ship
         this file      Invoke-Orchestration, the conductor
@@ -29,8 +32,16 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\lib\Util.ps1"
 . "$PSScriptRoot\lib\GitHub.ps1"
 
-# engines — the LLM provider adapter for the one engine, Claude ($OrchestratorConfig.Engine)
-. "$PSScriptRoot\engines\Claude.ps1"
+# engines — the adapter of the engine the Engine setting names. The setting is
+# lowercase ('claude') and the file PascalCase (Claude.ps1), and the runners' file
+# system is case-sensitive, so the setting is matched to the adapter files by name,
+# ignoring case, and the file found is loaded by its own name. No adapter, no module.
+$EngineAdapter = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'engines') -Filter '*.ps1' -File |
+    Where-Object { $_.BaseName -ieq "$($OrchestratorConfig.Engine)" })
+if ($EngineAdapter.Count -ne 1) {
+    throw "The Engine setting '$($OrchestratorConfig.Engine)' (lib/Config.ps1) names no engine adapter in .github/orchestrator/engines/ — add engines/<Name>.ps1 or set Engine to an engine that has one."
+}
+. $EngineAdapter[0].FullName
 
 . "$PSScriptRoot\lib\Reconcile.ps1"
 . "$PSScriptRoot\lib\Grill.ps1"

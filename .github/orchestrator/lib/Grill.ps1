@@ -7,8 +7,9 @@
     Function library for the `refine` skill's AFK alignment phase. Defines
     Invoke-Grill and its helpers with NO top-level param() block, so dot-sourcing
     it (from Orchestrator.psm1) only registers functions and never pollutes or
-    clobbers the caller's scope (see ADR-013). Its model (Get-TaskModel) and turn
-    budget ($OrchestratorConfig.MaxTurns_Refine) come from lib/Config.ps1, so it runs inside the
+    clobbers the caller's scope (see ADR-013). It runs the Refine task through the
+    engine adapter's Invoke-EngineTask, with the turn budget
+    $OrchestratorConfig.MaxTurns_Refine from lib/Config.ps1, so it runs inside the
     module. The standalone CLI, .agents/skills/refine/scripts/grill.ps1, imports the
     module and calls Invoke-Grill.
 
@@ -246,47 +247,24 @@ function Invoke-Grill {
         }
     }
 
-    # The questioning is the Refine task. It starts only the Claude CLI, whatever the
-    # Engine setting, until "Start every engine through one function" lands — so it
-    # asks for the claude row's model, never one the Claude CLI cannot run.
-    $resolvedModel = Get-TaskModel -Task 'Refine' -Engine 'claude'
-    $MaxTurns      = $OrchestratorConfig.MaxTurns_Refine   # the one questioning budget
+    # The questioning is the Refine task, on the Engine setting like every model call.
+    $MaxTurns = $OrchestratorConfig.MaxTurns_Refine   # the one questioning budget
 
-    # The subagent is read-only — restrict tools so it cannot accidentally write
-    # to the working tree. The orchestrator alone owns mutations. The result event
-    # says how the run ended: a run that stops on its turn budget has no answer, and
-    # plain text output would hide that behind an empty or partial reply. stream-json
-    # (which needs --verbose) emits one event per line; the assistant events carry
-    # the tool calls, the final result event carries the answer.
-    $raw = $fullPrompt | claude `
-        --model $resolvedModel `
-        --allowedTools 'Read,Glob,Grep' `
-        --tools        'Read,Glob,Grep' `
-        --max-turns   $MaxTurns `
-        --output-format stream-json --verbose 2>&1 | Out-String
-    $exit = $LASTEXITCODE
+    # The subagent is read-only — only the read tools exist, so it cannot write to
+    # the working tree; the orchestrator alone owns mutations. The run's ending says
+    # whether there is an answer: a run that stops on its turn budget has none.
+    $run = Invoke-EngineTask -Task 'Refine' -Prompt $fullPrompt -Label 'Self-grill' `
+        -Tools 'Read', 'Glob', 'Grep' -MaxTurns $MaxTurns
 
-    $envelope = $null
-    $tools    = [System.Collections.Generic.List[string]]::new()
-    foreach ($line in ($raw -split '\r?\n')) {
-        if ($line -notmatch '^\s*\{') { continue }
-        try { $streamEvent = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
-        if ($streamEvent.type -eq 'result') { $envelope = $streamEvent }
-        elseif ($streamEvent.type -eq 'assistant') {
-            foreach ($block in @($streamEvent.message.content)) {
-                if ($block.type -eq 'tool_use') { $tools.Add([string]$block.name) }
-            }
-        }
+    if ($run.Outcome -eq 'max_turns') {
+        throw "Self-grill subagent stopped with 'error_max_turns' after its turn budget ($MaxTurns turn(s)):`n$(Get-GrillOutputTail -Raw $run.Reply)"
     }
-    if (-not $envelope) {
-        throw "Self-grill subagent gave no result (exit code $exit):`n$(Get-GrillOutputTail -Raw $raw)"
-    }
-    if ($envelope.subtype -ne 'success' -or $envelope.is_error) {
-        throw "Self-grill subagent stopped with '$($envelope.subtype)' after $($envelope.num_turns) turn(s) (limit $MaxTurns):`n$(Get-GrillOutputTail -Raw "$($envelope.result)")"
+    if ($run.Outcome -ne 'finished') {
+        throw "Self-grill subagent gave no result ($($run.Cause)):`n$(Get-GrillOutputTail -Raw "$($run.Output)`n$($run.Reply)")"
     }
 
-    $validated = Test-GrillResultSchema -Json (ConvertFrom-ClaudeJsonResponse -Raw "$($envelope.result)")
+    $validated = Test-GrillResultSchema -Json (ConvertFrom-ClaudeJsonResponse -Raw $run.Reply)
     $result    = $validated | ConvertFrom-Json
-    if ($Trace) { return [pscustomobject]@{ result = $result; tools_called = @($tools) } }
+    if ($Trace) { return [pscustomobject]@{ result = $result; tools_called = @($run.ToolsCalled) } }
     return $result
 }
