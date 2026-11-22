@@ -109,7 +109,7 @@ $OrchestratorConfig = @{
     # (.github/tasks/protect.ps1) and ship waits for on the commit it pushed — every
     # one must pass (or be skipped while nothing else failed) on that exact commit
     # before ship merges or calls the PR green (#373). The one place these names are
-    # written; tests/workflows/test_checks.py ties each to a job of checks.yml. Every
+    # written; tests/repository/test_checks_workflow.py ties each to a job of checks.yml. Every
     # .github/checks/check-*.ps1 runs inside the `checks` job, so a check has no
     # name of its own here.
     RequiredChecks = @('lint', 'typecheck', 'test', 'audit', 'checks', 'eval')

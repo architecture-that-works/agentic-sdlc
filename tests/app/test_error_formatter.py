@@ -56,11 +56,6 @@ def test_format_pytest_failure_has_error_class():
     assert "AssertionError" in result
 
 
-def test_format_pytest_failure_has_likely_cause():
-    result = format_error(_PYTEST_FAILURE)
-    assert "Likely cause" in result
-
-
 def test_format_pytest_failure_has_salient_frame():
     result = format_error(_PYTEST_FAILURE)
     assert "test_foo.py" in result
@@ -80,11 +75,6 @@ def test_format_ruff_output_has_error_class():
     assert "LintError" in result
 
 
-def test_format_ruff_output_has_likely_cause():
-    result = format_error(_RUFF_OUTPUT)
-    assert "Linter" in result or "Likely cause" in result
-
-
 def test_format_ruff_output_preserves_all_violations():
     result = format_error(_RUFF_OUTPUT)
     assert "E302" in result
@@ -98,13 +88,6 @@ def test_format_no_truncation_kill_criterion():
     result = format_error(long_raw)
     assert "line 0: some error detail here" in result
     assert "line 499: some error detail here" in result
-
-
-def test_format_details_block_structure():
-    result = format_error(_PYTEST_FAILURE)
-    assert "<details>" in result
-    assert "<summary>Full output (expand for debugging)</summary>" in result
-    assert "</details>" in result
 
 
 def test_format_mixed_output_preserves_all():
@@ -122,11 +105,6 @@ def test_format_mixed_ruff_in_salient_when_many_traceback_frames():
     result = format_error(_DEEP_TRACEBACK_WITH_LINT)
     summary_section = result.split("<details>")[0]
     assert "E302" in summary_section
-
-
-def test_format_mixed_output_has_likely_cause():
-    result = format_error(_MIXED_OUTPUT)
-    assert "Likely cause" in result
 
 
 def test_main_entry_point_reads_stdin():

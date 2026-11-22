@@ -33,7 +33,7 @@ Mandatory before opening any source file (`.py`, `.ps1`, `.yml`):
 ## Rules
 
 1. **Architectural Constraints are invariants.** Everything under that heading in `CONTEXT.md`
-   (UV only, no hardcoded secrets, test parity, lint gate, …) applies to every change.
+   (UV only, no hardcoded secrets, tests follow behaviour, lint gate, …) applies to every change.
 2. **Never modify `AGENTS.md` or `CONTEXT.md` during implementation** — those changes go through
    a `refine` session. The Module Map and Issue-Type Index are the exception (Context Protocol
    step 3).
@@ -87,5 +87,5 @@ A project that wants a stack guide writes it as a plain document under `docs/`, 
 
 Load only when the task needs it:
 
-- Testing conventions, fixtures, coverage floor — `tests/README.md`
+- What is tested where and how, testing conventions, fixtures, coverage floor — `tests/README.md`
 - What a skill is and how to load one — `.agents/skills/README.md`

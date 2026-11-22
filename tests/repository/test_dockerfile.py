@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILE = PROJECT_ROOT / "Dockerfile"
 DOCKERIGNORE = PROJECT_ROOT / ".dockerignore"
 

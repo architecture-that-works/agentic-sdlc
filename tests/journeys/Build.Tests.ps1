@@ -21,7 +21,7 @@ BeforeAll {
             -ToolCalls @(
                 @{ Name = 'Read'; Input = @{ file_path = 'CONTEXT.md' } }
                 @{ Name = 'Edit'; Input = @{ file_path = 'CONTEXT.md' } }
-                @{ Name = 'Bash'; Input = @{ command = 'uv run pytest tests/test_main.py' } }
+                @{ Name = 'Bash'; Input = @{ command = 'uv run pytest tests/app/test_main.py' } }
             ) `
             -Reply "- ``CONTEXT.md`` — glossary row added`n- Left undone: none`n- Issues discovered: none"
         Add-EngineResult -Task CommitMessage -Reply $Message

@@ -62,16 +62,6 @@ def test_replace_sentinels_is_idempotent() -> None:
     assert first == second
 
 
-def test_replace_sentinels_no_op_when_already_replaced() -> None:
-    content = "# my-app\nA great app"
-    answers = {
-        "project_name": "my-app",
-        "description": "A great app",
-    }
-    result = replace_sentinels(content, answers)
-    assert result == content
-
-
 def test_replace_sentinels_uses_empty_string_for_missing_key() -> None:
     content = "# __PROJECT_NAME__"
     result = replace_sentinels(content, {})
@@ -155,35 +145,10 @@ def test_main_replaces_sentinels_from_answers_file(
         patch("src.tools.setup._CONTEXT_FILE", context_file),
     ):
         main()
+        result = context_file.read_text(encoding="utf-8")
+        main()  # a second run changes nothing
 
-    result = context_file.read_text(encoding="utf-8")
+    assert context_file.read_text(encoding="utf-8") == result
     assert "hello-world" in result
     assert "Hello desc" in result
     assert "__PROJECT_NAME__" not in result
-
-
-def test_main_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    answers_file = tmp_path / ".copier-answers.yml"
-    answers_file.write_text(
-        "project_name: hello-world\ndescription: Hello desc\n",
-        encoding="utf-8",
-    )
-
-    context_file = tmp_path / "CONTEXT.md"
-    context_file.write_text(
-        "# __PROJECT_NAME__\n__PROJECT_DESCRIPTION__\n",
-        encoding="utf-8",
-    )
-
-    with (
-        patch("src.tools.setup._ANSWERS_FILE", answers_file),
-        patch("src.tools.setup._CONTEXT_FILE", context_file),
-    ):
-        main()
-        content_after_first = context_file.read_text(encoding="utf-8")
-        main()
-        content_after_second = context_file.read_text(encoding="utf-8")
-
-    assert content_after_first == content_after_second

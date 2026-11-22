@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md"
 EXPECTED = ["Summary", "Left undone", "Issues discovered", "Validation"]
 

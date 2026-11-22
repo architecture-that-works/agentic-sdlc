@@ -1,4 +1,4 @@
-"""Tests for src/main.py."""
+"""The sample HTTP server (src/main.py), by what it answers."""
 
 import threading
 from http.server import HTTPServer

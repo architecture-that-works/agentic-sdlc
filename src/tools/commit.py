@@ -12,7 +12,9 @@ Rules:
 - Format: <type>(<scope>): <description>
 - Types: feat, fix, refactor, test, docs, chore, perf, ci, build, revert
 - Scope: the module, file, or area changed (omit if not obvious)
-- Description: imperative mood, <=72 chars, no period at end
+- Description: imperative mood, no period at end
+- The whole first line — type, scope and description together — is at most 72
+  characters; shorten the description rather than exceed it
 - Add a blank line + body only if the change is complex or non-obvious
 - Return ONLY the commit message — no explanation, no markdown fences, no trailers
   such as Co-Authored-By or Signed-off-by
