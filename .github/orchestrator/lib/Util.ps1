@@ -322,11 +322,7 @@ function Get-UsageLimitResume {
 function Invoke-EnginePing {
     $ctx = Get-OrchestratorContext
     try {
-        $out = if ($ctx.Engine -eq 'gemini') {
-            "ping" | agy --model (Get-TaskModel -Task 'EngineCheck') 2>&1 | Out-String
-        } else {
-            "ping" | claude --model (Get-TaskModel -Task 'EngineCheck') 2>&1 | Out-String
-        }
+        $out = "ping" | claude --model (Get-TaskModel -Task 'EngineCheck') 2>&1 | Out-String
         return [pscustomobject]@{ Output = $out; Failed = ($LASTEXITCODE -ne 0) }
     } catch {
         return [pscustomobject]@{ Output = "$_"; Failed = $true }

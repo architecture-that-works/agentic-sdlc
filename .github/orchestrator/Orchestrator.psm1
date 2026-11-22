@@ -15,7 +15,8 @@
         lib/Util       logging, runtime, lock, issue template reader, engine ping, usage limit
         lib/GitHub     labels, lanes, comments, board, issue-body carrier sections
         lib/Reconcile  re-entry (Restart-Issue) and the hourly warden over stuck states
-        engines/       Claude and Gemini adapters (streaming, commit messages)
+        engines/       the Claude adapter (streaming, commit messages) — the one engine;
+                       a further engine is added as one complete definition once it fits the whole flow
         lib/Grill      refine's self-grill subagent (Invoke-Grill)
         stages/        Refine, Architect, Plan, Implement, Review, Ship
         this file      Invoke-Orchestration, the conductor
@@ -28,9 +29,8 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\lib\Util.ps1"
 . "$PSScriptRoot\lib\GitHub.ps1"
 
-# engines — LLM provider adapters; $OrchestratorConfig.Engine says which one runs
+# engines — the LLM provider adapter for the one engine, Claude ($OrchestratorConfig.Engine)
 . "$PSScriptRoot\engines\Claude.ps1"
-. "$PSScriptRoot\engines\Gemini.ps1"
 
 . "$PSScriptRoot\lib\Reconcile.ps1"
 . "$PSScriptRoot\lib\Grill.ps1"
