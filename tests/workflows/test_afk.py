@@ -120,6 +120,45 @@ def test_the_pr_closed_job_stores_no_credentials_and_runs_no_model():
     assert "git config" not in job
 
 
+def test_every_merge_checks_the_held_prs_for_a_conflict():
+    """After every merged feature-branch PR, whoever merged it, the conflict-rounds
+    job starts a round for each held PR that now conflicts (#374). It is a job of
+    its own, not a step behind pr-closed's shipped-issue gate, so the pipeline's own
+    merge — whose issue is already agent:shipped — runs it too."""
+    job = _job("conflict-rounds")
+    pr_closed = _job("pr-closed")
+    for guard in (
+        "github.event_name == 'pull_request'",
+        "github.event.pull_request.merged == true",
+        "github.event.pull_request.head.repo.full_name == github.repository",
+        "startsWith(github.event.pull_request.head.ref, 'feature/')",
+    ):
+        assert guard in job
+    assert "always()" in job and "needs: pr-closed" in job
+    assert "Start-ConflictRounds -MergedPR" in job
+    assert "steps.reconcile" not in job
+    # pr-closed is unchanged: its gate still guards only Complete-HeldPR.
+    assert "Start-ConflictRounds" not in pr_closed
+    assert "github.event.pull_request.merged == true" not in pr_closed
+
+
+def test_conflict_checks_run_one_at_a_time_and_store_no_credentials():
+    """Two merges close together must not both see an issue at human:approval and
+    start two rounds, so every run shares one group, whatever the PR. The probe only
+    reads fetched refs, so git stores no credentials (#349)."""
+    job = _job("conflict-rounds")
+    group = re.search(r"concurrency:\s*\n\s*group: (\S+)", job)
+    assert group and group.group(1) == "conflict-rounds"
+    assert "cancel-in-progress: false" in job
+    assert "fetch-depth: 0" in job
+    checkouts = job.count("actions/checkout@")
+    assert checkouts == 1
+    assert job.count("persist-credentials: false") == checkouts
+    assert "token: ${{ secrets.GH_TOKEN }}" not in job
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in job
+    assert "npm install" not in job
+
+
 def test_a_comment_on_a_held_issue_does_not_trigger_refine():
     """The refine job no longer handles issue_comment events at all — the central
     comment router job is the sole issue_comment consumer. A comment on a

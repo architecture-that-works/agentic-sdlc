@@ -53,6 +53,9 @@
         # The owner merged or closed a PR held for approval (afk.yml)
         'Complete-HeldPR'
 
+        # After every merge, start a round for each held PR that now conflicts (afk.yml, #374)
+        'Start-ConflictRounds'
+
         # The single "is this issue already shipped" rule — afk.yml's pr-closed
         # cheap pre-check and Complete-HeldPR's own guard both call this (#275)
         'Test-IssueShipped'

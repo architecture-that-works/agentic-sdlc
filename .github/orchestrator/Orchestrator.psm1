@@ -140,11 +140,7 @@ function Invoke-Orchestration {
                     }
                     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
                     # Dispatch to the implement job so all implement runs stay in one queue.
-                    gh workflow run afk.yml `
-                        --repo $ctx.Repo `
-                        --ref $ctx.DefaultBranch `
-                        --field stage=implement `
-                        --field issue_number=$IssueNumber 2>&1 | Out-Null
+                    $null = Start-ImplementRound -IssueNumber $IssueNumber
                     Add-Comment -Number $IssueNumber -Body "· revision dispatched — implement pipeline will pick up the owner's change request"
                     return $true
                 }
