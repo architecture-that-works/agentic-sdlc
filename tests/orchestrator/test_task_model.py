@@ -66,7 +66,7 @@ def test_every_task_resolves_on_every_engine_row() -> None:
     )
     assert isinstance(data, dict)
     engines = {key.split("/")[0] for key in data}
-    assert {"claude", "gemini"} <= engines
+    assert engines == {"claude"}
     assert {
         "Refine",
         "Plan",

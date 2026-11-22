@@ -194,11 +194,7 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
     $writingPosted     = $false
     $testedOnce        = $false
 
-    $stream = if ($OrchestratorConfig.Engine -eq 'gemini') {
-        $prompt | agy --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1
-    } else {
-        $prompt | claude --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1
-    }
+    $stream = $prompt | claude --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1
 
     $stream | ForEach-Object {
         $raw = [string]$_
@@ -441,11 +437,7 @@ function Invoke-CommitAndPR {
     if (git diff --cached --name-only 2>&1) {
         $diff    = git diff --staged 2>&1 | Out-String
         $commitModel = Get-TaskModel -Task 'CommitMessage'
-        $message = if ($OrchestratorConfig.Engine -eq 'gemini') {
-            Get-GeminiCommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title" -Model $commitModel
-        } else {
-            Get-CommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title" -Model $commitModel
-        }
+        $message = Get-CommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title" -Model $commitModel
         $msgFile = New-TemporaryFile
         try {
             $message | Out-File $msgFile.FullName -Encoding utf8

@@ -82,7 +82,7 @@ Concepts explicitly deferred or rejected (prevents re-proposal in `plan`).
 
 ### AGENTS.md Persistence Rules
 
-`AGENTS.md` holds standing instructions that apply to every session (Claude and Gemini). It is loaded at the top of every conversation before any task begins. Contents: style preferences, response format rules, context initialisation order, provider-specific quirks. Never modify `AGENTS.md` during implementation — changes go through a `refine` session.
+`AGENTS.md` holds standing instructions that apply to every session, whichever engine runs it. It is loaded at the top of every conversation before any task begins. Contents: style preferences, response format rules, context initialisation order, provider-specific quirks. Never modify `AGENTS.md` during implementation — changes go through a `refine` session.
 
 ### ADR Format (MADR)
 

@@ -146,7 +146,7 @@ function Remove-ClaudeNoise {
 }
 
 # Commit message — Claude primary, fallback to the supplied message.
-# Future: add Gemini as secondary between Claude and fallback.
+# Claude is the one engine; a further engine is added as one complete definition once it fits the whole flow.
 function Get-CommitMessage {
     param([string]$Diff, [string]$FallbackMessage, [Parameter(Mandatory)][string]$Model)
 

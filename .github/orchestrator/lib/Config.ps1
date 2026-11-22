@@ -48,20 +48,14 @@ $OrchestratorConfig = @{
     Engine = 'claude'
 
     # One row per engine: its model for each tier.
-    # Model IDs — Source: Anthropic models overview and Google Gemini models page,
-    # checked 2026-11-20.
-    # The gemini row is not yet compatible with the flow and must not be selected;
+    # Model IDs — Source: Anthropic models overview, checked 2026-11-20.
+    # A further engine is added as one complete definition once it fits the whole flow;
     # how an engine is enabled is decided in "Start every engine through one function".
     Engines = @{
         claude = @{
             routine  = 'claude-haiku-5-5'
             standard = 'claude-sonnet-5-5'
             complex  = 'claude-opus-5-5'
-        }
-        gemini = @{
-            routine  = 'gemini-3.5-flash'
-            standard = 'gemini-3.5-flash'
-            complex  = 'gemini-3.1-pro'
         }
     }
 
