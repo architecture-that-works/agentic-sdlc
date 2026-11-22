@@ -41,7 +41,7 @@ through its callers).
 
 ## Primary Outputs
 
-- Passing pytest suite (`uv run pytest` exits 0)
+- The tests of what you changed pass; the full suite passes in the pipeline's verification run
 - Minimal implementation code that satisfies acceptance criteria
 - Refactored modules with deeper interfaces and less duplication
 - A closing note of one or two lines: `Left undone:` what you skipped or did not check; `Issues discovered:` what the owner must know — a risk, a bug outside scope, a stale document. In the pipeline these are the last bullets of the implementation summary, posted to the issue for `review` and the owner
@@ -62,6 +62,7 @@ Write exactly one pytest test that verifies a specific behaviour through a publi
 
 **Rules:**
 - Test must fail before any implementation is written — verify this
+- Run the tests of what you changed (a test, a file or a folder), not the whole suite; the pipeline's verification runs the full suite
 - Test targets a public interface, never internal implementation details
 - Mocks are allowed only at system boundaries: external APIs, databases, time (`datetime.now`), filesystem
 - Internal collaborators are never mocked — test through them
@@ -135,7 +136,7 @@ Every test must map to a user story or testing decision in the Lean PRD. If a te
 ## Common Mistakes
 
 **Writing implementation before the test is confirmed failing.**
-Run `pytest -x` first. If it passes without any implementation, the test is testing nothing.
+Run the new test with `uv run pytest -x <file>::<test>` first. If it passes without any implementation, the test is testing nothing.
 
 **Mocking internal collaborators.**
 Internal mocks make tests pass without proving behaviour. When the implementation changes, the mock masks the regression. Only mock at system boundaries.

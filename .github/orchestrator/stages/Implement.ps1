@@ -173,8 +173,8 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
 2. Read the relevant parts of the codebase before writing any code.
 3. Implement every requirement listed in the issue body completely.
 4. Follow all conventions in AGENTS.md. The skill files in ``.agents/skills/`` are your constraint documents — locate the relevant skill via the Skills index in AGENTS.md, then read its SKILL.md (and REFERENCE.md / EXAMPLES.md if linked) before implementing.
-5. After implementation run ``uv run pytest`` to verify the test suite passes.
-6. If tests fail, diagnose and fix the root cause before stopping.
+5. After implementation run the tests of what you changed (a test, a test file or a folder) with ``uv run pytest <target>``, and run ``uv run ruff check``. Do not run the whole suite: the orchestrator runs it after you finish.
+6. If the tests you ran fail, diagnose and fix the root cause before stopping.
 7. Do NOT commit any changes — only implement.
 8. End your response with bullets — the orchestrator posts them to the issue: one per file you
    changed, then ``- Left undone:`` (what you skipped or did not check) and ``- Issues discovered:``
