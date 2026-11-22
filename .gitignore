@@ -1,12 +1,7 @@
-Preference
-.agents/skills/microsoft-foundry
-.agents/.skill-lock.json
-
 # Python
 __pycache__/
 *.py[cod]
 .venv/
-*.code-workspace
 
 # Environment
 .env
@@ -19,8 +14,6 @@ __pycache__/
 *credential*
 !docs/adr/*secret*
 !docs/adr/*credential*
-
-# Kept only transiently in the feature branch working tree; never committed/merged.
 
 # Build
 dist/
@@ -39,7 +32,8 @@ htmlcov/
 *.log
 logs/
 
-# Claude Code — local overrides (personal paths, machine-specific approvals)
+# Editor and Claude Code — local overrides (workspaces, personal paths, machine-specific approvals)
+*.code-workspace
 .claude/settings.local.json
 
 # Local working material: never part of the repository
