@@ -4,8 +4,8 @@ How an idea becomes a merged pull request in this repository.
 
 ## Propose a change
 
-Open an issue with the template: **Issues → New issue**. Fill in the four headings (Goal,
-Description, Requirements, Acceptance Criteria). Do not set labels; the workflow sets them.
+Open an issue with the template (**Issues → New issue**, `.github/ISSUE_TEMPLATE/issue.md`).
+Do not set labels; the workflow sets them.
 
 ## What happens next
 
@@ -19,18 +19,20 @@ Description, Requirements, Acceptance Criteria). Do not set labels; the workflow
 
 ## Whose issues the workflow acts on
 
-Only issues from authors whose association with this repository is owner, member or
-collaborator. Issues from anyone else are not acted on.
+Only issues from authors who are owner, member or collaborator of this repository. Issues from
+anyone else are not acted on.
 
 ## A pull request made by hand
 
-- The description comes from the pull request template, `.github/PULL_REQUEST_TEMPLATE.md`:
-  Summary, Left undone, Issues discovered and Validation, ending with `Closes #<issue>`.
-  GitHub fills it into a new pull request; write under each heading what its comment asks.
-  A pull request the workflow opens fills the same sections itself.
-- All checks must pass: tests, lint, format and the `check-*` validators.
-- A pull request from a fork needs approval before the workflows run.
-- Commit messages follow `<type>(#<issue>): <subject>`.
+- The description follows the pull request template, `.github/PULL_REQUEST_TEMPLATE.md`: write
+  under each heading what its comment asks, ending with `Closes #<issue>` when there is an
+  issue.
+- All checks must pass: tests, lint, format and the `check-*` validators. A pull request from
+  a fork needs approval before the workflows run.
+- The title becomes the commit on the default branch: `<type>(#<issue>): <subject>`, or
+  `<type>: <subject>` when there is no issue.
+- A branch `feature/<number>-…` belongs to that issue; the workflow acts on it when the pull
+  request closes. Without an issue, use another branch name.
 
 ## Reporting a vulnerability
 

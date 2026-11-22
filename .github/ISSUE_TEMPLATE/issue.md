@@ -1,6 +1,6 @@
 ---
 name: Change request
-about: Propose a change in the four-heading shape the workflow works from
+about: Propose a change in the shape the workflow works from
 ---
 
 **Goal**: One non-technical sentence on the outcome you want.
@@ -8,4 +8,4 @@ about: Propose a change in the four-heading shape the workflow works from
 **Requirements**:
 1. Numbered, concrete steps someone else could carry out.
 **Acceptance Criteria**:
-- Checkable statements that say when the work is finished.
+- [ ] Checkable statements that say when the work is finished.
