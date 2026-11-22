@@ -9,15 +9,15 @@ description: Use when converting raw owner thoughts into a pipeline-ready GitHub
 
 Turns unstructured owner thoughts into a well-formed GitHub Issue that the AFK pipeline immediately recognises. The agent drafts a title and body in the ISSUES.md schema, presents the draft for owner confirmation, and only then creates the issue — no labels, no reformatting needed downstream.
 
-**Primary artifact:** A GitHub Issue with Goal / Description / Requirements / Acceptance Criteria headings and no labels.
+**Primary artifact:** A GitHub Issue whose body follows the issue template, `.github/ISSUE_TEMPLATE/issue.md`, and no labels.
 
 ## Scope
 
-**Owns:** Raw-thought → structured draft (Goal / Description / Requirements / Acceptance Criteria), owner confirmation gate, `gh issue create` execution with no labels.
+**Owns:** Raw-thought → structured draft (the issue template's headings), owner confirmation gate, `gh issue create` execution with no labels.
 
 **Does not own:** Pipeline stages (→ `refine`, `architect`, `plan`, `implement`, `review`, `ship`), label assignment of any kind (→ orchestrator), editing or updating existing issues, unattended / AFK issue creation.
 
-**Interfaces with:** `refine` — the AFK pipeline's refine stage reads the issue body this skill writes. The four-heading schema is the contract between intake and refine.
+**Interfaces with:** `refine` — the AFK pipeline's refine stage reads the issue body this skill writes. The issue template, `.github/ISSUE_TEMPLATE/issue.md`, is the contract between intake and refine.
 
 ## When to Use
 
@@ -37,7 +37,7 @@ Turns unstructured owner thoughts into a well-formed GitHub Issue that the AFK p
 
 - A GitHub Issue URL with:
   - A short action-oriented title
-  - Body structured as Goal / Description / Requirements / Acceptance Criteria
+  - Body written under the issue template's headings
   - No labels
 
 ## Core Pattern
@@ -50,7 +50,7 @@ Read the owner's input in full. Do not ask clarifying questions before drafting.
 
 Produce one draft whose body is the issue template, `.github/ISSUE_TEMPLATE/issue.md`: every heading below its front matter, in its order and style, filled from the owner's input. The template is the one place the headings are written — read it rather than recalling them.
 
-Fill every heading. If the owner's input does not supply enough for Requirements or Acceptance Criteria, use explicit placeholder prompts (see REFERENCE.md § Body Schema Template) — never omit a heading.
+Fill every heading. If the owner's input does not supply enough for a heading, use explicit placeholder prompts (see REFERENCE.md § Body Schema Template) — never omit a heading.
 
 ### Step 3 — Present draft
 

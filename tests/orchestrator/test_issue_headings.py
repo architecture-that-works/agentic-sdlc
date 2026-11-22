@@ -103,6 +103,12 @@ def test_the_real_template_has_headings() -> None:
     assert out["err"] is None and len(out["names"]) >= 1
 
 
+def test_acceptance_criteria_heading_is_a_checkbox_list() -> None:
+    out = _headings(REPO_ROOT)
+    styles = dict(zip(out["names"], out["styles"]))
+    assert styles["Acceptance Criteria"] == "checkbox"
+
+
 # ── Refine ───────────────────────────────────────────────────────────────────
 
 _REFINE_FAKES = r"""

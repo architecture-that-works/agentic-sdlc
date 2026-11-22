@@ -86,15 +86,7 @@ Minimum correct invocation:
 ```bash
 gh issue create \
   --title "Short action-oriented title" \
-  --body "**Goal**: ...
-
-**Description**: ...
-
-**Requirements**:
-1. ...
-
-**Acceptance Criteria**:
-- ..."
+  --body "<the issue template's body, filled in under its headings>"
 ```
 
 **Never add:**
