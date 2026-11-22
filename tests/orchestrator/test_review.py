@@ -439,10 +439,10 @@ $answer = Invoke-ClaudeStreaming -Prompt 't' -Label 'Review' -Model 'm' -JsonSch
 
 def test_non_claude_engine_fails_the_review_with_an_explicit_reason() -> None:
     out = _run(
-        _stage_fakes([]) + "$OrchestratorConfig.Engine = 'gemini'\n" + _REPORT_STAGE
+        _stage_fakes([]) + "$OrchestratorConfig.Engine = 'other'\n" + _REPORT_STAGE
     )
     assert out["err"] == (
-        "the review needs a checked answer and the gemini engine cannot give one"
+        "the review needs a checked answer and the other engine cannot give one"
     )
     assert out["calls"] == 0
     assert out["comments"] == []

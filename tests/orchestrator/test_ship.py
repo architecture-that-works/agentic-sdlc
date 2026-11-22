@@ -396,8 +396,6 @@ function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:" +
 function script:git    { $script:Calls.Add('git ' + ($args -join ' ')); $global:LASTEXITCODE = 0
     if ($args[0] -eq 'rev-parse') { if ($args -contains '--abbrev-ref') { 'feature/1-x' } else { $script:Sha } } }
 function script:claude { $script:Calls.Add('claude ' + ($args -join ' ')); $global:LASTEXITCODE = 0; 'NO_CHANGES' }
-function script:agy    { $script:Calls.Add('agy ' + ($args -join ' '));    $global:LASTEXITCODE = 0; 'NO_CHANGES' }
-function script:gemini { $script:Calls.Add('gemini ' + ($args -join ' ')); $global:LASTEXITCODE = 0; 'NO_CHANGES' }
 function script:gh { $script:Calls.Add('gh ' + ($args -join ' ')); $global:LASTEXITCODE = 0
     if ($args[0] -eq 'api') { return Invoke-GhApi -Argv @($args) }
     switch ($args[1]) {
@@ -422,7 +420,7 @@ def _after_merge(call: str, tmp_path: Path) -> tuple[list[str], list[str], list[
     merge = next((i for i, c in enumerate(calls) if c.startswith("gh pr merge")), -1)
     after = calls[merge + 1 :]
     git_after = [c for c in after if c.startswith("git ")]
-    models = [c for c in calls if c.split(" ", 1)[0] in {"claude", "agy", "gemini"}]
+    models = [c for c in calls if c.split(" ", 1)[0] == "claude"]
     return out["log"], git_after, models
 
 

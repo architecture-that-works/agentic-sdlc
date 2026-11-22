@@ -116,7 +116,6 @@ def test_probe_without_a_runnable_cli_is_not_a_limit() -> None:
     out = _run(
         r"""
 function script:claude { throw "The term 'claude' is not recognized" }
-function script:agy    { throw "The term 'agy' is not recognized" }
 [pscustomobject]@{ limited = ($null -ne (Test-EngineUsageLimit)) } | ConvertTo-Json -Compress
 """
     )

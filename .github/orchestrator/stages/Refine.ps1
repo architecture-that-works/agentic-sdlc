@@ -114,11 +114,7 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 {"body":"<full issue body>","estimate":<number or null>,"priority":"<one of the allowed values or null>"}
 "@
 
-        $raw = if ($OrchestratorConfig.Engine -eq 'gemini') {
-            Remove-GeminiNoise -Text ($prompt | agy --model (Get-TaskModel -Task 'Refine') 2>&1 | Out-String)
-        } else {
-            Remove-ClaudeNoise -Text ($prompt | claude --model (Get-TaskModel -Task 'Refine') 2>&1 | Out-String)
-        }
+        $raw = Remove-ClaudeNoise -Text ($prompt | claude --model (Get-TaskModel -Task 'Refine') 2>&1 | Out-String)
         if ($LASTEXITCODE -ne 0) { throw "Claude refinement failed: $raw" }
 
         $json = $raw.Trim()
@@ -269,11 +265,7 @@ Return ONLY JSON, no fences:
 {"answers":[{"id":1,"status":"answered","decision":"..."},{"id":2,"status":"open","follow_up":"..."}],"new_questions":[{"text":"...","recommendation":"...","alternatives":["...","..."]}]}
 "@
 
-    $raw = if ($OrchestratorConfig.Engine -eq 'gemini') {
-        Remove-GeminiNoise -Text ($prompt | agy --model (Get-TaskModel -Task 'Refine') 2>&1 | Out-String)
-    } else {
-        Remove-ClaudeNoise -Text ($prompt | claude --model (Get-TaskModel -Task 'Refine') 2>&1 | Out-String)
-    }
+    $raw = Remove-ClaudeNoise -Text ($prompt | claude --model (Get-TaskModel -Task 'Refine') 2>&1 | Out-String)
     $parsed = $null
     if ($LASTEXITCODE -eq 0) {
         try { $parsed = (ConvertFrom-ClaudeJsonResponse -Raw $raw) | ConvertFrom-Json -ErrorAction Stop } catch { $parsed = $null }
@@ -386,11 +378,7 @@ Return ONLY valid JSON — no fences, no prose — matching this shape:
 "@
 
     # No plan, no readiness: a failure fails this attempt and the conductor retries.
-    $raw = if ($OrchestratorConfig.Engine -eq 'gemini') {
-        Remove-GeminiNoise -Text ($prompt | agy --model (Get-TaskModel -Task 'Plan') 2>&1 | Out-String)
-    } else {
-        Remove-ClaudeNoise -Text ($prompt | claude --model (Get-TaskModel -Task 'Plan') 2>&1 | Out-String)
-    }
+    $raw = Remove-ClaudeNoise -Text ($prompt | claude --model (Get-TaskModel -Task 'Plan') 2>&1 | Out-String)
     if ($LASTEXITCODE -ne 0 -or -not "$raw".Trim()) {
         throw "Plan: the engine returned no implementation plan (exit code $LASTEXITCODE):`n$("$raw".Trim())"
     }
