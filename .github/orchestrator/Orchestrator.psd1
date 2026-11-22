@@ -69,6 +69,9 @@
         'Set-EnvVar'
         'Get-ResolvedOwner'
 
+        # setup.ps1 writes a project's .github/CODEOWNERS from GovernancePaths (#393)
+        'Write-CodeOwners'
+
         # The issue template's headings — sync.ps1 refuses a block that lacks one
         # (#369). The template reader itself stays private.
         'Get-IssueHeadings'

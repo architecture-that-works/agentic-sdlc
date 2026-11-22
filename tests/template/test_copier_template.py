@@ -3,6 +3,7 @@
 import re
 import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 import copier
@@ -220,6 +221,57 @@ def test_pre_commit_config_inherited_via_copier(tmp_path: Path) -> None:
     assert "language: system" in content, (
         ".pre-commit-config.yaml must use language: system so uv run resolves "
         "the project ruff without a separate pre-commit-managed environment"
+    )
+
+
+def test_licence_names_the_project_and_codeowners_stays_home(tmp_path: Path) -> None:
+    # #393: a project gets the template's MIT text in its own name, and none of the
+    # template's code owners — task setup writes a project's .github/CODEOWNERS.
+    copier.run_copy(
+        src_path=str(TEMPLATE_ROOT),
+        dst_path=str(tmp_path),
+        data={"project_name": "acme-widget"},
+        defaults=True,
+        unsafe=True,
+        overwrite=True,
+        vcs_ref="HEAD",
+    )
+
+    licence = tmp_path / "LICENSE"
+    assert licence.exists(), "Generated project missing LICENSE"
+    text = licence.read_text()
+    template_text = (TEMPLATE_ROOT / "LICENSE").read_text()
+    assert text.startswith("MIT License\n"), f"LICENSE is not MIT:\n{text}"
+
+    copyright_lines = [ln for ln in text.splitlines() if ln.startswith("Copyright")]
+    assert len(copyright_lines) == 1, f"expected one copyright line:\n{text}"
+    # The year comes from Copier's built-in strftime filter (jinja2-ansible-filters,
+    # a Copier dependency), so generation needs no extra package.
+    match = re.fullmatch(
+        r"Copyright \(c\) (\d{4}) acme-widget contributors", copyright_lines[0]
+    )
+    assert match, f"copyright line must be year + project only: {copyright_lines[0]!r}"
+    assert abs(int(match.group(1)) - datetime.now().year) <= 1, (
+        f"copyright year is not the generation year: {copyright_lines[0]!r}"
+    )
+
+    # Everything but the copyright line is the template's MIT text, word for word.
+    def _body(licence_text: str) -> list[str]:
+        return [
+            ln for ln in licence_text.splitlines() if not ln.startswith("Copyright")
+        ]
+
+    assert _body(text) == _body(template_text), "LICENSE must keep the MIT text"
+    for template_line in template_text.splitlines():
+        if template_line.startswith("Copyright"):
+            assert template_line not in text, (
+                "LICENSE must not carry the template's own copyright line"
+            )
+    assert "{{" not in text, "LICENSE must not contain Jinja2 syntax"
+    assert not (tmp_path / "LICENSE.jinja2").exists()
+
+    assert not (tmp_path / ".github" / "CODEOWNERS").exists(), (
+        "The template's own .github/CODEOWNERS must not be copied into a project"
     )
 
 
