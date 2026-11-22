@@ -3,6 +3,7 @@
 import re
 import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 import copier
@@ -244,9 +245,15 @@ def test_licence_names_the_project_and_codeowners_stays_home(tmp_path: Path) -> 
 
     copyright_lines = [ln for ln in text.splitlines() if ln.startswith("Copyright")]
     assert len(copyright_lines) == 1, f"expected one copyright line:\n{text}"
-    assert re.fullmatch(
-        r"Copyright \(c\) (\d{4} )?acme-widget contributors", copyright_lines[0]
-    ), f"copyright line must name the project only: {copyright_lines[0]!r}"
+    # The year comes from Copier's built-in strftime filter (jinja2-ansible-filters,
+    # a Copier dependency), so generation needs no extra package.
+    match = re.fullmatch(
+        r"Copyright \(c\) (\d{4}) acme-widget contributors", copyright_lines[0]
+    )
+    assert match, f"copyright line must be year + project only: {copyright_lines[0]!r}"
+    assert abs(int(match.group(1)) - datetime.now().year) <= 1, (
+        f"copyright year is not the generation year: {copyright_lines[0]!r}"
+    )
 
     # Everything but the copyright line is the template's MIT text, word for word.
     def _body(licence_text: str) -> list[str]:
