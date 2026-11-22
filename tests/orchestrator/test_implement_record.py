@@ -74,8 +74,17 @@ def test_skill_read_detected() -> None:
     assert out["pytestRun"] is False
 
 
-def test_pytest_run_detected() -> None:
-    out = _run_procedure([_bash_event("uv run pytest --tb=short -q")])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "uv run pytest --tb=short -q",
+        "uv run pytest tests/x/test_y.py",
+        "uv run pytest tests/x/test_y.py::test_z",
+        "uv run pytest -x tests/x",
+    ],
+)
+def test_pytest_run_detected(command: str) -> None:
+    out = _run_procedure([_bash_event(command)])
     assert out["pytestRun"] is True
     assert out["agentsMdRead"] is False
     assert out["contextMdRead"] is False
