@@ -5,7 +5,8 @@
     Labels and agent:* state transitions, issue comments, feature branches, the
     Projects v2 board (items, lanes, fields), and the issue-body carriers: the
     AGENT-STATE planning JSON (ADR-011), the AGENT-BRIEF section, and
-    HITL child issues. Label reads/writes use REST (issues/{n}/labels); board ops
+    HITL child issues, and the project's .github/CODEOWNERS (Write-CodeOwners,
+    once from setup.ps1). Label reads/writes use REST (issues/{n}/labels); board ops
     are GraphQL-only (no REST API) and cache the item list per process (ADR-012).
     Loaded after Config.ps1 + Util.ps1.
 #>
@@ -1240,4 +1241,38 @@ function Set-ProjectPriority {
     } else {
         Write-Log "  Project field Priority = $Priority" -Color DarkGray
     }
+}
+
+# ── Code owners (written once by setup.ps1, #393) ────────────────────────────
+# A project's .github/CODEOWNERS is written from GovernancePaths — the one list of
+# governance paths — and never kept as a second hand-written list. Each entry is
+# owned by the GitHub login of whoever runs setup. A GovernancePaths entry ending in
+# `/*` is written as its folder: in CODEOWNERS `dir/*` covers only the files directly
+# in dir, `dir/` covers everything below it. An existing file is never touched — the
+# project owns it once it exists. Returns the path written, or $null when it wrote
+# nothing.
+function Write-CodeOwners {
+    param([string]$Root = $_Root)
+    $path = Join-Path $Root '.github/CODEOWNERS'
+    if (Test-Path -LiteralPath $path) {
+        Write-Log "  .github/CODEOWNERS exists — left as it is." -Color DarkGray
+        return $null
+    }
+    $login = "$(gh api user --jq '.login' 2>$null)".Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $login) {
+        Write-Log "  ⚠️ Could not read your GitHub login (gh api user) — .github/CODEOWNERS not written. Re-run: task setup" -Color Yellow
+        return $null
+    }
+    $lines = @(
+        '# Written by task setup from GovernancePaths in .github/orchestrator/lib/Config.ps1.'
+        '# Edit freely — setup never overwrites this file.'
+    )
+    foreach ($entry in @($OrchestratorConfig.GovernancePaths)) {
+        $pattern = if ($entry.EndsWith('/*')) { $entry.Substring(0, $entry.Length - 1) } else { $entry }
+        $lines += "$pattern @$login"
+    }
+    $null = New-Item -ItemType Directory -Force -Path (Split-Path $path)
+    Set-Content -LiteralPath $path -Value $lines -Encoding utf8NoBOM
+    Write-Log "  ✅ Wrote .github/CODEOWNERS ($(@($OrchestratorConfig.GovernancePaths).Count) paths, owner @$login)" -Color Green
+    return $path
 }

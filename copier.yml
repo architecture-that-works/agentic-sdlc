@@ -9,7 +9,11 @@ description:
 
 _templates_suffix: ".jinja2"
 
-# A root file with a .jinja2 twin is dual-use. tests/template/ tests the template itself
+# A root file with a .jinja2 twin is dual-use: the root file is the template's own and
+# Copier skips it, rendering the twin in its place (pyproject.toml, LICENSE — a project's
+# MIT licence names "<project_name> contributors"). .github/CODEOWNERS is the template's
+# own and never travels; a project's is written by `task setup` from GovernancePaths in
+# .github/orchestrator/lib/Config.ps1 (#393). tests/template/ tests the template itself
 # and is not copied into a project.
 _exclude:
     - ".git"
@@ -20,3 +24,4 @@ _exclude:
     - "logs"
     - ".template"
     - "tests/template"
+    - ".github/CODEOWNERS"

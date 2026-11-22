@@ -26,6 +26,7 @@ uvx copier copy gh:architecture-that-works/agentic-sdlc path/to/new-project
 ```
 
 Copier prompts for `project_name` and `description`. Then `uv sync` and `uv run pytest`.
+A project starts with an MIT `LICENSE` in its own name (`<project_name> contributors`) and gets its `.github/CODEOWNERS` from `task setup`, written from `GovernancePaths` and owned by whoever runs it.
 
 To check the hello-world server: `docker build -t app:dev . && docker run --rm -p 8000:8000 app:dev`,
 then open `http://localhost:8000` (project page) and `curl http://localhost:8000/healthz` (`ok`).

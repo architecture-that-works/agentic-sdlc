@@ -9,6 +9,8 @@
       1. Writes the discovered IDs back to .env for local use.
       2. Sets matching GitHub Actions repository variables for afk.yml (the
          Orchestrator library's Move-ToLane reads them via env to move board lanes).
+      3. Provisions the base labels.
+      4. Writes .github/CODEOWNERS from GovernancePaths when the project has none.
 
     Run once after creating the GitHub Project and setting KANBAN_PROJECT_NUMBER
     and KANBAN_PROJECT_OWNER in .env.
@@ -319,6 +321,15 @@ if ($LASTEXITCODE -ne 0 -or -not $_LabelRepo) {
         }
     }
 }
+
+# ── Code owners ───────────────────────────────────────────────────────────────
+# One line per GovernancePaths entry (lib/Config.ps1), owned by whoever runs setup.
+# Written only when the project has no .github/CODEOWNERS; an existing one is kept.
+
+Write-Host ""
+Write-Host "👤 Writing .github/CODEOWNERS from GovernancePaths..." -ForegroundColor Cyan
+Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
+$null = Write-CodeOwners -Root $_Root
 
 Write-Host ""
 Write-Host "✅ Setup complete. Run 'pwsh -NoProfile -File .github/tasks/hitl.ps1' to pick up backlog issues." -ForegroundColor Green
