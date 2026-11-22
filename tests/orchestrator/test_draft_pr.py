@@ -307,11 +307,19 @@ function script:Get-IssueState { param($IssueNumber) $null }
 function script:Update-Branch { param($IssueNumber, $Branch) [pscustomobject]@{ UpToDate = $true; Merged = $false; Conflicts = @() } }
 function script:Set-AgentState { param($IssueNumber, $Label) $script:Log.Add("state:$Label") }
 function script:Add-Comment { param($Number, $Body) $script:Log.Add("comment:$Body") }
-function script:git { $global:LASTEXITCODE = 0; if ($args[0] -eq 'rev-parse') { 'feature/1-x' } }
+$script:Sha = 'a' * 40
+function script:git { $global:LASTEXITCODE = 0
+    if ($args[0] -eq 'rev-parse') { if ($args -contains '--abbrev-ref') { 'feature/1-x' } else { $script:Sha } } }
+# Every required check passed on the pushed commit (#373), one JSON run per line.
 function script:gh { $global:LASTEXITCODE = 0
+    if ($args[0] -eq 'api' -and "$args" -like '*/check-runs*') {
+        $id = 0
+        return @((Get-OrchestratorContext).RequiredChecks | ForEach-Object { $id++
+            [pscustomobject]@{ id = $id; name = $_; status = 'completed'; conclusion = 'success'
+                               head_sha = $script:Sha; details_url = '' } | ConvertTo-Json -Compress })
+    }
     switch ($args[1]) {
         'view'   { 'feature/1-x' }
-        'checks' { '[{"name":"test","bucket":"pass"}]' }
         'diff'   { $script:Diff }
         'ready'  { $script:Log.Add("gh $args"); if ($script:ReadyFails) { $global:LASTEXITCODE = 1; $script:ReadyFails } }
         'merge'  { $script:Log.Add('merged') }
