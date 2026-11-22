@@ -35,6 +35,10 @@ def _governance_paths() -> list[str]:
 def _write_codeowners(root: Path, login: str) -> subprocess.CompletedProcess[str]:
     script = f"""
 $ErrorActionPreference = 'Stop'
+# Pin what Config.ps1 resolves on import, so loading the module never falls back
+# to `gh repo view` (the temp dir has no git remote, and CI sets no default branch).
+$env:GITHUB_REPOSITORY = 'octocat/sandbox'
+$env:GITHUB_DEFAULT_BRANCH = 'main'
 function global:gh {{
     $global:LASTEXITCODE = 0
     if (($args -join ' ') -like 'api user*') {{ return '{login}' }}
