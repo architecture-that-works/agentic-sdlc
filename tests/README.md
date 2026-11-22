@@ -15,6 +15,9 @@ uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
 # Stop on first failure:
 uv run pytest -x
 
+# One test at a time, in order — when a failure has to be read in sequence:
+uv run pytest -n 0
+
 # Run a single file:
 uv run pytest tests/test_main.py
 ```

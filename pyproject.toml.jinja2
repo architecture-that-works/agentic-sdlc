@@ -20,11 +20,13 @@ dev = [
     "copier>=9.0.0",
     "pre-commit>=4.0.0",
     "hypothesis>=6.0.0",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.pytest.ini_options]
 # Evals call a model: opt in with `uv run pytest -m eval` (a later -m overrides this one).
-addopts = ["-m", "not eval"]
+# Runs on every core (`-n 0` runs one test at a time) and names the 15 slowest tests.
+addopts = ["-m", "not eval", "-n", "auto", "--durations=15"]
 markers = [
     "eval: runs one stage's instructions on a stored case and checks the outcome in code; calls Claude (run with -m eval)",
 ]
