@@ -1,8 +1,8 @@
-"""Procedure-derivation from agent stream events — lib/Util.ps1 Get-ProcedureRecord.
+"""Procedure-derivation from the agent's tool calls — lib/Util.ps1 Get-ProcedureRecord.
 
-Each test calls Get-ProcedureRecord with a minimal stream-JSON fixture that
-contains the one tool_use block needed to set (or leave unset) a single flag,
-and asserts exactly that field. One test per Procedure: field, no more.
+Each test calls Get-ProcedureRecord with the one tool call ({ Name; Input }, as
+Invoke-EngineTask hands it to its -OnToolCall callback) needed to set (or leave
+unset) a single flag, and asserts exactly that field. One test per Procedure: field.
 """
 
 import json
@@ -18,16 +18,16 @@ MODULE = Path(__file__).parents[2] / ".github" / "orchestrator" / "Orchestrator.
 pytestmark = pytest.mark.skipif(not shutil.which("pwsh"), reason="pwsh not available")
 
 
-def _run_procedure(events: list) -> dict:
-    events_json = json.dumps(events)
+def _run_procedure(calls: list) -> dict:
+    calls_json = json.dumps(calls)
     script = (
         "$env:GITHUB_REPOSITORY = 'octocat/sandbox'\n"
         "$env:GITHUB_DEFAULT_BRANCH = 'main'\n"
         f"Import-Module '{MODULE}' -Force -DisableNameChecking\n"
         "& (Get-Module Orchestrator) {\n"
         "function script:Write-Log { param($Message, $Color) }\n"
-        f"$events = '{events_json}' | ConvertFrom-Json\n"
-        "$r = Get-ProcedureRecord -StreamEvents $events\n"
+        f"$calls = '{calls_json}' | ConvertFrom-Json\n"
+        "$r = Get-ProcedureRecord -ToolCalls $calls\n"
         "[pscustomobject]@{\n"
         "    agentsMdRead  = [bool]$r.agentsMdRead\n"
         "    contextMdRead = [bool]$r.contextMdRead\n"
@@ -49,17 +49,11 @@ def _run_procedure(events: list) -> dict:
 
 
 def _read_event(file_path: str) -> dict:
-    return {
-        "content": [
-            {"type": "tool_use", "name": "Read", "input": {"file_path": file_path}}
-        ]
-    }
+    return {"Name": "Read", "Input": {"file_path": file_path}}
 
 
 def _bash_event(command: str) -> dict:
-    return {
-        "content": [{"type": "tool_use", "name": "Bash", "input": {"command": command}}]
-    }
+    return {"Name": "Bash", "Input": {"command": command}}
 
 
 def test_agents_md_read_detected() -> None:

@@ -7,7 +7,7 @@
     Orchestrator library — loaded by Orchestrator.psm1; Invoke-Review is called by Orchestrator.psm1.
 
     Retrieves the PR diff and the linked issue's acceptance criteria, asks
-    Claude Code to review the implementation, and posts the verdict as a
+    the engine to review the implementation, and posts the verdict as a
     comment on both the PR and the issue.
 
     The answer is checked by the engine against .agents/skills/review/answer.schema.json:
@@ -48,14 +48,13 @@ function Invoke-Review {
         if ($prBody -match '#(\d+)') { $IssueNumber = [int]$Matches[1] }
     }
 
-    # The verdict is a checked field (answer.schema.json); only Claude's --json-schema gives one.
+    # The verdict is a checked field (answer.schema.json); only the claude engine gives one.
     if ($OrchestratorConfig.Engine -ne 'claude') {
         throw "the review needs a checked answer and the $($OrchestratorConfig.Engine) engine cannot give one"
     }
 
-    $sp          = Get-IssueEstimate -IssueNumber $IssueNumber
-    $reviewModel = Get-TaskModel -Task 'Review'
-    Write-Log "▶ Review — issue #$IssueNumber / PR #$PRNumber  model=$reviewModel  SP=$sp" -Color Cyan
+    $sp = Get-IssueEstimate -IssueNumber $IssueNumber
+    Write-Log "▶ Review — issue #$IssueNumber / PR #$PRNumber  SP=$sp" -Color Cyan
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:reviewing'
     Add-Comment -Number $IssueNumber -Body "· reviewing PR #$PRNumber"
 
@@ -104,14 +103,16 @@ Your answer has two fields, checked against the skill's answer.schema.json:
     $schema = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '../../../.agents/skills/review/answer.schema.json') |
               ConvertFrom-Json | ConvertTo-Json -Depth 20 -Compress
 
-    try {
-        $answer = Invoke-ClaudeStreaming -Prompt $prompt -AllowedTools 'Read,Glob,Grep' -Label 'Review' -Model $reviewModel -MaxTurns $scaledTurns -JsonSchema $schema
-    } catch {
-        if ($_.Exception.Message -match 'ran out of turns') {
-            throw "Review ran out of turns on $changedFileCount changed file(s) — retry needs a larger budget or a smaller PR."
-        }
-        throw
+    $run = Invoke-EngineTask -Task 'Review' -Prompt $prompt -Label 'Review' `
+        -Tools 'Read', 'Glob', 'Grep' -MaxTurns $scaledTurns -Schema $schema
+    if ($run.Outcome -eq 'max_turns') {
+        throw "Review ran out of turns on $changedFileCount changed file(s) — retry needs a larger budget or a smaller PR."
     }
+    if ($run.Outcome -ne 'finished') {
+        $why = if ("$($run.Cause)" -match 'no checked answer') { $run.Cause } else { "Review failed: $($run.Cause)" }
+        throw $why
+    }
+    $answer = $run.Answer
     if ($answer.verdict -notin 'approved', 'rejected') {
         throw "Review produced no checked answer: verdict '$($answer.verdict)' is not approved or rejected"
     }

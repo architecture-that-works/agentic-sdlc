@@ -12,9 +12,9 @@
     issue reaches Implementing it is refined, architected and planned, so this lane
     only builds and ships:
 
-    Phase 1 Develop -- Claude Code implements every requirement; verifies with
+    Phase 1 Develop -- the engine implements every requirement; verifies with
                        uv run pytest.
-    Phase 2 PR      -- commits (Claude-generated message), pushes, opens the PR or
+    Phase 2 PR      -- commits (engine-generated message), pushes, opens the PR or
                        rewrites its description, from the pull request template.
 
     Invoke-Implement opens with a thin readiness re-check (belt-and-suspenders):
@@ -184,66 +184,44 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
 
     $sp       = Get-IssueEstimate -IssueNumber $Number
     $devTask  = Get-ImplementTask -Estimate $sp
-    $devModel = Get-TaskModel -Task $devTask
     $devTurns = Get-ImplementMaxTurns -Estimate $sp
-    Write-Log "  Model: $devModel ($devTask)  SP=$sp  max-turns=$devTurns" -Color DarkGray
+    Write-Log "  Task: $devTask  SP=$sp  max-turns=$devTurns" -Color DarkGray
 
-    $allText           = [System.Text.StringBuilder]::new()
-    $streamEvents      = [System.Collections.Generic.List[object]]::new()
-    $explorationPosted = $false
-    $writingPosted     = $false
-    $testedOnce        = $false
-
-    $stream = $prompt | claude --model $devModel --allowedTools "Read,Write,Edit,Bash,Glob,Grep" --max-turns $devTurns --output-format stream-json --verbose 2>&1
-
-    $stream | ForEach-Object {
-        $raw = [string]$_
-        try {
-            $ev = $raw | ConvertFrom-Json -ErrorAction Stop
-            $streamEvents.Add($ev)
-
-            $blocks = if ($ev.message.content) { $ev.message.content }
-                      elseif ($ev.content)      { $ev.content }
-                      else                      { @() }
-
-            foreach ($block in $blocks) {
-                switch ($block.type) {
-                    'text' {
-                        Write-Host $block.text -NoNewline
-                        $null = $allText.Append($block.text)
-                    }
-                    'tool_use' {
-                        $inputReady = ($block.input.PSObject.Properties | Measure-Object).Count -gt 0
-                        if ($inputReady) {
-                            Write-Host "`n  $(Format-ToolLine -Name $block.name -ToolInput $block.input)" -ForegroundColor DarkCyan
-                        }
-
-                        if ($block.name -in @('Read','Glob','Grep') -and -not $explorationPosted) {
-                            $explorationPosted = $true
-                            Add-Comment -Number $Number -Body "· exploring codebase"
-                        }
-                        if ($block.name -in @('Write','Edit') -and $block.input.file_path -and -not $writingPosted) {
-                            $writingPosted = $true
-                            Add-Comment -Number $Number -Body "· writing implementation"
-                        }
-                        if ($block.name -eq 'Bash' -and $block.input.command -match 'pytest' -and -not $testedOnce) {
-                            $testedOnce = $true
-                            Add-Comment -Number $Number -Body "· running tests"
-                        }
-                    }
-                }
-            }
-
-            if ($ev.type -eq 'result') { Write-Host '' }
-        } catch {
-            if ($raw.Trim()) { Write-Host $raw -ForegroundColor DarkGray }
+    # Progress while the run is going: the engine hands each tool call to the callback,
+    # which posts the three progress comments once each and keeps the calls for the
+    # Procedure line. A hashtable, so the callback's changes outlive its scope.
+    $implementProgress = @{
+        Explored = $false; Writing = $false; Tested = $false
+        Calls    = [System.Collections.Generic.List[object]]::new()
+    }
+    $onToolCall = {
+        param($call)
+        $implementProgress.Calls.Add($call)
+        if ($call.Name -in @('Read', 'Glob', 'Grep') -and -not $implementProgress.Explored) {
+            $implementProgress.Explored = $true
+            Add-Comment -Number $Number -Body "· exploring codebase"
+        }
+        if ($call.Name -in @('Write', 'Edit') -and $call.Input.file_path -and -not $implementProgress.Writing) {
+            $implementProgress.Writing = $true
+            Add-Comment -Number $Number -Body "· writing implementation"
+        }
+        if ($call.Name -eq 'Bash' -and "$($call.Input.command)" -match 'pytest' -and -not $implementProgress.Tested) {
+            $implementProgress.Tested = $true
+            Add-Comment -Number $Number -Body "· running tests"
         }
     }
 
-    if ($LASTEXITCODE -ne 0) { throw "Agent CLI exited with code $LASTEXITCODE." }
+    $run = Invoke-EngineTask -Task $devTask -Prompt $prompt -Label 'Implement' `
+        -Tools 'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep' -MaxTurns $devTurns -OnToolCall $onToolCall
+    if ($run.Outcome -eq 'max_turns') {
+        throw "Implement used its whole turn budget ($devTurns) before it finished."
+    }
+    if ($run.Outcome -ne 'finished') { throw "The engine failed to implement: $($run.Cause)" }
+    $testedOnce = $implementProgress.Tested
+    $toolCalls  = $implementProgress.Calls.ToArray()
 
     # Split the last 20 agent bullets into Implemented / Left undone / Issues discovered.
-    $bullets  = ($allText.ToString() -split '\r?\n') |
+    $bullets  = ("$($run.Reply)" -split '\r?\n') |
                 Where-Object { $_ -match '^\s*[-*•]' } |
                 Select-Object -Last 20
     $implLines = @($bullets | Where-Object { $_ -notmatch '^\s*[-*•]\s+Left undone:' -and
@@ -269,7 +247,7 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
         if ($markerFiles.Count -eq 0) { $BaseCommit = "$(git rev-parse HEAD 2>$null)".Trim() }
     }
     if ($markerFiles.Count -gt 0) {
-        $proc = Get-ProcedureRecord -StreamEvents $streamEvents.ToArray()
+        $proc = Get-ProcedureRecord -ToolCalls $toolCalls
         return @{
             FileSection      = ''
             ChangedFiles     = @()
@@ -297,8 +275,7 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
         if ($listed -notcontains $f) { $changedFiles += [pscustomobject]@{ path = $f; change = 'changed' } }
     }
     $fileSection  = Format-ChangedFiles -ChangedFiles $changedFiles
-    $repoRoot     = "$(git rev-parse --show-toplevel 2>$null)".Trim()
-    $refusedFiles = @(Get-RefusedFiles -StreamEvents $streamEvents.ToArray() -RepoRoot $repoRoot)
+    $refusedFiles = @($run.RefusedEdits)
     if ($refusedFiles.Count -gt 0) {
         Write-Log "  ⛔ The engine refused edits to: $($refusedFiles -join ', ')" -Color Red
     }
@@ -320,7 +297,7 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
         Write-Log "  Tests passing ✅" -Color Green
     }
 
-    $proc = Get-ProcedureRecord -StreamEvents $streamEvents.ToArray()
+    $proc = Get-ProcedureRecord -ToolCalls $toolCalls
 
     return @{
         FileSection      = $fileSection
@@ -436,8 +413,7 @@ function Invoke-CommitAndPR {
 
     if (git diff --cached --name-only 2>&1) {
         $diff    = git diff --staged 2>&1 | Out-String
-        $commitModel = Get-TaskModel -Task 'CommitMessage'
-        $message = Get-CommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title" -Model $commitModel
+        $message = Get-CommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title"
         $msgFile = New-TemporaryFile
         try {
             $message | Out-File $msgFile.FullName -Encoding utf8

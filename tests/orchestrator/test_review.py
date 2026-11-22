@@ -1,10 +1,10 @@
 """Tests for the review stage's error_max_turns handling, budget scaling, prompt content and
 checked verdict.
 
-- engines/Claude.ps1 — Invoke-ClaudeStreaming: a stream ending in error_max_turns throws
-  once with 'ran out of turns'; any other non-zero exit retries per MaxAttempts. With
-  -JsonSchema it returns the result's structured_output, throws once when there is none,
-  and neither shows nor counts the engine's StructuredOutput tool call.
+- engines/Claude.ps1 — Invoke-EngineTask as the review calls it: a stream ending in
+  error_max_turns ends the review with 'ran out of turns', not retried. The engine
+  function itself is covered against a stand-in CLI in test_engine_task.py; the
+  StructuredOutput tool call is neither shown nor counted.
 - stages/Review.ps1 — Invoke-Review: the scaled turn budget (base + changed files, capped
   at MaxTurns_Review_Cap); the prompt names the read-only tools and the signal history as
   the source of test results; the verdict is the checked `verdict` field.
@@ -50,61 +50,22 @@ def _run(body: str, cwd: Path | None = None) -> dict:
     return json.loads(lines[-1])
 
 
-# ── (a) error_max_turns throws exactly once, no retry ────────────────────────
+# ── (a) a review that ends on its turn budget names the changed files, no retry ──
 
 
-def test_error_max_turns_throws_once_no_retry() -> None:
-    """A stream ending in error_max_turns throws immediately; Invoke-ClaudeStreaming
-    does not iterate further retry attempts."""
+def test_review_out_of_turns_is_one_run_and_names_the_changed_files() -> None:
     out = _run(
-        r"""
-$script:CallCount = 0
-function script:claude {
-    $script:CallCount++
-    '{"type":"result","subtype":"error_max_turns"}'
-    $global:LASTEXITCODE = 1
-}
-function script:Start-Sleep { param([int]$Seconds) }
-$err = $null
-try {
-    Invoke-ClaudeStreaming -Prompt 'test' -Label 'Review' -Model 'mock-model' -MaxTurns 30 -MaxAttempts 3
-} catch {
-    $err = $_.Exception.Message
-}
-[pscustomobject]@{ err = $err; calls = $script:CallCount } | ConvertTo-Json -Compress
-"""
+        _stage_fakes(
+            ['{"type":"result","subtype":"error_max_turns","is_error":true}'], 1
+        )
+        + _REPORT_STAGE
     )
-    assert out["calls"] == 1, "must throw on first attempt, never retry"
-    assert "ran out of turns" in out["err"]
-    assert "(30)" in out["err"]
-
-
-# ── (b) other non-zero exit retries per MaxAttempts ──────────────────────────
-
-
-def test_other_nonzero_exit_retries_per_max_attempts() -> None:
-    """A non-zero exit without error_max_turns is treated as a transient API error
-    and retried up to MaxAttempts times before the final throw."""
-    out = _run(
-        r"""
-$script:CallCount = 0
-function script:claude {
-    $script:CallCount++
-    $global:LASTEXITCODE = 1
-}
-function script:Start-Sleep { param([int]$Seconds) }
-$err = $null
-try {
-    Invoke-ClaudeStreaming -Prompt 'test' -Label 'Review' -Model 'mock-model' -MaxTurns 30 -MaxAttempts 3
-} catch {
-    $err = $_.Exception.Message
-}
-[pscustomobject]@{ err = $err; calls = $script:CallCount } | ConvertTo-Json -Compress
-"""
-    )
-    assert out["calls"] == 3, "must retry all MaxAttempts before giving up"
-    assert "ran out of turns" not in out["err"]
-    assert "exited non-zero" in out["err"]
+    assert out["calls"] == 1, "a used-up turn budget is never retried"
+    assert "ran out of turns on 1 changed file(s)" in out["err"]
+    args = out["args"]
+    assert args[args.index("--max-turns") + 1] == "31"
+    assert args[args.index("--tools") + 1] == "Read,Glob,Grep"
+    assert args[args.index("--allowedTools") + 1] == "Read,Glob,Grep"
 
 
 # ── (c) review budget scales with changed files, capped at MaxTurns_Review_Cap ──
@@ -138,11 +99,11 @@ function script:Get-TaskModel     { param($Task, $Engine) 'mock-model' }
 function script:Get-CurrentIssueNumber { 1 }
 $script:CapturedPrompt = ''
 $script:CapturedTurns  = 0
-function script:Invoke-ClaudeStreaming {
-    param($Prompt, $AllowedTools, $Label, $Model, $MaxTurns, $MaxAttempts, $JsonSchema)
+function script:Invoke-EngineTask {
+    param($Task, $Prompt, $Label, $Tools, $MaxTurns, $Schema, $OnToolCall)
     $script:CapturedPrompt = $Prompt
     $script:CapturedTurns  = $MaxTurns
-    [pscustomobject]@{ verdict = 'approved'; report = 'Looks good.' }
+    [pscustomobject]@{ Outcome = 'finished'; Answer = [pscustomobject]@{ verdict = 'approved'; report = 'Looks good.' } }
 }
 function script:gh {
     param()
@@ -423,10 +384,10 @@ function script:claude {
         + r"""
     $global:LASTEXITCODE = 0
 }
-$shown = Invoke-ClaudeStreaming -Prompt 't' -Label 'Review' -Model 'm' -JsonSchema '{}' 6>&1 |
+$shown = Invoke-EngineTask -Task 'Review' -Prompt 't' -Label 'Review' -Tools 'Read' -MaxTurns 5 -Schema '{}' 6>&1 |
     Where-Object { $_ -is [System.Management.Automation.InformationRecord] } | Out-String
-$answer = Invoke-ClaudeStreaming -Prompt 't' -Label 'Review' -Model 'm' -JsonSchema '{}' 6>$null
-[pscustomobject]@{ shown = $shown; logs = @($script:Logs); verdict = $answer.verdict } |
+$run = Invoke-EngineTask -Task 'Review' -Prompt 't' -Label 'Review' -Tools 'Read' -MaxTurns 5 -Schema '{}' 6>$null
+[pscustomobject]@{ shown = $shown; logs = @($script:Logs); verdict = $run.Answer.verdict; tools = @($run.ToolsCalled) } |
     ConvertTo-Json -Compress
 """
     )
@@ -435,6 +396,7 @@ $answer = Invoke-ClaudeStreaming -Prompt 't' -Label 'Review' -Model 'm' -JsonSch
     assert "Read:" in out["shown"]
     assert "StructuredOutput" not in out["shown"]
     assert any("1 tool call(s)" in m for m in out["logs"]), out["logs"]
+    assert out["tools"] == ["Read"]
 
 
 def test_non_claude_engine_fails_the_review_with_an_explicit_reason() -> None:

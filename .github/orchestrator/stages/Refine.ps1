@@ -114,8 +114,9 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 {"body":"<full issue body>","estimate":<number or null>,"priority":"<one of the allowed values or null>"}
 "@
 
-        $raw = Remove-ClaudeNoise -Text ($prompt | claude --model (Get-TaskModel -Task 'Refine') 2>&1 | Out-String)
-        if ($LASTEXITCODE -ne 0) { throw "Claude refinement failed: $raw" }
+        $run = Invoke-EngineTask -Task 'Refine' -Prompt $prompt -Label 'Refine body'
+        if ($run.Outcome -ne 'finished') { throw "The engine's refinement failed: $($run.Cause)`n$($run.Output)" }
+        $raw = $run.Reply
 
         $json = $raw.Trim()
         if ($json -match '(?s)```(?:json)?\s*(\{.+\})\s*```') { $json = $Matches[1] }
@@ -265,9 +266,10 @@ Return ONLY JSON, no fences:
 {"answers":[{"id":1,"status":"answered","decision":"..."},{"id":2,"status":"open","follow_up":"..."}],"new_questions":[{"text":"...","recommendation":"...","alternatives":["...","..."]}]}
 "@
 
-    $raw = Remove-ClaudeNoise -Text ($prompt | claude --model (Get-TaskModel -Task 'Refine') 2>&1 | Out-String)
+    $run    = Invoke-EngineTask -Task 'Refine' -Prompt $prompt -Label 'Answer check'
+    $raw    = if ($run.Outcome -eq 'finished') { $run.Reply } else { "$($run.Cause)`n$($run.Output)" }
     $parsed = $null
-    if ($LASTEXITCODE -eq 0) {
+    if ($run.Outcome -eq 'finished') {
         try { $parsed = (ConvertFrom-ClaudeJsonResponse -Raw $raw) | ConvertFrom-Json -ErrorAction Stop } catch { $parsed = $null }
     }
     if (-not $parsed -or $null -eq $parsed.answers) {
@@ -378,9 +380,11 @@ Return ONLY valid JSON — no fences, no prose — matching this shape:
 "@
 
     # No plan, no readiness: a failure fails this attempt and the conductor retries.
-    $raw = Remove-ClaudeNoise -Text ($prompt | claude --model (Get-TaskModel -Task 'Plan') 2>&1 | Out-String)
-    if ($LASTEXITCODE -ne 0 -or -not "$raw".Trim()) {
-        throw "Plan: the engine returned no implementation plan (exit code $LASTEXITCODE):`n$("$raw".Trim())"
+    $run = Invoke-EngineTask -Task 'Plan' -Prompt $prompt -Label 'Plan'
+    $raw = $run.Reply
+    if ($run.Outcome -ne 'finished' -or -not "$raw".Trim()) {
+        $why = if ($run.Cause) { $run.Cause } else { 'an empty reply' }
+        throw "Plan: the engine returned no implementation plan ($why):`n$("$($run.Output)`n$raw".Trim())"
     }
     $json = $raw.Trim()
     if ($json -match '(?s)```(?:json)?\s*(\{.+\})\s*```') { $json = $Matches[1] }
