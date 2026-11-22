@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "checks.yml"
 CHECKS = ROOT / ".github" / "checks"
-PROTECT = ROOT / ".github" / "tasks" / "protect.ps1"
+CONFIG = ROOT / ".github" / "orchestrator" / "lib" / "Config.ps1"
 
 
 def _code() -> str:
@@ -84,12 +84,18 @@ def test_every_check_says_what_it_guards() -> None:
         assert lines[synopsis + 1].strip().startswith("Guards "), check.name
 
 
+def _required_checks() -> list[str]:
+    """RequiredChecks in lib/Config.ps1 — the one list (#373), read as plain text."""
+    text = CONFIG.read_text(encoding="utf-8")
+    match = re.search(r"^\s*RequiredChecks\s*=\s*@\(([^)]*)\)", text, re.MULTILINE)
+    assert match, "no RequiredChecks list in lib/Config.ps1"
+    return re.findall(r"'([^']+)'", match.group(1))
+
+
 def test_required_checks_are_jobs_of_the_workflow() -> None:
     """A required status no job reports blocks every merge on main."""
-    text = PROTECT.read_text(encoding="utf-8")
-    match = re.search(r"^\$RequiredChecks\s*=\s*@\(([^)]*)\)", text, re.MULTILINE)
-    assert match, "no $RequiredChecks list in protect.ps1"
-    required = re.findall(r'"([^"]+)"', match.group(1))
+    required = _required_checks()
+    assert required, "RequiredChecks in lib/Config.ps1 is empty"
     assert "checks" in required
     missing = [name for name in required if name not in _job_names()]
-    assert not missing, f"protect.ps1 requires checks no job reports: {missing}"
+    assert not missing, f"RequiredChecks names checks no job reports: {missing}"

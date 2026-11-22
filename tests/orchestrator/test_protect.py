@@ -7,6 +7,7 @@ stdin it receives and answers with canned JSON. Assertions read what the script 
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -24,7 +25,18 @@ pytestmark = pytest.mark.skipif(
     reason="pwsh not available",
 )
 
-_REQUIRED_CHECKS = ["lint", "typecheck", "test", "audit", "checks", "eval"]
+_CONFIG = _ROOT / ".github" / "orchestrator" / "lib" / "Config.ps1"
+
+
+def _config_required_checks() -> list[str]:
+    """RequiredChecks in lib/Config.ps1 — the one list the script must send (#373)."""
+    text = _CONFIG.read_text(encoding="utf-8")
+    match = re.search(r"^\s*RequiredChecks\s*=\s*@\(([^)]*)\)", text, re.MULTILINE)
+    assert match, "no RequiredChecks list in lib/Config.ps1"
+    return re.findall(r"'([^']+)'", match.group(1))
+
+
+_REQUIRED_CHECKS = _config_required_checks()
 _REPO = "owner/repo"
 
 _STAND_IN = r"""
@@ -120,6 +132,9 @@ def _run(
     log.touch()
     env = {
         **os.environ,
+        # The script loads the orchestrator module, which resolves both at import.
+        "GITHUB_REPOSITORY": _REPO,
+        "GITHUB_DEFAULT_BRANCH": "main",
         "GH_STANDIN_LOG": str(log),
         "GH_STANDIN_SCRIPT": str(_SCRIPT),
         "GH_STANDIN_VISIBILITY": visibility,
