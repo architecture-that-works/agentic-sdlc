@@ -37,10 +37,10 @@ Here is the draft issue:
 4. Requirements to be decomposed during refine.
 
 **Acceptance Criteria**:
-- Toggling the control switches the dashboard to dark mode within one render cycle.
-- Refreshing the page restores the user's last-selected theme.
-- No regression in the light-mode layout.
-- Acceptance criteria to be defined during refine.
+- [ ] Toggling the control switches the dashboard to dark mode within one render cycle.
+- [ ] Refreshing the page restores the user's last-selected theme.
+- [ ] No regression in the light-mode layout.
+- [ ] Acceptance criteria to be defined during refine.
 
 ---
 
@@ -71,10 +71,10 @@ gh issue create \
 4. Requirements to be decomposed during refine.
 
 **Acceptance Criteria**:
-- Toggling the control switches the dashboard to dark mode within one render cycle.
-- Refreshing the page restores the user's last-selected theme.
-- No regression in the light-mode layout.
-- Acceptance criteria to be defined during refine."
+- [ ] Toggling the control switches the dashboard to dark mode within one render cycle.
+- [ ] Refreshing the page restores the user's last-selected theme.
+- [ ] No regression in the light-mode layout.
+- [ ] Acceptance criteria to be defined during refine."
 ```
 
 ---
@@ -117,8 +117,8 @@ Here is the draft issue:
 2. Requirements to be decomposed during refine.
 
 **Acceptance Criteria**:
-- Clicking the button downloads a PDF matching the visible report layout.
-- Acceptance criteria to be defined during refine.
+- [ ] Clicking the button downloads a PDF matching the visible report layout.
+- [ ] Acceptance criteria to be defined during refine.
 
 ---
 
@@ -152,9 +152,9 @@ Here is the revised draft:
 3. Requirements to be decomposed during refine.
 
 **Acceptance Criteria**:
-- Clicking the button downloads a PDF matching the visible report layout.
-- The filename matches the `<report-name>-<YYYY-MM-DD>.pdf` pattern.
-- Acceptance criteria to be defined during refine.
+- [ ] Clicking the button downloads a PDF matching the visible report layout.
+- [ ] The filename matches the `<report-name>-<YYYY-MM-DD>.pdf` pattern.
+- [ ] Acceptance criteria to be defined during refine.
 
 ---
 
