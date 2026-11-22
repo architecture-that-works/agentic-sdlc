@@ -11,7 +11,9 @@
     ImplementSmall, Review, CommitMessage) as a queue of results with Add-EngineResult:
     an Outcome, a Reply, the Output, a checked Answer (for a call with -Schema), the
     RefusedEdits, and for an implement task the Edits it makes to the working tree
-    and the ToolCalls it reports while it runs. Each call takes the next result of
+    and the ToolCalls it reports while it runs. -During is what happens elsewhere
+    while that call runs — the owner merging the pull request by hand, say — run once
+    the Edits are made. Each call takes the next result of
     its Task. A Task with nothing scripted fails the test and names the Task —
     except EngineCheck, which answers 'pong' (the engine is ready) unless scripted.
 
@@ -40,6 +42,9 @@ function Install-FakeEngine {
 #               ($null content deletes the file)
 #   -ToolCalls  @(@{ Name = 'Write'; Input = @{ file_path = '...' } }, ...) reported
 #               to the caller's -OnToolCall while the run goes
+#   -During     { ... } run while the call is going, after the Edits: what someone
+#               else does meanwhile, through the fakes' own helpers and the module's
+#               exported entry points
 function Add-EngineResult {
     param(
         [Parameter(Mandatory)][ValidateSet('EngineCheck', 'Refine', 'Plan', 'ImplementLarge', 'ImplementSmall', 'Review', 'CommitMessage')]
@@ -50,14 +55,15 @@ function Add-EngineResult {
         $Answer = $null,
         [string[]]$RefusedEdits = @(),
         [hashtable]$Edits = @{},
-        [object[]]$ToolCalls = @()
+        [object[]]$ToolCalls = @(),
+        [scriptblock]$During = $null
     )
     if (-not $global:FakeEngine.Queues.ContainsKey($Task)) {
         $global:FakeEngine.Queues[$Task] = [System.Collections.Generic.Queue[object]]::new()
     }
     $global:FakeEngine.Queues[$Task].Enqueue([pscustomobject]@{
         Outcome = $Outcome; Reply = $Reply; Output = $Output; Answer = $Answer
-        RefusedEdits = $RefusedEdits; Edits = $Edits; ToolCalls = $ToolCalls
+        RefusedEdits = $RefusedEdits; Edits = $Edits; ToolCalls = $ToolCalls; During = $During
     })
 }
 
@@ -87,7 +93,7 @@ function Invoke-FakeEngineTask {
     if ($queue -and $queue.Count -gt 0) {
         $result = $queue.Dequeue()
     } elseif ($Task -eq 'EngineCheck') {
-        $result = [pscustomobject]@{ Outcome = 'finished'; Reply = 'pong'; Output = ''; Answer = $null; RefusedEdits = @(); Edits = @{}; ToolCalls = @() }
+        $result = [pscustomobject]@{ Outcome = 'finished'; Reply = 'pong'; Output = ''; Answer = $null; RefusedEdits = @(); Edits = @{}; ToolCalls = @(); During = $null }
     } else {
         $message = "The fake engine has nothing scripted for Task '$Task' ($Label)."
         $engine.Unknown.Add($message)
@@ -100,6 +106,7 @@ function Invoke-FakeEngineTask {
         $null = New-Item -ItemType Directory -Force -Path (Split-Path $full)
         Set-Content -LiteralPath $full -Value $result.Edits[$path] -Encoding utf8NoBOM -NoNewline
     }
+    if ($result.During) { $null = & $result.During }
     $called = [System.Collections.Generic.List[string]]::new()
     foreach ($call in @($result.ToolCalls | Where-Object { $_ })) {
         $called.Add("$($call.Name)")
