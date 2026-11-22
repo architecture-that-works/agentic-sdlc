@@ -203,12 +203,14 @@ that no journey has exercised yet. Never widen `AllowedFrom` to make it pass.
 Pester alone, without pytest or coverage:
 
 ```powershell
-Invoke-Pester tests/journeys                               # every journey, then the report
+Invoke-Pester tests/journeys                               # every file, in file-name order
 Invoke-Pester tests/journeys/Build.Tests.ps1 -Output Detailed
 ```
 
-Run alone, a journey file passes on its own; the state-machine report needs the journeys in
-the same run to see their transitions. `$env:JOURNEY_LOG = 1` shows the orchestrator's own
+Run alone, a journey file passes on its own. Only `.github/tasks/test.ps1` is sure to run the
+state-machine report after every journey: it lists the journeys first and the report last.
+`Invoke-Pester tests/journeys` runs the files in file-name order, so a journey whose name sorts
+after `StateMachine` runs after the report, and the report misses its transitions. `$env:JOURNEY_LOG = 1` shows the orchestrator's own
 log lines while a journey runs. The Python tests the journeys replace stay readable in git at
 commit `2d9477e` and remain the specification of what the later journeys must cover.
 
