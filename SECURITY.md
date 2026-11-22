@@ -87,11 +87,13 @@ previous design also blocked the agent from *staging* those paths; that was drop
 made every pipeline-improvement issue hands-on while adding no merge-time protection that
 `GovernancePaths` did not already provide.
 
-- **Test coverage:** the build journeys in `tests/journeys/Build.Tests.ps1` (a change to a
-  governance file is held at `human:approval` with its pull request ready for the owner). The
-  classification of every path, the secrets denylist and the merge of an in-allowlist PR are
-  among the journeys and decision tables still to be written; the deleted Python tests that
-  covered them stay readable in git at commit `2d9477e`.
+- **Test coverage:** the build journeys in `tests/journeys/Build.Tests.ps1` — a change to a
+  governance file is held at `human:approval` with its pull request ready for the owner, a
+  change outside `WritablePaths` is held as a proposal with a boundary file flagged, a change
+  inside it merges only once every required check passed, and the secrets denylist leaves its
+  files out of the commit and names them. What the deleted Python tests (readable in git at
+  commit `b7ba709`) guarded and no journey covers yet is listed in `tests/README.md` § Not
+  covered yet.
 
 ### Protected paths
 

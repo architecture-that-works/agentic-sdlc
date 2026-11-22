@@ -5,8 +5,10 @@
     Holds issues, labels, comments, pull requests, check runs and the project board
     in memory, answers the `gh` calls the orchestrator makes, and records what they
     changed. A test sets a starting state (New-FakeGitHub, Add-FakeIssue,
-    Add-FakeComment), runs a journey, and reads the end state (Get-FakeIssue,
-    Get-FakeComments, Get-FakePullRequest, Get-FakePipelineLabel).
+    Add-FakeComment, Set-FakeChecks / Set-FakeCheckRuns for CI and its job logs), acts
+    as the owner on a pull request (Complete-FakePullRequest: merge or close it), runs a
+    journey, and reads the end state (Get-FakeIssue, Get-FakeComments,
+    Get-FakePullRequest, Get-FakePrTimeline, Get-FakePipelineLabel).
 
     Install-FakeGitHub mocks `gh` in the Orchestrator module's scope, so the
     orchestrator's own code runs unchanged and the real CLI is never reached. A `gh`
@@ -72,8 +74,10 @@ function New-FakeGitHub {
         Issues         = [ordered]@{}
         Comments       = [System.Collections.Generic.List[object]]::new()
         PullRequests   = [System.Collections.Generic.List[object]]::new()
-        CheckRuns      = @{}          # sha → runs; a sha without runs gets CheckConclusion
+        CheckRuns      = @{}          # sha → runs; a sha without runs gets the default runs
         CheckConclusion = 'success'   # every required check on every pushed commit, unless set
+        CheckDefaults  = @{ Conclusions = @{}; Missing = @() }   # Set-FakeChecks
+        JobLogs        = @{}          # job id → the log `gh api …/actions/jobs/<id>/logs` answers
         Board          = [System.Collections.Generic.List[object]]::new()
         Dispatches     = [System.Collections.Generic.List[object]]::new()
         Calls          = [System.Collections.Generic.List[string]]::new()
@@ -136,15 +140,61 @@ function Add-FakeComment {
     })
 }
 
-# Check runs for one commit: @{ name = conclusion }. Without them a commit's
-# required checks all conclude CheckConclusion.
+# Check runs for one commit: @{ name = conclusion }. Without them a commit gets the
+# default runs (Set-FakeChecks). -Logs @{ name = '<log text>' } is what the failed
+# job's log read answers for that run.
 function Set-FakeCheckRuns {
-    param([Parameter(Mandatory)][string]$Sha, [Parameter(Mandatory)][hashtable]$Conclusions)
+    param([Parameter(Mandatory)][string]$Sha, [Parameter(Mandatory)][hashtable]$Conclusions, [hashtable]$Logs = @{})
     $id = 1000
     $global:FakeGitHub.CheckRuns[$Sha] = @($Conclusions.Keys | ForEach-Object {
         $id++
-        [pscustomobject]@{ id = $id; name = $_; status = 'completed'; conclusion = $Conclusions[$_]; head_sha = $Sha; details_url = "https://github.com/$($global:FakeGitHub.Repo)/actions/runs/1/job/$id" }
+        if ($Logs.ContainsKey($_)) { $global:FakeGitHub.JobLogs["$id"] = $Logs[$_] }
+        New-FakeCheckRun -Id $id -Name $_ -Conclusion $Conclusions[$_] -Sha $Sha
     })
+}
+
+# The check runs every pushed commit gets, whatever its sha — a journey cannot know
+# the sha before the orchestrator pushes. Each required check (RequiredChecks, read
+# from the orchestrator) concludes CheckConclusion unless:
+#   -Conclusions @{ name = 'failure' | 'neutral' | $null }  — $null: still running
+#   -Missing     @('name')                                   — no run at all
+#   -Logs        @{ name = '<log text>' }                    — that job's log
+function Set-FakeChecks {
+    param([hashtable]$Conclusions = @{}, [string[]]$Missing = @(), [hashtable]$Logs = @{})
+    $fake = $global:FakeGitHub
+    foreach ($name in @($Conclusions.Keys) + @($Missing) + @($Logs.Keys)) {
+        if ($name -notin $fake.RequiredChecks) { throw "Set-FakeChecks: '$name' is not a required check ($($fake.RequiredChecks -join ', '))." }
+    }
+    $fake.CheckDefaults = @{ Conclusions = $Conclusions; Missing = @($Missing) }
+    foreach ($name in $Logs.Keys) { $fake.JobLogs["$(Get-FakeDefaultJobId -Name $name)"] = $Logs[$name] }
+}
+
+# Changes the owner makes to a pull request by hand, as GitHub's pull-request page does:
+# -Merged squash-merges it on the remote and deletes its branch; otherwise it is closed
+# unmerged. -Ready first marks a draft ready (GitHub refuses to merge a draft).
+# Returns what the workflow's pull_request-closed step passes to Complete-HeldPR:
+# @{ PRNumber; Branch; Merged } — splat it.
+function Complete-FakePullRequest {
+    param([Parameter(Mandatory)][int]$Number, [switch]$Merged, [switch]$Ready)
+    $fake = $global:FakeGitHub
+    $pr = Get-FakePullRequest -Number $Number
+    if (-not $pr) { throw "The fake GitHub holds no pull request #$Number." }
+    if ($pr.State -ne 'OPEN') { throw "Pull request #$Number is $($pr.State), not open." }
+    $sha = @(Invoke-FakeRemoteGit -GitArgs @('for-each-ref', '--format=%(objectname)', "refs/heads/$($pr.Head)"))[0]
+    if ($sha) { $pr.HeadSha = $sha }
+    if ($Ready -and $pr.IsDraft) {
+        $pr.IsDraft = $false
+        $fake.Changes.Add("PR #$Number marked ready by the owner")
+    }
+    if ($Merged) {
+        if ($pr.IsDraft) { throw "Pull request #$Number is still a draft — GitHub refuses to merge it (pass -Ready)." }
+        Merge-FakePullRequest -PR $pr -DeleteBranch
+        $fake.Changes.Add("PR #$Number merged by the owner")
+    } else {
+        $pr.State = 'CLOSED'
+        $fake.Changes.Add("PR #$Number closed by the owner")
+    }
+    return @{ PRNumber = $Number; Branch = $pr.Head; Merged = [bool]$Merged }
 }
 
 # ── End state ─────────────────────────────────────────────────────────────────
@@ -182,6 +232,15 @@ function Get-FakePullRequest {
     return @($global:FakeGitHub.PullRequests | Where-Object {
         ($Head -and $_.Head -eq $Head) -or ($Number -and $_.Number -eq $Number)
     }) | Select-Object -First 1
+}
+
+# What happened to one pull request, oldest first, as its timeline shows it:
+# 'opened as draft from <branch>', 'review comment', 'marked ready', 'back to draft',
+# 'description rewritten', 'squash-merged', 'merged by the owner', …
+function Get-FakePrTimeline {
+    param([Parameter(Mandatory)][int]$Number)
+    $prefix = "PR #$Number "
+    return @($global:FakeGitHub.Changes | Where-Object { $_.StartsWith($prefix) } | ForEach-Object { $_.Substring($prefix.Length) })
 }
 
 # The transitions this fake recorded since New-FakeGitHub, removals nothing followed included.
@@ -280,6 +339,43 @@ function Invoke-FakeRemoteGit {
     $out = & git --git-dir $remote @GitArgs 2>&1
     if ($LASTEXITCODE -ne 0) { throw "git $($GitArgs -join ' ') on the fake remote failed: $($out | Out-String)" }
     return @($out | ForEach-Object { "$_" })
+}
+
+function New-FakeCheckRun {
+    param([int]$Id, [string]$Name, $Conclusion, [string]$Sha)
+    return [pscustomobject]@{
+        id = $Id; name = $Name; head_sha = $Sha
+        status = if ($null -eq $Conclusion) { 'in_progress' } else { 'completed' }; conclusion = $Conclusion
+        details_url = "https://github.com/$($global:FakeGitHub.Repo)/actions/runs/1/job/$Id"
+    }
+}
+
+# A default run's job id: the same for one check name on every commit.
+function Get-FakeDefaultJobId {
+    param([string]$Name)
+    return 2001 + [array]::IndexOf([string[]]@($global:FakeGitHub.RequiredChecks), $Name)
+}
+
+# The runs a commit without its own (Set-FakeCheckRuns) gets: Set-FakeChecks.
+function Get-FakeDefaultCheckRuns {
+    param([string]$Sha)
+    $fake = $global:FakeGitHub
+    $defaults = $fake.CheckDefaults
+    return @($fake.RequiredChecks | Where-Object { $_ -notin $defaults.Missing } | ForEach-Object {
+        $conclusion = if ($defaults.Conclusions.ContainsKey($_)) { $defaults.Conclusions[$_] } else { $fake.CheckConclusion }
+        New-FakeCheckRun -Id (Get-FakeDefaultJobId -Name $_) -Name $_ -Conclusion $conclusion -Sha $Sha
+    })
+}
+
+# A squash merge on the remote: the merged tree as one commit on the base.
+function Merge-FakePullRequest {
+    param($PR, [switch]$DeleteBranch)
+    $tree = @(Invoke-FakeRemoteGit -GitArgs @('merge-tree', '--write-tree', "refs/heads/$($PR.Base)", $PR.HeadSha))[0]
+    $base = @(Invoke-FakeRemoteGit -GitArgs @('rev-parse', "refs/heads/$($PR.Base)"))[0]
+    $commit = @(Invoke-FakeRemoteGit -GitArgs @('commit-tree', $tree, '-p', $base, '-m', "$($PR.Title) (#$($PR.Number))"))[0]
+    Invoke-FakeRemoteGit -GitArgs @('update-ref', "refs/heads/$($PR.Base)", $commit) | Out-Null
+    if ($DeleteBranch) { Invoke-FakeRemoteGit -GitArgs @('update-ref', '-d', "refs/heads/$($PR.Head)") | Out-Null }
+    $PR.State = 'MERGED'
 }
 
 function Get-FakePrDiff {
@@ -453,11 +549,14 @@ function Invoke-FakeGhRoute {
             if ($rest -match '^commits/([0-9a-f]{40})/check-runs$' -and $jq -eq $script:FakeGhJq.CheckRuns) {
                 $sha  = $Matches[1]
                 $runs = if ($fake.CheckRuns.ContainsKey($sha)) { $fake.CheckRuns[$sha] }
-                        elseif ($fake.CheckConclusion) {
-                            $id = 0
-                            @($fake.RequiredChecks | ForEach-Object { $id++; [pscustomobject]@{ id = $id; name = $_; status = 'completed'; conclusion = $fake.CheckConclusion; head_sha = $sha; details_url = '' } })
-                        } else { @() }
+                        elseif ($fake.CheckConclusion) { Get-FakeDefaultCheckRuns -Sha $sha }
+                        else { @() }
                 return @($runs | ForEach-Object { $_ | Select-Object id, name, status, conclusion, head_sha, details_url | ConvertTo-Json -Compress })
+            }
+            # A job's own log, as plain text (no --jq): 404 for a job with no log scripted.
+            if ($rest -match '^actions/jobs/(\d+)/logs$' -and $method -eq 'GET' -and -not $jq) {
+                if (-not $fake.JobLogs.ContainsKey($Matches[1])) { Stop-FakeGh 1 'gh: Not Found (HTTP 404)' }
+                return $fake.JobLogs[$Matches[1]]
             }
             if ($rest -match '^pulls/(\d+)/files$' -and $jq -eq $script:FakeGhJq.Files) {
                 $pr = Get-FakePullRequest -Number ([int]$Matches[1])
@@ -576,13 +675,7 @@ function Invoke-FakeGhRoute {
                 'merge' {
                     if (-not $Flags['--squash']) { throw 'unknown' }
                     if ($pr.IsDraft) { Stop-FakeGh 1 "Pull request #$($pr.Number) is still a draft" }
-                    # A squash merge on the remote: the merged tree as one commit on the base.
-                    $tree = @(Invoke-FakeRemoteGit -GitArgs @('merge-tree', '--write-tree', "refs/heads/$($pr.Base)", $pr.HeadSha))[0]
-                    $base = @(Invoke-FakeRemoteGit -GitArgs @('rev-parse', "refs/heads/$($pr.Base)"))[0]
-                    $commit = @(Invoke-FakeRemoteGit -GitArgs @('commit-tree', $tree, '-p', $base, '-m', "$($pr.Title) (#$($pr.Number))"))[0]
-                    Invoke-FakeRemoteGit -GitArgs @('update-ref', "refs/heads/$($pr.Base)", $commit) | Out-Null
-                    if ($Flags['--delete-branch']) { Invoke-FakeRemoteGit -GitArgs @('update-ref', '-d', "refs/heads/$($pr.Head)") | Out-Null }
-                    $pr.State = 'MERGED'
+                    Merge-FakePullRequest -PR $pr -DeleteBranch:([bool]$Flags['--delete-branch'])
                     $fake.Changes.Add("PR #$($pr.Number) squash-merged")
                     return ''
                 }
