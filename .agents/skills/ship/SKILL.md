@@ -82,7 +82,8 @@ If missing → add it before merge, do not skip.
 
 ### Bring the Branch Up to Date
 
-Branch protection requires a branch that is up to date with the default branch. Merge the
+Bring the branch up to date so the required checks run on what will actually be merged, and so a
+conflict shows before the pull request is held. Branch protection does not require it. Merge the
 default branch into the feature branch — what GitHub's "Update branch" button does — and push
 without force:
 

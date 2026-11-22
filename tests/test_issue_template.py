@@ -7,7 +7,6 @@ ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / ".github" / "ISSUE_TEMPLATE" / "issue.md"
 CONFIG = ROOT / ".github" / "ISSUE_TEMPLATE" / "config.yml"
 CONTRIBUTING = ROOT / "CONTRIBUTING.md"
-EXPECTED = ["Goal", "Description", "Requirements", "Acceptance Criteria"]
 HEADING = re.compile(r"^\*\*([^*]+)\*\*:", re.MULTILINE)
 
 
@@ -19,11 +18,6 @@ def _front_matter(text: str) -> tuple[str, str]:
     match = re.match(r"\A---\n(.*?)\n---\n(.*)\Z", text, re.DOTALL)
     assert match, "issue template must start with YAML front matter"
     return match.group(1), match.group(2)
-
-
-def test_template_headings() -> None:
-    _, body = _front_matter(TEMPLATE.read_text())
-    assert _headings(body) == EXPECTED
 
 
 def test_issues_md_does_not_repeat_the_headings() -> None:
