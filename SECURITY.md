@@ -126,7 +126,7 @@ free. Apply these one-time repository settings before you change the visibility:
 Every agent action can be halted, overridden or rolled back by a human, and every one of these
 steps works from the GitHub mobile app or web UI. The pipeline acts on its own only within
 fixed bounds: it refines new issues, implements what carries `agent:backlog`, and retries a
-failure at most `KANBAN_MAX_RETRIES` (3) times per round before stopping on `agent:failed`. It
+failure at most `MaxRetries` (3, in `lib/Config.ps1`) times per round before stopping on `agent:failed`. It
 acts only on issues opened by, and comments from, the owner and collaborators (`TrustedAuthors`
 in `lib/Config.ps1`, matched by `afk.yml`): it runs with the owner's tokens, so on a public
 repository a stranger's issue is never processed (#312). When the Claude usage allowance is spent
@@ -136,7 +136,7 @@ allowance resets (at most 5 hours later).
 An hourly reconciliation pass recovers work that stopped without failing — a lost runner, a
 cancelled job, an Actions timeout. It re-enters only states the agent holds and that nothing
 is working on, and it is bounded: an issue it cannot move lands on `agent:failed` after
-`KANBAN_MAX_RECONCILE` (2) attempts with the history named. **It never touches a state a human
+`MaxReconcile` (2, in `lib/Config.ps1`) attempts with the history named. **It never touches a state a human
 holds** — `human:decision`, `human:approval` and `agent:failed` wait indefinitely, by design.
 Which labels those are is declared once, in `$PipelineStates` (`lib/Config.ps1`); nothing else
 in the pipeline decides it.

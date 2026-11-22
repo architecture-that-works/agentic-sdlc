@@ -8,7 +8,7 @@
     Invoke-Grill and its helpers with NO top-level param() block, so dot-sourcing
     it (from Orchestrator.psm1) only registers functions and never pollutes or
     clobbers the caller's scope (see ADR-013). Its model (Get-TaskModel) and turn
-    budget ($KanbanMaxTurns_Refine) come from lib/Config.ps1, so it runs inside the
+    budget ($OrchestratorConfig.MaxTurns_Refine) come from lib/Config.ps1, so it runs inside the
     module. The standalone CLI, .agents/skills/refine/scripts/grill.ps1, imports the
     module and calls Invoke-Grill.
 
@@ -250,7 +250,7 @@ function Invoke-Grill {
     # Engine setting, until "Start every engine through one function" lands — so it
     # asks for the claude row's model, never one the Claude CLI cannot run.
     $resolvedModel = Get-TaskModel -Task 'Refine' -Engine 'claude'
-    $MaxTurns      = $KanbanMaxTurns_Refine   # MaxTurns_Refine — the one questioning budget
+    $MaxTurns      = $OrchestratorConfig.MaxTurns_Refine   # the one questioning budget
 
     # The subagent is read-only — restrict tools so it cannot accidentally write
     # to the working tree. The orchestrator alone owns mutations. The result event

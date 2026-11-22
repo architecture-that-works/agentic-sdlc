@@ -115,7 +115,6 @@ def test_review_budget_scales_with_changed_files() -> None:
     5 changed files → 35, 80 changed files → 90 (capped)."""
     out = _run(
         r"""
-$env:KANBAN_MAX_TURNS_REVIEW = $null
 $base = $OrchestratorConfig.MaxTurns_Review
 $cap  = $OrchestratorConfig.MaxTurns_Review_Cap
 [pscustomobject]@{
@@ -168,7 +167,6 @@ def test_review_prompt_has_tool_declaration_and_signal_source() -> None:
     out = _run(
         _REVIEW_FAKES
         + r"""
-$env:KANBAN_MAX_TURNS_REVIEW = $null
 Invoke-Review -IssueNumber 1 -PRNumber 1
 [pscustomobject]@{
     prompt = $script:CapturedPrompt
@@ -224,8 +222,10 @@ function script:Invoke-Review {
     param($IssueNumber, $PRNumber)
     throw 'Review ran out of turns on 5 changed file(s) — retry needs a larger budget or a smaller PR.'
 }
-Invoke-Orchestration -IssueNumber 50 -MaxRetries 3
-[pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
+$script:Comments = [System.Collections.Generic.List[string]]::new()
+function script:Add-Comment { param($Number, $Body) $script:Comments.Add($Body) }
+Invoke-Orchestration -IssueNumber 50
+[pscustomobject]@{ log = @($script:Log); comments = @($script:Comments) } | ConvertTo-Json -Compress
 """,
         cwd=tmp_path,
     )
@@ -235,6 +235,12 @@ Invoke-Orchestration -IssueNumber 50 -MaxRetries 3
     assert not any(e.startswith("attempt:") for e in out["log"]), (
         "ran-out-of-turns must not increment the attempt counter"
     )
+    failed = [c for c in out["comments"] if c.startswith("🤖❌")]
+    assert failed, "the out-of-turns failure must be posted"
+    assert "MaxTurns_Review_Cap" in failed[0], (
+        "the out-of-turns comment must name the setting to raise"
+    )
+    assert "fewer changed files" in failed[0]
 
 
 # ── (f) the verdict is the checked field of the result's structured_output ───
@@ -450,7 +456,7 @@ function script:Invoke-Review {
     param($IssueNumber, $PRNumber)
     throw 'Review produced no checked answer: error_max_structured_output_retries'
 }
-Invoke-Orchestration -IssueNumber 50 -MaxRetries 3
+Invoke-Orchestration -IssueNumber 50
 [pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
 """,
         cwd=tmp_path,

@@ -92,7 +92,7 @@ def test_only_agent_held_states_that_went_quiet_are_stuck() -> None:
             (10, "agent:paused", 500),  # the usage-limit path owns it   → paused
         )
         + r"""
-$rows = @(Get-StuckIssue -StuckAfterMinutes 90)
+$rows = @(Get-StuckIssue)
 [pscustomobject]@{
     stuck  = @($rows | Where-Object { $_.Verdict -eq 'stuck'  } | ForEach-Object { $_.Number })
     fresh  = @($rows | Where-Object { $_.Verdict -eq 'fresh'  } | ForEach-Object { $_.Number })
@@ -118,7 +118,8 @@ function script:gh { $global:LASTEXITCODE = 0
     # nothing for a PR-only repository state.
     if (($args -join ' ') -notlike '*pull_request == null*') { throw 'PRs were not filtered out' }
     @() }
-[pscustomobject]@{ count = @(Get-StuckIssue -StuckAfterMinutes 1).Count } | ConvertTo-Json -Compress
+$OrchestratorConfig.StuckAfterMinutes = 1
+[pscustomobject]@{ count = @(Get-StuckIssue).Count } | ConvertTo-Json -Compress
 """
     )
     assert out["count"] == 0
@@ -263,7 +264,7 @@ def test_each_stuck_state_re_enters_through_its_own_recovery() -> None:
             (5, "agent:failed", 500),
         )
         + r"""
-$acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2)
+$acted = @(Invoke-Reconciliation)
 [pscustomobject]@{ acted = @($acted | ForEach-Object { $_.Number }); log = @($script:Log) } | ConvertTo-Json -Compress
 """
     )
@@ -286,7 +287,8 @@ def test_a_human_held_state_is_never_touched_however_long_it_waits() -> None:
             (4, "agent:shipped", 99999),
         )
         + r"""
-$acted = @(Invoke-Reconciliation -StuckAfterMinutes 1 -MaxReconcile 2)
+$OrchestratorConfig.StuckAfterMinutes = 1
+$acted = @(Invoke-Reconciliation)
 [pscustomobject]@{ acted = @($acted).Count; log = @($script:Log) } | ConvertTo-Json -Compress
 """
     )
@@ -303,7 +305,7 @@ def test_a_live_run_inside_the_grace_period_is_left_alone() -> None:
         + "$script:From = ''\n"
         + _issues((1, "agent:implementing", 10), (2, "agent:backlog", 89))
         + r"""
-$acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2)
+$acted = @(Invoke-Reconciliation)
 [pscustomobject]@{ acted = @($acted).Count; log = @($script:Log) } | ConvertTo-Json -Compress
 """
     )
@@ -320,7 +322,7 @@ def test_re_entry_is_counted_before_it_is_attempted() -> None:
         + _issues((1, "agent:implementing", 500))
         + r"""
 function script:Restart-Issue { param($IssueNumber, $Reason) $script:Log.Add('restart'); '' }
-$acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2)
+$acted = @(Invoke-Reconciliation)
 [pscustomobject]@{ action = $acted[0].Action; log = @($script:Log) } | ConvertTo-Json -Compress
 """
     )
@@ -335,7 +337,7 @@ def test_the_cap_hands_the_issue_to_the_owner_instead_of_looping() -> None:
         + "$script:From = 'agent:implementing'\n$script:Count = 2\n"
         + _issues((1, "agent:implementing", 500))
         + r"""
-$acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2)
+$acted = @(Invoke-Reconciliation)
 [pscustomobject]@{ action = $acted[0].Action; log = @($script:Log) } | ConvertTo-Json -Compress
 """
     )
@@ -354,7 +356,7 @@ def test_progress_to_a_new_state_earns_a_fresh_budget() -> None:
         + "$script:From = 'agent:implementing'\n$script:Count = 2\n"
         + _issues((1, "agent:reviewing", 500))
         + r"""
-$acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2)
+$acted = @(Invoke-Reconciliation)
 [pscustomobject]@{ action = $acted[0].Action; log = @($script:Log) } | ConvertTo-Json -Compress
 """
     )
@@ -368,7 +370,7 @@ def test_whatif_reports_and_changes_nothing() -> None:
         + "$script:From = ''\n"
         + _issues((1, "agent:implementing", 500), (2, "agent:paused", 500))
         + r"""
-$acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2 -WhatIf)
+$acted = @(Invoke-Reconciliation -WhatIf)
 [pscustomobject]@{ actions = @($acted | ForEach-Object { $_.Action }); log = @($script:Log) } | ConvertTo-Json -Compress
 """
     )
@@ -394,7 +396,7 @@ def test_a_live_run_defers_the_in_flight_states_without_spending_their_budget() 
             (4, "", 500),
         )
         + r"""
-$acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2)
+$acted = @(Invoke-Reconciliation)
 [pscustomobject]@{
     actions = @($acted | ForEach-Object { "$($_.Number):$($_.Action)" })
     log     = @($script:Log)
@@ -423,7 +425,7 @@ def test_liveness_is_not_checked_when_no_in_flight_state_is_in_question() -> Non
         + "$script:From = ''\n$script:Busy = $true\n"
         + _issues((3, "agent:backlog", 500), (4, "", 500))
         + r"""
-$acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2)
+$acted = @(Invoke-Reconciliation)
 [pscustomobject]@{ n = @($acted).Count; log = @($script:Log) } | ConvertTo-Json -Compress
 """
     )
@@ -439,7 +441,7 @@ def test_whatif_names_the_decision_including_giving_up() -> None:
         + "$script:From = 'agent:implementing'\n$script:Count = 2\n"
         + _issues((1, "agent:implementing", 500))
         + r"""
-$acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2 -WhatIf)
+$acted = @(Invoke-Reconciliation -WhatIf)
 [pscustomobject]@{ action = $acted[0].Action; log = @($script:Log) } | ConvertTo-Json -Compress
 """
     )
@@ -535,7 +537,7 @@ def test_paused_issues_are_left_to_the_usage_limit_path() -> None:
         + "$script:From = ''\n"
         + _issues((1, "agent:paused", 500))
         + r"""
-$acted = @(Invoke-Reconciliation -StuckAfterMinutes 90 -MaxReconcile 2)
+$acted = @(Invoke-Reconciliation)
 [pscustomobject]@{ acted = @($acted).Count; log = @($script:Log) } | ConvertTo-Json -Compress
 """
     )
@@ -653,7 +655,8 @@ def test_revise_route_dispatches_implement_job() -> None:
         "    if ($a -like '*pr list*') { return '[{\"number\":1}]' }\n"
         "    if ($a -like '*workflow run*') { $script:workflowDispatched = $a }\n"
         "    return '' }\n"
-        "$null = Invoke-Orchestration -IssueNumber 42 -From comment -MaxRetries 1\n"
+        "$OrchestratorConfig.MaxRetries = 1\n"
+        "$null = Invoke-Orchestration -IssueNumber 42 -From comment\n"
         "[pscustomobject]@{ stateSet = $script:stateSet; dispatched = $script:workflowDispatched } | ConvertTo-Json -Compress\n"
         "}\n"
     )
@@ -708,7 +711,8 @@ def test_revise_route_skipped_when_no_open_pr() -> None:
         "    if ($a -like '*pr list*') { return '[]' }\n"
         "    if ($a -like '*workflow run*') { $script:workflowDispatched = $true }\n"
         "    return '' }\n"
-        "$null = Invoke-Orchestration -IssueNumber 42 -From comment -MaxRetries 1\n"
+        "$OrchestratorConfig.MaxRetries = 1\n"
+        "$null = Invoke-Orchestration -IssueNumber 42 -From comment\n"
         "[pscustomobject]@{ stateSet = $script:stateSet; dispatched = $script:workflowDispatched; noPrComment = $script:noPrComment } | ConvertTo-Json -Compress\n"
         "}\n"
     )
@@ -876,7 +880,8 @@ def test_implement_path_flags_only_a_revision_as_revise(
         "    if ($a -like '*issue view*') {\n"
         '        return \'{"title":"T","labels":[{"name":"agent:implementing"}],"state":"OPEN"}\' }\n'
         "    return '' }\n"
-        "try { Invoke-Orchestration -IssueNumber 42 -MaxRetries 1 } catch { }\n"
+        "$OrchestratorConfig.MaxRetries = 1\n"
+        "try { Invoke-Orchestration -IssueNumber 42 } catch { }\n"
         "[pscustomobject]@{ force = $script:forceCapture; revise = $script:reviseCapture }"
         " | ConvertTo-Json -Compress\n"
         "}\n"

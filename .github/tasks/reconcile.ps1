@@ -13,13 +13,10 @@
     now instead of waiting, or with -WhatIf to see the verdict for every issue
     without changing anything.
 
-.PARAMETER StuckAfterMinutes
-    Idle minutes past which an agent-held state counts as stuck. Defaults to the
-    configured value (KANBAN_STUCK_AFTER_MINUTES, 90).
-
-.PARAMETER MaxReconcile
-    Re-entries allowed at one state before the issue is handed to the owner on
-    agent:failed. Defaults to the configured value (KANBAN_MAX_RECONCILE, 2).
+    The grace period (idle minutes past which an agent-held state counts as stuck)
+    is StuckAfterMinutes, and the re-entries allowed at one state before the issue
+    is handed to the owner on agent:failed is MaxReconcile — both settings in
+    .github/orchestrator/lib/Config.ps1.
 
 .PARAMETER WhatIf
     Report the verdicts and change nothing.
@@ -31,13 +28,10 @@
     pwsh -NoProfile -File .github/tasks/reconcile.ps1 -WhatIf
 #>
 param(
-    [int]$StuckAfterMinutes = -1,
-    [int]$MaxReconcile = -1,
     [switch]$WhatIf
 )
 
 $ErrorActionPreference = 'Stop'
 Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
 
-$null = Invoke-Reconciliation -StuckAfterMinutes $StuckAfterMinutes `
-    -MaxReconcile $MaxReconcile -WhatIf:$WhatIf
+$null = Invoke-Reconciliation -WhatIf:$WhatIf

@@ -149,7 +149,7 @@ def test_failure_during_a_usage_limit_pauses_without_an_attempt(tmp_path: Path) 
         _CONDUCTOR
         + r"""
 function script:Test-EngineUsageLimit { (Get-Date).ToUniversalTime().AddHours(2) }
-Invoke-Orchestration -IssueNumber 50 -MaxRetries 3
+Invoke-Orchestration -IssueNumber 50
 [pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
 """,
         cwd=tmp_path,
@@ -162,7 +162,8 @@ def test_real_failure_still_counts_as_an_attempt(tmp_path: Path) -> None:
         _CONDUCTOR
         + r"""
 function script:Test-EngineUsageLimit { $null }
-Invoke-Orchestration -IssueNumber 50 -MaxRetries 1
+$OrchestratorConfig.MaxRetries = 1
+Invoke-Orchestration -IssueNumber 50
 [pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
 """,
         cwd=tmp_path,
@@ -192,7 +193,8 @@ def test_every_run_resumes_due_pauses_before_its_stage(tmp_path: Path) -> None:
         + r"""
 function script:Resume-PausedIssues { $script:Log.Add('resume') }
 function script:Test-EngineUsageLimit { $null }
-Invoke-Orchestration -IssueNumber 50 -MaxRetries 1
+$OrchestratorConfig.MaxRetries = 1
+Invoke-Orchestration -IssueNumber 50
 [pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
 """,
         cwd=tmp_path,
@@ -206,7 +208,8 @@ def test_a_failing_resume_does_not_stop_the_run(tmp_path: Path) -> None:
         + r"""
 function script:Resume-PausedIssues { throw 'gh api: HTTP 502' }
 function script:Test-EngineUsageLimit { $null }
-Invoke-Orchestration -IssueNumber 50 -MaxRetries 1
+$OrchestratorConfig.MaxRetries = 1
+Invoke-Orchestration -IssueNumber 50
 [pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
 """,
         cwd=tmp_path,

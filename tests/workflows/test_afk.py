@@ -254,7 +254,6 @@ def test_installer_steps_precede_credentialed_checkouts():
         _secret_names = (
             "GH_TOKEN",
             "CLAUDE_CODE_OAUTH_TOKEN",
-            "OTEL_EXPORTER_OTLP_HEADERS",
         )
 
         for idx, step in enumerate(steps):

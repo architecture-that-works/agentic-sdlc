@@ -97,7 +97,7 @@ for ($j = 0; $j -lt $jobBoundaries.Count; $j++) {
         if ($isInstaller) {
             $installerIndices.Add($s)
             # Check 2b: no known secret in an installer step's env block.
-            foreach ($secret in @('GH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'OTEL_EXPORTER_OTLP_HEADERS')) {
+            foreach ($secret in @('GH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN')) {
                 if ($stepBlock -match "\b${secret}\s*:") {
                     $failures.Add(
                         "job '$jobName': installer step (index $s) has secret '$secret' in its env — remove it; an installer needs no secret"

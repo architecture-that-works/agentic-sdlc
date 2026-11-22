@@ -140,7 +140,7 @@ function script:claude {
 """
 
 _REPORT = r"""
-Invoke-Orchestration -IssueNumber 377 -MaxRetries 3
+Invoke-Orchestration -IssueNumber 377
 [pscustomobject]@{
     log      = @($script:Log)
     gh       = @($script:Gh)
