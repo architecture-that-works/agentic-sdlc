@@ -790,6 +790,40 @@ function Test-IssueShipped {
     return (@(Get-IssueLabel -IssueNumber $IssueNumber) -contains 'agent:shipped')
 }
 
+# The shipped guard (#377): checked at the start of every attempt and right before
+# every push, PR lookup and PR creation. The shipped label can arrive at any moment
+# of the agent's run (the owner merged by hand), so one check per round is not
+# enough. The conductor catches the sentinel, says so once and changes no label.
+function Assert-NotShipped {
+    param([int]$IssueNumber)
+    if (Test-IssueShipped -IssueNumber $IssueNumber) { throw "ISSUE-SHIPPED|issue #$IssueNumber already shipped" }
+}
+
+# ── Draft until released (#377) ───────────────────────────────────────────────
+# GitHub refuses to merge a draft, so a draft is the workflow's work in progress and
+# a PR marked ready is the one to merge. A private repository on a plan without
+# drafts refuses them; only that refusal is tolerated — any other failure is real.
+function Test-DraftUnsupported {
+    param([string]$Output)
+    return $Output -match '(?i)draft[^\r\n]*not (supported|available|enabled)'
+}
+
+# Marks the PR ready for review (-Undo: back to draft). Does nothing to a PR already
+# in that state. $false when the repository has no drafts, $true otherwise.
+function Set-PRReady {
+    param([Parameter(Mandatory)][int]$PRNumber, [switch]$Undo)
+    $ghArgs = @('pr', 'ready', $PRNumber, '--repo', $KanbanRepo)
+    if ($Undo) { $ghArgs += '--undo' }
+    $out = gh @ghArgs 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 0) { return $true }
+    if (Test-DraftUnsupported -Output $out) {
+        Write-Log "  ⚠️ PR #$PRNumber stays as it is — this repository does not support draft pull requests." -Color Yellow
+        $global:LASTEXITCODE = 0
+        return $false
+    }
+    throw "gh $($ghArgs -join ' ') failed:`n$($out.Trim())"
+}
+
 # ── Comment helper ────────────────────────────────────────────────────────────
 
 function Add-Comment {
