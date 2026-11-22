@@ -379,11 +379,11 @@ function Invoke-CommitAndPR {
     # even produce a diff for the owner to read — and the owner had to write every
     # pipeline change by hand.
     #
-    # A missing or empty WritablePaths is fail-safe, not fatal: with no allowlist
+    # An empty WritablePaths is fail-safe, not fatal: with no allowlist
     # nothing is auto-mergeable, so every path counts as a proposal and ship holds.
-    $writablePaths = if ($OrchestratorConfig.ContainsKey('WritablePaths')) { @($OrchestratorConfig.WritablePaths) } else { @() }
+    $writablePaths = @($OrchestratorConfig.WritablePaths)
     if ($writablePaths.Count -eq 0) {
-        Write-Log "  ⚠️ WritablePaths is missing or empty — treating every change as a proposal." -Color Yellow
+        Write-Log "  ⚠️ WritablePaths is empty — treating every change as a proposal." -Color Yellow
     }
 
     # Enumerate all changed paths before any git add.
@@ -632,7 +632,7 @@ function Invoke-Implement {
 
         $stateForAttempt = Get-IssueState -IssueNumber $IssueNumber
         $runAttempt      = if ($stateForAttempt -and $stateForAttempt.PSObject.Properties['attempt_count']) { [int]$stateForAttempt.attempt_count + 1 } else { 1 }
-        $maxR            = (Get-OrchestratorContext).MaxRetries
+        $maxR            = $OrchestratorConfig.MaxRetries
 
         $markerFiles = @($devResult.MarkerFiles | Where-Object { $_ })
         if ($markerFiles.Count -gt 0) {

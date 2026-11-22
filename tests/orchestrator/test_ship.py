@@ -67,8 +67,8 @@ function script:gh { $global:LASTEXITCODE = 0
 # passed on $script:Sha unless a test says otherwise; the wait has no ceiling to sit out.
 _CHECKS = r"""
 $script:Sha = '0123456789abcdef0123456789abcdef01234567'
-$script:ShipCheckTimeoutSec = 0
-$script:ShipCheckPollSec = 0
+$OrchestratorConfig.RequiredChecksTimeoutSeconds = 0
+$OrchestratorConfig.RequiredChecksPollSeconds = 0
 $script:ChecksPolled = $false
 $script:JobLogs = @{}
 function script:New-CheckRun {

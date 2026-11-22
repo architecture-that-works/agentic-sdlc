@@ -1,18 +1,21 @@
 #Requires -Version 7.0
 <#
-    Config.ps1 — settings, run context, and model selection for the Kanban module.
+    Config.ps1 — settings, run context, and model selection for the orchestrator
+    module.
 
-    Single source for "what are the settings for this run": loads .env, defines the
-    orchestrator defaults (incl. the engine, its models per tier and each task's
-    tier, read through Get-TaskModel), resolves the $Kanban* constants (project
-    IDs, lanes, turn budgets) with env overrides, resolves the repo slug and default
-    branch WITHOUT GraphQL, and exposes Get-OrchestratorContext — the per-run object
-    (issue, retries, repo, branch, runtime) hydrated from the KANBAN_* env
-    transport (ADR-013). Loaded first by Orchestrator.psm1.
+    Loads .env, defines $OrchestratorConfig — the settings table, the one place
+    every orchestrator setting has its value (the engine, its models per tier and
+    each task's tier, read through Get-TaskModel; turn budgets; run limits; waits).
+    Nothing overrides a key: to change a setting, edit it here. Also resolves the
+    $Kanban* constants the environment really supplies (board ids, lanes), resolves
+    the repo slug and default branch WITHOUT GraphQL, and exposes
+    Get-OrchestratorContext — the per-run object (issue, repo, branch, runtime)
+    hydrated from the KANBAN_* env transport (ADR-013). Loaded first by
+    Orchestrator.psm1.
 #>
 
 # ── Paths + .env loader ───────────────────────────────────────────────────────
-# $_Root is the repo root (kanban/ is three levels deep under the repo).
+# $_Root is the repo root (this file is .github/orchestrator/lib/, three levels deep).
 $_Root    = "$PSScriptRoot\..\..\.."
 $_EnvPath = "$_Root\.env"
 
@@ -26,10 +29,10 @@ if (Test-Path $_EnvPath) {
 
 $KanbanLogFile = "$_Root\logs\kanban.log"
 
-# ── Orchestrator defaults ─────────────────────────────────────────────────────
-# The turn budgets and the run limits below are overridable per-machine via .env
-# (KANBAN_* env vars take precedence). The engine and the models are not: they
-# are set here and nowhere else.
+# ── Settings table ────────────────────────────────────────────────────────────
+# Every orchestrator setting, with its one value. Code reads $OrchestratorConfig.<Key>
+# where it uses the setting; no environment variable, module copy or parameter
+# replaces a key (tests/orchestrator/test_config_table.py checks each key is read).
 $OrchestratorConfig = @{
     # ── Models ────────────────────────────────────────────────────────────────
     # Every model call is a named task. TaskTiers gives each task a tier, a class
@@ -149,6 +152,15 @@ $OrchestratorConfig = @{
     # warden stops and hands it to the owner on agent:failed. Prevents a
     # permanently broken issue from being re-dispatched every hour forever.
     MaxReconcile = 2
+
+    # Usage-limit pause (lib/Util.ps1): the longest a run waits after the model's
+    # usage allowance is spent, whatever reset time the CLI reports.
+    MaxPauseHours = 5
+
+    # Ship's wait for RequiredChecks on the commit it pushed (stages/Ship.ps1): how
+    # long it waits in total, and how often it asks.
+    RequiredChecksTimeoutSeconds = 900
+    RequiredChecksPollSeconds    = 10
 }
 
 # ── Project constants (env, with defaults) ────────────────────────────────────
@@ -321,21 +333,14 @@ if (-not $KanbanDefaultBranch) {
     throw "Cannot resolve the default branch — set GITHUB_DEFAULT_BRANCH, configure an 'origin' remote, or check 'gh auth status'."
 }
 
-# ── Turn budgets + run limits (env overrides over $OrchestratorConfig) ────────
-$KanbanMaxTurns_Review       = if ($env:KANBAN_MAX_TURNS_REVIEW)  { [int]$env:KANBAN_MAX_TURNS_REVIEW  } else { $OrchestratorConfig.MaxTurns_Review        }
-$KanbanMaxTurns_Refine        = if ($env:KANBAN_MAX_TURNS_REFINE)  { [int]$env:KANBAN_MAX_TURNS_REFINE  } else { $OrchestratorConfig.MaxTurns_Refine         }
-$KanbanMaxRetries             = if ($env:KANBAN_MAX_RETRIES)       { [int]$env:KANBAN_MAX_RETRIES       } else { $OrchestratorConfig.MaxRetries              }
-$KanbanStuckAfterMinutes      = if ($env:KANBAN_STUCK_AFTER_MINUTES) { [int]$env:KANBAN_STUCK_AFTER_MINUTES } else { $OrchestratorConfig.StuckAfterMinutes   }
-$KanbanMaxReconcile           = if ($env:KANBAN_MAX_RECONCILE)     { [int]$env:KANBAN_MAX_RECONCILE     } else { $OrchestratorConfig.MaxReconcile            }
-
 $KanbanEstimateFieldId = if ($env:KANBAN_ESTIMATE_FIELD_ID) { $env:KANBAN_ESTIMATE_FIELD_ID } else { '' }
 $KanbanPriorityFieldId = if ($env:KANBAN_PRIORITY_FIELD_ID) { $env:KANBAN_PRIORITY_FIELD_ID } else { '' }
 
 # ── Run context — single source of truth for this run's key parameters ───────
 # Hydrated from environment variables: the ONLY transport stable across &-calls,
 # dot-sourcing, nested pwsh and subprocesses. Entry points (afk.yml,
-# hitl.ps1) set KANBAN_ISSUE / KANBAN_MAX_RETRIES; everything downstream reads
-# them via Get-OrchestratorContext rather than fragile script-scope variables, which a
+# hitl.ps1) set KANBAN_ISSUE; everything downstream reads
+# it via Get-OrchestratorContext rather than fragile script-scope variables, which a
 # dot-sourced param() block can silently clobber (ADR-013). Add a new per-run key
 # in one place here → every script gets it.
 
@@ -354,8 +359,7 @@ function Get-EnvInt {
 function Get-OrchestratorContext {
     if ($script:_KanbanContext) { return $script:_KanbanContext }
     $script:_KanbanContext = [pscustomobject]@{
-        IssueNumber   = Get-EnvInt 'KANBAN_ISSUE'       -Default 0
-        MaxRetries    = Get-EnvInt 'KANBAN_MAX_RETRIES' -Default $KanbanMaxRetries
+        IssueNumber   = Get-EnvInt 'KANBAN_ISSUE' -Default 0
         Repo          = $KanbanRepo
         DefaultBranch = $KanbanDefaultBranch
         ProjectNumber = $KanbanProjectNumber

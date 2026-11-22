@@ -171,7 +171,7 @@ def test_a_refused_edit_ends_the_round_after_one_attempt(tmp_path: Path) -> None
     out = _run(
         _CONDUCTOR
         + r"""
-Invoke-Orchestration -IssueNumber 346 -MaxRetries 3
+Invoke-Orchestration -IssueNumber 346
 $pushed = & $script:RealGit log -1 --name-status --format=%s feature/346-use-protected-files
 [pscustomobject]@{
     log      = @($script:Log)
@@ -262,7 +262,7 @@ function script:claude {
 )
 
 _MERGE_REPORT = r"""
-Invoke-Orchestration -IssueNumber 346 -MaxRetries 3
+Invoke-Orchestration -IssueNumber 346
 & $script:RealGit checkout -q feature/346-use-protected-files
 [pscustomobject]@{
     log      = @($script:Log)

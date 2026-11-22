@@ -62,11 +62,7 @@ function Invoke-Review {
     $issue            = gh issue view $IssueNumber --repo $KanbanRepo --json title,body | ConvertFrom-Json
     $diff             = gh pr diff $PRNumber 2>&1 | Out-String
     $changedFileCount = ([regex]::Matches($diff, '(?m)^diff --git')).Count
-    $scaledTurns      = if ($env:KANBAN_MAX_TURNS_REVIEW) {
-        $KanbanMaxTurns_Review
-    } else {
-        [Math]::Min($OrchestratorConfig.MaxTurns_Review_Cap, $OrchestratorConfig.MaxTurns_Review + $changedFileCount)
-    }
+    $scaledTurns      = [Math]::Min($OrchestratorConfig.MaxTurns_Review_Cap, $OrchestratorConfig.MaxTurns_Review + $changedFileCount)
 
     # Retrieve signal history — includes 🤖✅ Tests Passing output and any prior rejections.
     $signal = (Get-SignalComments -IssueNumber $IssueNumber) -join "`n---`n"

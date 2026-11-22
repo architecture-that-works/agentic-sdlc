@@ -334,7 +334,7 @@ Return ONLY JSON, no fences:
 # nothing is auto-mergeable, which is the fail-safe direction.
 function Get-UnwritablePaths {
     param([string[]]$Paths)
-    $writable = if ($OrchestratorConfig.ContainsKey('WritablePaths')) { @($OrchestratorConfig.WritablePaths) } else { @() }
+    $writable = @($OrchestratorConfig.WritablePaths)
     return @($Paths | Where-Object {
         $p = "$_".Trim()
         $p -and @($writable | Where-Object { $p -like $_ }).Count -eq 0

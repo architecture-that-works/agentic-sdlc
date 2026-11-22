@@ -288,12 +288,11 @@ function Format-ErrorBlock {
 # "hit your daily limit") but stays inside one sentence, so an unrelated "hit your" and
 # a later "limit" in a long error log never pair up.
 $KanbanUsageLimitPattern = '(?i)usage limit|limit reached|rate_limit_error|hit your\b[^.·\n]{0,40}?\blimit|spend limit|session limit'
-$KanbanMaxPauseHours     = 5
 
 # The UTC time to resume after a usage-limit message, or $null when $Text is not
 # one. Reads the reset time the engine reports (an epoch after '|', or "resets
 # 3pm" / "resets at 15:30", taken as UTC — the runner's clock), falls back to one
-# hour, and never waits more than $KanbanMaxPauseHours.
+# hour, and never waits more than $OrchestratorConfig.MaxPauseHours.
 function Get-UsageLimitResume {
     param([string]$Text, [datetime]$Now = (Get-Date).ToUniversalTime())
     if ("$Text" -notmatch $KanbanUsageLimitPattern) { return $null }
@@ -312,7 +311,7 @@ function Get-UsageLimitResume {
         }
     }
     if (-not $until) { $until = $Now.AddHours(1) }
-    $cap = $Now.AddHours($KanbanMaxPauseHours)
+    $cap = $Now.AddHours($OrchestratorConfig.MaxPauseHours)
     if ($until -gt $cap) { $until = $cap }
     return $until
 }

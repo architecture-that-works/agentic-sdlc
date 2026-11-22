@@ -493,7 +493,7 @@ function script:Invoke-Implement { param($IssueNumber, [switch]$Force)
     $script:Calls++; $script:Log.Add("implement:force=$([bool]$Force)")
     if ($script:Calls -eq 1) { throw 'Test suite failed after implementation for issue #50' }
     'https://github.com/octocat/sandbox/pull/9' }
-Invoke-Orchestration -IssueNumber 50 -MaxRetries 3
+Invoke-Orchestration -IssueNumber 50
 [pscustomobject]@{ log = @($script:Log) } | ConvertTo-Json -Compress
 """,
         tmp_path,
@@ -511,7 +511,7 @@ def test_attempt_loop_fails_only_after_the_budget(tmp_path: Path) -> None:
         + r"""
 function script:Invoke-Implement { param($IssueNumber, [switch]$Force) 'https://github.com/octocat/sandbox/pull/9' }
 function script:Invoke-Review { param($IssueNumber, $PRNumber) $script:Calls++; $false }
-Invoke-Orchestration -IssueNumber 50 -MaxRetries 3
+Invoke-Orchestration -IssueNumber 50
 [pscustomobject]@{ log = @($script:Log); reviews = $script:Calls } | ConvertTo-Json -Compress
 """,
         tmp_path,
@@ -534,7 +534,7 @@ def test_refine_failures_use_the_attempt_budget_then_fail(tmp_path: Path) -> Non
 function script:Get-IssueState { param($IssueNumber) $null }
 function script:Invoke-Refine { param($Number) $script:Calls++; throw 'Self-grill subagent gave no result' }
 function script:Test-Readiness { param($State) $true }
-$r = Invoke-Orchestration -From refine -IssueNumber 50 -MaxRetries 3
+$r = Invoke-Orchestration -From refine -IssueNumber 50
 [pscustomobject]@{ r = $r; log = @($script:Log); calls = $script:Calls } | ConvertTo-Json -Compress
 """,
         tmp_path,

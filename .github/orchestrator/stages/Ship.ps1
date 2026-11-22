@@ -28,10 +28,8 @@ $ErrorActionPreference = 'Stop'
 # lib/Config.ps1, the list branch protection requires) has passed on the exact
 # commit it pushed. `gh pr checks` cannot say that: its answer carries no commit, so
 # right after a push it still shows the previous commit's checks as passed.
-
-# How long ship waits, from its push, for the required checks; and how often it asks.
-$ShipCheckTimeoutSec = 900
-$ShipCheckPollSec    = 10
+# How long ship waits, from its push, and how often it asks: RequiredChecksTimeoutSeconds
+# and RequiredChecksPollSeconds in lib/Config.ps1.
 
 # Every check run GitHub holds for one commit: id, name, status, conclusion,
 # head_sha, details_url. @() when the API cannot be read (the poll asks again).
@@ -438,13 +436,15 @@ function Invoke-Ship {
         if ($required.Count -eq 0) { throw 'RequiredChecks in .github/orchestrator/lib/Config.ps1 is empty.' }
         Write-Log "  Waiting for the required checks ($($required -join ', ')) on $sha (PR #$PRNumber)..." -Color DarkGray
 
-        $deadline = (Get-Date).AddSeconds($ShipCheckTimeoutSec)
+        $timeoutSec = $OrchestratorConfig.RequiredChecksTimeoutSeconds
+        $pollSec    = $OrchestratorConfig.RequiredChecksPollSeconds
+        $deadline   = (Get-Date).AddSeconds($timeoutSec)
         while ($true) {
             $verdict = Get-CheckVerdict -RequiredNames $required -CheckRuns @(Get-CommitCheckRuns -Sha $sha) -Sha $sha
             if ($verdict.State -in @('green', 'failed') -or (Get-Date) -ge $deadline) { break }
             $waiting = @($verdict.Missing) + @($verdict.Pending)
-            Write-Log "  CI on ${sha}: waiting for $($waiting -join ', ') — asking again in ${ShipCheckPollSec}s..." -Color DarkGray
-            Start-Sleep -Seconds $ShipCheckPollSec
+            Write-Log "  CI on ${sha}: waiting for $($waiting -join ', ') — asking again in ${pollSec}s..." -Color DarkGray
+            Start-Sleep -Seconds $pollSec
         }
 
         if ($verdict.State -eq 'failed') {
@@ -458,9 +458,9 @@ function Invoke-Ship {
             $names = @(@($verdict.Missing | ForEach-Object { "$_ (not reported)" }) +
                        @($verdict.Pending | ForEach-Object { "$_ (not passed)" }))
             $list  = ($names | ForEach-Object { "- ``$_``" }) -join "`n"
-            Add-Comment -Number $IssueNumber -Body ("🤖⚠️ CI did not pass within ${ShipCheckTimeoutSec}s`n`n" +
+            Add-Comment -Number $IssueNumber -Body ("🤖⚠️ CI did not pass within ${timeoutSec}s`n`n" +
                 "These required checks have not passed on commit ${sha}:`n`n$list`n`nNothing was merged; the PR needs manual review.")
-            throw "Required checks did not pass on $sha within ${ShipCheckTimeoutSec}s for PR #${PRNumber}: $($names -join ', ')"
+            throw "Required checks did not pass on $sha within ${timeoutSec}s for PR #${PRNumber}: $($names -join ', ')"
         }
         Write-Log "  CI green on $sha ✅" -Color Green
     }

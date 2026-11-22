@@ -149,8 +149,8 @@ function Test-PipelineBusy {
 #   fresh   agent-held, but touched inside the grace period — assume a live runner
 #   stuck   agent-held and silent past the grace period — no runner is on it
 function Get-StuckIssue {
-    param([int]$StuckAfterMinutes = -1, [datetime]$Now = (Get-Date).ToUniversalTime())
-    if ($StuckAfterMinutes -lt 0) { $StuckAfterMinutes = $KanbanStuckAfterMinutes }
+    param([datetime]$Now = (Get-Date).ToUniversalTime())
+    $StuckAfterMinutes = $OrchestratorConfig.StuckAfterMinutes
 
     $raw = gh api "repos/$KanbanRepo/issues?state=open&per_page=100" `
         --jq '.[] | select(.pull_request == null) | {n: .number, u: .updated_at, l: [.labels[].name]} | @json' 2>&1 | Out-String
@@ -217,12 +217,12 @@ function Set-ReconcileCount {
 # -WhatIf reports what it would do and changes nothing — the intended way to check
 # the grace period against real activity before trusting it unattended.
 function Invoke-Reconciliation {
-    param([int]$StuckAfterMinutes = -1, [int]$MaxReconcile = -1, [switch]$WhatIf)
+    param([switch]$WhatIf)
 
-    if ($StuckAfterMinutes -lt 0) { $StuckAfterMinutes = $KanbanStuckAfterMinutes }
-    if ($MaxReconcile     -lt 0)  { $MaxReconcile     = $KanbanMaxReconcile      }
+    $StuckAfterMinutes = $OrchestratorConfig.StuckAfterMinutes
+    $MaxReconcile      = $OrchestratorConfig.MaxReconcile
 
-    $rows = @(Get-StuckIssue -StuckAfterMinutes $StuckAfterMinutes)
+    $rows = @(Get-StuckIssue)
     Write-Log "⚖ Reconciliation — $($rows.Count) open issue(s); stuck after ${StuckAfterMinutes}m, cap $MaxReconcile." -Color Cyan
 
     # agent:paused has its own time gate (the engine's reported reset time), which

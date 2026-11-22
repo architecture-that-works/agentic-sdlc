@@ -87,7 +87,7 @@ flowchart LR
   when no question is open.
 - **Failures retry themselves.** Test failures, review rejections, red CI (with its log) and
   refine errors (a self-grill that gives no usable answer included) each count as one attempt; the next attempt re-implements with every earlier
-  failure in view. After 3 (`KANBAN_MAX_RETRIES`) the issue lands on `agent:failed`.
+  failure in view. After 3 (`MaxRetries` in `lib/Config.ps1`) the issue lands on `agent:failed`.
 - **Labels are the pipeline's, not yours.** Write issues without labels. Refine sets
   `agent:backlog` or `human:decision`; ship sets `human:approval`.
 - **Ship** waits for CI, then squash-merges and updates `CONTEXT.md` — unless the PR touches a

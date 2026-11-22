@@ -53,7 +53,7 @@ $ErrorActionPreference = 'Stop'
 #                    otherwise asks in the issue and labels it human:decision
 #   -From implement  implement -> review -> ship
 #
-# A failure is retried up to MaxRetries attempts per round, each recorded in the
+# A failure is retried up to $OrchestratorConfig.MaxRetries attempts per round, each recorded in the
 # issue's Attempts section; only an exhausted round lands the issue on agent:failed.
 #
 # There is no Export-ModuleMember call: the public surface is declared in
@@ -61,10 +61,10 @@ $ErrorActionPreference = 'Stop'
 # PowerShell resolve commands without loading the module (ADR-015).
 
 function Invoke-Orchestration {
-    param([int]$IssueNumber, [ValidateSet('refine','implement','comment')] [string]$From = 'implement', [int]$MaxRetries = -1, [switch]$Force)
+    param([int]$IssueNumber, [ValidateSet('refine','implement','comment')] [string]$From = 'implement', [switch]$Force)
 
-    $ctx = Get-OrchestratorContext               # run context: repo, default branch, retries
-    if ($MaxRetries -lt 0) { $MaxRetries = $ctx.MaxRetries }
+    $ctx = Get-OrchestratorContext               # run context: repo, default branch
+    $MaxRetries = $OrchestratorConfig.MaxRetries # attempts per round — the settings table, lib/Config.ps1
 
     # Trusted authors only (#312) — before the engine is touched. Covers what the
     # workflow's own author check cannot: the refine backfill and an owner comment on
@@ -367,7 +367,7 @@ function Invoke-Orchestration {
                     $errBlock = Format-ErrorBlock -Raw $reason
                     Add-Comment -Number $IssueNumber -Body ("🤖❌ Failed — needs you`n`n" +
                         "$errBlock`n`n" +
-                        "To unblock: set a larger ``KANBAN_MAX_TURNS_REVIEW`` budget, or split the PR into fewer changed files.")
+                        "To unblock: raise ``MaxTurns_Review_Cap`` in ``.github/orchestrator/lib/Config.ps1``, or split the PR into fewer changed files.")
                     Write-Log "⛔ Issue #$IssueNumber — $reason" -Color Red
                     return
                 }

@@ -11,16 +11,16 @@
 .PARAMETER Issue
     Issue number to start directly, skipping the interactive picker.
 
-.PARAMETER MaxRetries
-    Maximum implement→review cycles before marking agent:failed. Default: 3.
+.NOTES
+    Failed attempts per round before agent:failed: MaxRetries in
+    .github/orchestrator/lib/Config.ps1.
 
 .EXAMPLE
     pwsh -NoProfile -File .github/tasks/hitl.ps1              # interactive picker
     pwsh -NoProfile -File .github/tasks/hitl.ps1 -Issue 13     # run orchestration for issue #13 directly
 #>
 param(
-    [int]$Issue      = 0,
-    [int]$MaxRetries = -1
+    [int]$Issue = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,7 +29,6 @@ $ctx                 = Get-OrchestratorContext
 $KanbanRepo          = $ctx.Repo
 $KanbanProjectNumber = $ctx.ProjectNumber
 
-if ($MaxRetries -lt 0) { $MaxRetries = $ctx.MaxRetries }
 
 # ── Fetch Backlog items for this repo ─────────────────────────────────────────
 
@@ -97,4 +96,4 @@ Write-Host ""
 
 # ── Run the full orchestration ────────────────────────────────────────────────
 
-Invoke-Orchestration -IssueNumber $num -MaxRetries $MaxRetries
+Invoke-Orchestration -IssueNumber $num
