@@ -104,8 +104,12 @@ Invariants that must not be violated in any implementation.
 - **Skills travel with generated projects** (ADR-009) — every skill referenced in `AGENTS.md` MUST be physically present under `.agents/skills/` in every generated project. Skill files local to `~/.claude/skills/` alone do not satisfy this constraint.
 - **KISS** — no premature abstractions or heavy frameworks where a simple standard-library implementation suffices (e.g. `src/main.py` uses `http.server`, not a web framework).
 - **Dependency Inversion** — external I/O (HTTP, filesystem, subprocess) sits behind an interface declared in `src/`. `src/tools/` is exempt: thin CLI utilities may call I/O directly.
-- **DRY (Rule of Three)** — extract to `src/utils/` only once code is duplicated three times. `architect` flags duplication that meets the threshold.
+- **DRY (Rule of Three)** — extract to `src/utils/` only once code is duplicated three times; this applies to code, while values, lists and shapes follow One definition. `architect` flags duplication that meets the threshold.
 - **The state machine is rigid** — `$PipelineStates` lists only transitions on the designed path. An issue that reaches a state the table refuses left the path somewhere: close that entry point, never widen `AllowedFrom` to accept it.
+- **One definition** — a value, a list or a shape (a setting, an issue's headings, the required checks) is written in one place and read from there. A second copy is removed, not guarded by a test.
+- **Fix at the root** — a change removes every copy of the thing it corrects and repairs the structural fault behind the defect, in the same issue. It does not leave a known copy for a follow-up.
+- **Standards out of the box** — the template decides and ships the standard. Generating or setting up a project asks as little as possible.
+- **A result is read from a field** — the orchestrator reads an outcome from a checked answer, an exit code or an API field wherever the tool offers one. Where a tool gives only text, the pattern is written once, in that tool's adapter.
 
 ## Out of Scope
 
