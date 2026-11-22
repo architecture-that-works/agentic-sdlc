@@ -75,7 +75,8 @@ Describe 'Build journey' {
 
         $headings = Get-FakeCommentHeadings 13
         $headings | Should -Contain '🤖❌ Review Rejected'
-        $headings | Should -Contain '🤖🔁 Attempt 1/3 failed at **review** — Review rejected the implementation — the latest 🤖❌ Review Rejected comment lists what to fix.'
+        $max = Get-OrchestratorSetting -Name MaxRetries
+        $headings | Should -Contain "🤖🔁 Attempt 1/$max failed at **review** — Review rejected the implementation — the latest 🤖❌ Review Rejected comment lists what to fix."
         $headings | Should -Contain '🤖✅ Review Approved'
         @($headings | Where-Object { $_ -eq '🤖 Implementation' }).Count | Should -Be 2
         $headings[-1] | Should -Be '🤖⏸ Held for human approval'
@@ -126,7 +127,8 @@ Describe 'Build journey' {
         Get-FakePipelineLabel 21 | Should -Be 'agent:shipped' -Because (Get-JourneyStory 21)
         $headings = Get-FakeCommentHeadings 21
         $headings | Should -Contain '🤖⚠️ Tests Failing'
-        $headings | Should -Contain '🤖🔁 Attempt 1/3 failed at **implement** — Test suite failed after implementation for issue #21'
+        $max = Get-OrchestratorSetting -Name MaxRetries
+        $headings | Should -Contain "🤖🔁 Attempt 1/$max failed at **implement** — Test suite failed after implementation for issue #21"
         $headings.IndexOf('🤖⚠️ Tests Failing') | Should -BeLessThan $headings.IndexOf('🤖✅ Tests Passing')
         $headings[-1] | Should -Be '🤖✅ Merged'
         # The second attempt got the failure: the failing run's output is in its prompt.
@@ -140,7 +142,7 @@ Describe 'Build journey' {
     It 'fails an attempt with the failed job''s log when a required check fails, and fails the issue when the attempts are used up' {
         $max = Get-OrchestratorSetting -Name MaxRetries
         Add-FakeIssue -Number 22 -Title 'Describe the journeys in the docs' -Body (New-PlannedIssueBody -Number 22) -Labels @('agent:backlog')
-        Set-FakeChecks -Conclusions @{ test = 'failure' } -Logs @{ test = "collected 12 items`nFAILED tests/test_main.py::test_greeting - AssertionError: no name`n1 failed, 11 passed" }
+        Set-FakeChecks -Conclusions @{ test = 'failure' } -Logs @{ test = "collected 12 items`nFAILED tests/app/test_main.py::test_greeting - AssertionError: no name`n1 failed, 11 passed" }
         foreach ($n in 1..$max) {
             Add-ImplementRun -Edits (Get-DocsEdit -Line "Attempt ${n}: a journey follows an issue.") -Message "docs(#22): describe the journeys, take $n"
             Add-ReviewVerdict
@@ -154,7 +156,7 @@ Describe 'Build journey' {
         foreach ($c in $failed) {
             $c.Body | Should -Match 'Failed checks: test — on commit [0-9a-f]{40}\.'
             $c.Body | Should -Match '\*\*test\*\* \(job \d+\) — last 3 log lines:'
-            $c.Body | Should -Match 'FAILED tests/test_main.py::test_greeting - AssertionError: no name'
+            $c.Body | Should -Match 'FAILED tests/app/test_main.py::test_greeting - AssertionError: no name'
         }
         # Every attempt after the first got the failed job's log in its prompt.
         (Get-FakeEngineCalls -Task ImplementSmall)[1].Prompt | Should -Match 'AssertionError: no name'

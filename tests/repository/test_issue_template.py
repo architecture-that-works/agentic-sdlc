@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / ".github" / "ISSUE_TEMPLATE" / "issue.md"
 CONFIG = ROOT / ".github" / "ISSUE_TEMPLATE" / "config.yml"
 CONTRIBUTING = ROOT / "CONTRIBUTING.md"

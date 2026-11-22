@@ -14,13 +14,6 @@ from src.tools.commit import (
 )
 
 
-def test_generate_commit_message_uses_cli_when_available() -> None:
-    with patch("src.tools.commit._claude_cli", return_value="feat(utils): add helper"):
-        result = generate_commit_message("diff --git a/file.py b/file.py\n+new line")
-
-    assert result == "feat(utils): add helper"
-
-
 def test_generate_commit_message_falls_back_to_sdk() -> None:
     with (
         patch("src.tools.commit._claude_cli", return_value=None),

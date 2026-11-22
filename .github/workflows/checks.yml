@@ -46,7 +46,8 @@ jobs:
           enable-cache: true
       - run: uv sync
       # The one full test command: pytest with the src/ coverage gate, then the
-      # orchestrator's Pester journeys (hosted runners ship pwsh and Pester 5).
+      # orchestrator's decision tables and journeys in Pester (hosted runners ship pwsh and
+      # Pester 5; the command prints the version it ran on).
       - run: pwsh -NoProfile -File .github/tasks/test.ps1
 
   audit:
@@ -60,7 +61,7 @@ jobs:
       - run: uv run pip-audit
 
   # One rule: every .github/checks/check-*.ps1 runs here, so a new check is a new
-  # file. No check is named in this workflow (tests/workflows/test_checks.py).
+  # file. No check is named in this workflow (tests/repository/test_checks_workflow.py).
   checks:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
@@ -126,6 +127,12 @@ jobs:
           if $shared || echo "$changed" | grep -qE "$PATHS_REFINE"; then refine=true; fi
           if $shared || echo "$changed" | grep -qE "$PATHS_REVIEW"; then review=true; fi
           if $shared || echo "$changed" | grep -qE "$PATHS_IMPLEMENT"; then implement=true; fi
+          # A target runs only when its eval exists: a generated project carries no
+          # tests/evals/, so there the eval job skips and reports success (#408).
+          [ -f tests/evals/test_commit_eval.py ] || commit=false
+          [ -f tests/evals/test_refine_eval.py ] || refine=false
+          [ -f tests/evals/test_review_eval.py ] || review=false
+          [ -f tests/evals/test_implement_eval.py ] || implement=false
           if $commit || $refine || $review || $implement; then run=true; else run=false; fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
           echo "run_commit=$commit" >> "$GITHUB_OUTPUT"
