@@ -159,26 +159,39 @@ Avoid copy-pasting similar test functions — parametrize instead.
 ## Testing the orchestrator: journeys
 
 The orchestrator is tested the way an issue travels through it. A **journey** is a Pester 5
-file in `tests/journeys/`, named after the path it follows (`Refine.Tests.ps1`: refine →
-architect → plan; `Build.Tests.ps1`: implement → review → ship). It enters only through the
-conductor, `Invoke-Orchestration -IssueNumber <n> -From refine|implement|comment`, and asserts
-only what the owner sees: the issue's label, the kind of comments posted (a 🤖 signal and its
-heading, or a · noise line), the pull request's state, and what was pushed to the remote.
-Nothing in a journey reaches into a private function.
+file in `tests/journeys/`, named after the path it follows:
+
+| File | Path |
+|------|------|
+| `Refine.Tests.ps1` | refine → architect → plan |
+| `Build.Tests.ps1` | a queued issue through implement → review → ship: merged, held, failed verification, red or missing checks, a refused edit, the secrets denylist, a proposal, an issue shipped mid-round |
+| `Conflict.Tests.ps1` | a branch that conflicts with the default branch: the post-merge conflict rounds, the agent settling the conflict, markers left behind, the default branch moving during a round |
+| `Held.Tests.ps1` | a pull request held for the owner, or left by a failed issue: a revision started by a comment, the owner's merge or close |
+
+A journey enters only through the exported entry point the real run calls — the conductor,
+`Invoke-Orchestration -IssueNumber <n> -From refine|implement|comment`, or the function a
+workflow step calls itself: `Complete-HeldPR -PRNumber <n> -Branch <branch> -Merged <bool>`
+(afk.yml `pr-closed`) and `Start-ConflictRounds -MergedPR <n>` (afk.yml `conflict-rounds`). It
+asserts only what the owner sees: the issue's label, the kind of comments posted (a 🤖 signal
+and its heading, or a · noise line), the pull request's state, draft flag and timeline, and what
+was pushed to the remote. Nothing in a journey reaches into a private function.
 
 The orchestrator has three outside seams, and each has one fake in `tests/fakes/`:
 
 | Fake | Stands in for | What a test does with it |
 |------|---------------|--------------------------|
-| `tests/fakes/GitHub.ps1` | the `gh` command | Seeds issues and comments, reads labels, comments and pull requests back. It holds issues, labels, comments, pull requests and check runs in memory, records what changed, and records every label change as a transition. A `gh` call it does not know fails the test and names the call. |
-| `tests/fakes/Engine.ps1` | `Invoke-EngineTask`, the one function that starts a model | Scripts what each Task returns, in order: an outcome, a reply, a checked answer, refused edits, and for an implement task the files it edits. A Task with nothing scripted fails the test and names it. |
-| `tests/fakes/Repo.ps1` | the repository | Gives the journey a temporary git repository with a bare remote; git runs for real, so the test asks the remote what was pushed. |
+| `tests/fakes/GitHub.ps1` | the `gh` command | Seeds issues and comments, reads labels, comments and pull requests back. It holds issues, labels, comments, pull requests, check runs and job logs in memory, records what changed, and records every label change as a transition. Set-FakeChecks sets what every pushed commit's required checks conclude (failed, still running, missing) and each failed job's log; Complete-FakePullRequest is the owner merging or closing a PR by hand and returns the arguments `Complete-HeldPR` gets; Get-FakePrTimeline reads what happened to a PR (opened as draft, marked ready, back to draft, merged). A `gh` call it does not know fails the test and names the call. |
+| `tests/fakes/Engine.ps1` | `Invoke-EngineTask`, the one function that starts a model | Scripts what each Task returns, in order: an outcome, a reply, a checked answer, refused edits, and for an implement task the files it edits; `-During` is what someone else does while that call runs (the owner merging the PR, a change reaching the default branch). A Task with nothing scripted fails the test and names it. |
+| `tests/fakes/Repo.ps1` | the repository | Gives the journey a temporary git repository with a bare remote; git runs for real, so the test asks the remote what was pushed. The stand-in full test command reports one exit code per run (`Start-Journey -TestExit 1, 0`); Push-RemoteCommit pushes someone else's commit; Sync-FakeRepo fetches every branch, as a workflow's full checkout does. |
 
 No journey writes its own stand-in for `gh`: every one uses the fake GitHub. The fakes replace
 `gh` and `Invoke-EngineTask` inside the module's scope with Pester mocks, so the
 orchestrator's own code runs unchanged and the `Engine` setting is not touched.
 `tests/journeys/Journey.ps1` loads the module once per run (only when it is not loaded yet)
-and starts each journey with a fresh set of fakes:
+and starts each journey with a fresh set of fakes. `Start-Journey -ChecksTimeoutSeconds 0` lowers
+ship's ceiling on the wait for the required checks for that journey, so "not passed at the
+ceiling" ends at once; Get-OrchestratorSetting reads `MaxRetries` and the other settings from
+the orchestrator, never from a copy:
 
 ```powershell
 BeforeAll   { . (Join-Path $PSScriptRoot 'Journey.ps1') }
@@ -212,11 +225,38 @@ state-machine report after every journey: it lists the journeys first and the re
 `Invoke-Pester tests/journeys` runs the files in file-name order, so a journey whose name sorts
 after `StateMachine` runs after the report, and the report misses its transitions. `$env:JOURNEY_LOG = 1` shows the orchestrator's own
 log lines while a journey runs. The Python tests the journeys replace stay readable in git at
-commit `2d9477e` and remain the specification of what the later journeys must cover.
+commit `b7ba709` (`tests/orchestrator/`) and remain the specification of what the journeys must
+cover; what no journey covers yet is listed under [Not covered yet](#not-covered-yet).
 
 **Never widen `FunctionsToExport` to make a test pass.** That is how an explicit API
 list decays back to `'*'`; `check-orchestrator-api.ps1` fails the build if an export goes
 uncalled or a private function is called from outside.
+
+### Not covered yet
+
+What the deleted Python orchestrator tests (commit `b7ba709`, `tests/orchestrator/`) guarded and
+no journey covers, with where it will be covered or why it is dropped. A journey that covers one
+removes its line.
+
+| Behaviour (deleted test file) | Where it will be covered, or why it is dropped |
+|---|---|
+| Local CI (`KANBAN_LOCAL_CI`): a pass holds even a writable-only PR, a failure posts `🤖❌ CI Failed`, every `uv` command of `checks.yml` runs (`test_ship.py`) | Out of scope for the build journeys: it runs the real `uv` and check commands in the working tree. A Build journey once the fake repository can stand in for them |
+| Repositories without draft pull requests: the PR opens ready and says so; `--undo` refused is tolerated; any other `pr create` failure still throws (`test_draft_pr.py`) | A Build journey once the fake GitHub can refuse `--draft` the way such a repository does |
+| A revision that produces no commits answers the owner's question and marks the PR ready before the hold (`test_draft_pr.py`) | A Held journey; no revision journey here ends without a commit |
+| A shipped issue stops the round before the engine runs (`test_draft_pr.py`) | Dropped as a journey: the workflow's implement job skips an issue that is not `agent:backlog` or `agent:implementing`, and `$PipelineStates` refuses `agent:shipped → agent:implementing`. The mid-round case is a Build journey |
+| The owner's `human:approval` label, or the hold kept in the carrier (`approval_required`), holds an otherwise writable-only PR; an announced hold is not posted again on a manual `stage=ship` (`test_ship.py`) | A Held journey through `Invoke-Ship`, the exported function the manual `stage=ship` step calls |
+| The check verdict's own rules: runs on another commit are ignored, the newest run of a name counts, a run stuck at `in_progress` with a conclusion is decided by the conclusion, a failed check that is not required still fails ship (`test_ship.py`) | Dropped as unit tests of the private `Get-CheckVerdict`. A Build journey through Set-FakeCheckRuns once a path needs one of them |
+| No path merges without the required checks — a scan of the source (`test_ship.py`) | Dropped: a source scan, not behaviour. The journeys show that nothing merges with a red, missing or pending check |
+| `Test-IssueShipped` is true only for `agent:shipped` (`test_ship.py`) | Dropped as a unit test; the Held journeys show a failed issue still ships when its PR merges, and a shipped one is left alone |
+| The review's turn budget scales with the changed files; out of turns fails at once without counting an attempt; a run with no checked answer is a counted failed attempt; a non-claude engine fails the review with a reason; the prompt's tool declaration (`test_review.py`) | A Build journey per outcome, scripted with `Add-EngineResult -Outcome`; the turn budget and the prompt wording are dropped — they are the stage's inputs, not what the owner sees |
+| The review answer schema's fields; the engine's event stream — the `structured_output` tool call hidden and uncounted, refused edits read from the result event and made repo-relative, no result event is no refusal (`test_review.py`, `test_implement_refusal.py`) | Dropped from the journeys: the fake engine replaces `Invoke-EngineTask`, so the adapter's stream parsing (`engines/Claude.ps1`) is never run. Covered by the review eval and by a test of the adapter when one is written |
+| The pull-request description: each fact under its section in template order, empty facts become `none`, a multi-line comment is left out, a missing or unfillable template or one without a `Closes` line stops before any commit or push, `-NoPR` does not read the template (`test_pr_body.py`) | Dropped as unit tests of the private `Format-PullRequestBody`; `tests/test_pr_template.py` checks the template, and every Build journey's PR carries `Closes #<n>`. A broken template becomes a Build journey if it is ever seen |
+| The allowlist decision tables: every path outside `WritablePaths` is a proposal, an empty allowlist makes everything a proposal (`test_implement_allowlist.py`) | Dropped as unit tests of the private classifier; the Build journeys show a writable path merging, a governance path held, and a proposal and a boundary file held and named |
+| The Procedure line of the `🤖 Implementation` record: AGENTS.md, CONTEXT.md, a skill and pytest detected from the tool calls (`test_implement_record.py`) | A Build journey asserting the Procedure line from scripted `-ToolCalls` |
+| The `🤖 Implementation` record's Files changed: from git, a deleted file, nothing changed gives no section, an attempt that merged the default branch lists only its own files (`test_implement_refusal.py`) | A Build journey asserting the record's file list |
+| A refused edit's other work: commits the agent made during the run are pushed without a PR (`test_implement_refusal.py`) | Partly covered: the Build refusal journey shows the attempt's uncommitted work pushed without a PR. A commit the agent makes itself needs the fake engine to commit, which it does not yet |
+| Bringing a branch up to date: a setext heading underline (`=======`) is not a conflict marker; a clean merge of the default branch is committed and pushed without force; a shipped issue merges but pushes nothing (`test_update_branch.py`) | A Conflict journey each: a clean update and a Markdown file with an underline |
+| The conflict probe fails loudly on a branch it cannot read, and the check goes on for the others (`test_conflict_rounds.py`) | A Conflict journey with a held PR whose branch was never fetched |
 
 ## Evals
 
