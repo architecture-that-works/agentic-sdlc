@@ -13,17 +13,7 @@ from src.utils.m_log import (
     setup_logging,
 )
 
-
-@pytest.fixture(autouse=True)
-def reset_logging_state():
-    """Reset module-level logging state between tests."""
-    import src.utils.m_log as m
-
-    m._is_configured = False
-    _logger.handlers.clear()
-    yield
-    m._is_configured = False
-    _logger.handlers.clear()
+# Logging state is reset between tests by the autouse fixture in tests/conftest.py.
 
 
 def test_setup_logging_configures_handlers():

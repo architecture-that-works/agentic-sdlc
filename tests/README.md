@@ -1,10 +1,34 @@
 # Testing Guide
 
-Conventions for writing and running the tests in this folder: the pytest suite, and the
-orchestrator's journeys in Pester. Referenced from `AGENTS.md` § Conditional Context as
-"testing conventions, fixtures, coverage floor."
+The map of what is tested where and how, then how to run each kind of test, then what a
+generated project carries. Referenced from `AGENTS.md` § Conditional Context.
 
-## Running the Suite
+Tests follow behaviour: a journey per path an issue takes, a table per decision the
+orchestrator makes, the application by what it does. A source file needs no test file of
+its own; a test is named after the behaviour it holds.
+
+## The map
+
+One folder per kind of test. Each folder of the repository, and where it is tested:
+
+| Folder of the repository | Tested in | How |
+|---|---|---|
+| `src/` (`main.py`, `config.py`), `src/utils/`, `src/tools/` | `tests/app/` | pytest, by what the code does: the HTTP server answers requests, the schema accepts and rejects states, the tools write commits and fill in a project. Counted by the 80% coverage gate for `src/` |
+| `.github/orchestrator/` | `tests/journeys/` | Pester 5: a journey per path through `Invoke-Orchestration`, asserting what the owner sees (§ Testing the orchestrator) |
+| `.github/orchestrator/` — its decisions | `tests/decisions/` | Pester 5: a table per decision, a row per input, asserting the outcome through the module (`OwnerComment.Tests.ps1`: what an owner comment leads to in each pipeline state) |
+| `.github/orchestrator/lib/Config.ps1` — `$PipelineStates` | `tests/journeys/StateMachine.Tests.ps1` | Pester 5: runs last and checks every label transition the tables and journeys caused |
+| the orchestrator's outside seams (`gh`, the engine, the repository) | `tests/fakes/` | the fakes the journeys and tables run on — not tests themselves |
+| `.github/tasks/` | `tests/journeys/` (the stages the commands start); `tests/template/` (`test.ps1` in a generated project) | Pester; pytest |
+| `.github/workflows/`, `Dockerfile`, `.dockerignore`, `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`, `CONTRIBUTING.md` | `tests/repository/` | pytest, reading the files: a workflow job, a template heading, a Dockerfile stage |
+| `.github/checks/` | `tests/checks/` | pytest, running each check on a temporary repository (until decision tables replace it) |
+| `.agents/skills/` | `tests/evals/` | pytest `-m eval`: a stage's instructions on a stored case, on the stage's model (§ Evals) |
+| `copier.yml`, the `.jinja2` twins, what travels | `tests/template/` | pytest: generates real projects and runs their tests and checks |
+| `.devcontainer/` | `tests/template/` | pytest: the generated project's container definition |
+| `docs/adr/`, `AGENTS.md`, `CONTEXT.md` and the other documents | `.github/checks/` (`check-references.ps1`, `check-module-map.ps1`) | the checks job, not a test |
+
+`tests/conftest.py` holds the fixtures every pytest test shares (§ conftest.py).
+
+## Running each kind
 
 One command runs every test — pytest, then Pester — and is the command CI's `test` job,
 the implement stage's verification and ship's local CI all run:
@@ -14,47 +38,52 @@ pwsh -NoProfile -File .github/tasks/test.ps1
 ```
 
 It runs `uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80`, then one
-Pester run over `tests/journeys/` with the line coverage Pester measures for
-`.github/orchestrator/` (reported, not gated), and ends with one line per runner: passed or
-failed, how long it took, and Pester's coverage. It exits non-zero when either runner failed.
-It needs Pester 5; without it, it stops and prints the line that installs it:
+Pester run over every decision table and every journey with the line coverage Pester
+measures for `.github/orchestrator/` (reported, not gated), the state-machine report last.
+It prints the Pester version it runs on, before the run and on Pester's summary line, so a
+difference between a machine and the runner shows in the output. It ends with one line per
+runner: passed or failed, how long it took, and Pester's coverage, and exits non-zero when
+either runner failed. When there are Pester tests it needs Pester 5; without it, it stops
+and prints the line that installs it:
 
 ```powershell
 Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser -Force
 ```
 
-pytest alone:
+With no Pester test folder — a generated project — it runs pytest alone and says Pester was
+not run.
+
+**The application** (pytest):
 
 ```bash
-# Quick pass:
-uv run pytest
-
-# With coverage (required before committing):
-uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
-
-# Stop on first failure:
-uv run pytest -x
-
-# Run a single file:
-uv run pytest tests/test_main.py
+uv run pytest tests/app                                              # quick pass
+uv run pytest tests/app --cov=src --cov-report=term-missing --cov-fail-under=80
+uv run pytest -x tests/app/test_main.py                              # one file, stop on first failure
 ```
 
-Coverage floor is 80% (`--cov-fail-under=80`). The CI gate fails below this threshold.
+The coverage floor is 80% (`--cov-fail-under=80`); the `test` job fails below it.
 
-## File-Mirroring Rule (Test Parity)
+**The repository's files, the checks and the template** (pytest):
 
-`tests/` mirrors the structure of `src/` and `tools/` exactly. Every source module must have a corresponding test file.
-
-```
-src/main.py               → tests/test_main.py
-src/config.py             → tests/test_config.py   (if config logic exists)
-src/utils/m_log.py        → tests/utils/test_m_log.py
-src/utils/m_error_formatter.py → tests/utils/test_m_error_formatter.py
-src/tools/commit.py       → tests/tools/test_commit.py
-src/tools/setup.py        → tests/tools/test_setup.py
+```bash
+uv run pytest                              # every pytest test; evals deselected
+uv run pytest tests/template               # generates projects; needs pwsh
 ```
 
-**Rule 3 of AGENTS.md** enforces this: a PR that adds a new `src/**/*.py` or `tools/*.py` without a matching test file will be rejected.
+**The orchestrator** (Pester) — see § Testing the orchestrator. **The evals** — see § Evals.
+
+## What travels to a generated project
+
+A project generated with Copier carries the tests of its own code only: `tests/app/`,
+`tests/README.md` (this file), `tests/conftest.py` and the one test command, which runs
+pytest alone there. Every other test folder tests the template — its orchestrator, its
+workflows, its checks and its skills — and `copier.yml` `_exclude` keeps it home:
+journeys, decisions, fakes, repository, template, evals and checks. The orchestrator, the
+commands and the checks travel; their tests do not. The template smoke test generates a
+project and asserts exactly this: it holds `tests/app/` and none of the other folders, its
+test command passes, the orchestrator module loads and every check passes. A project
+without evals keeps a green `eval` check: an eval target whose eval file is missing never
+runs.
 
 ## conftest.py — Shared Fixtures
 
@@ -143,20 +172,7 @@ def test_log_level_from_profile(profile, level, monkeypatch):
 
 Avoid copy-pasting similar test functions — parametrize instead.
 
-## What Tests Live Where
-
-| Path | What goes here |
-|------|----------------|
-| `tests/test_main.py` | HTTP handler and entry point behaviour |
-| `tests/utils/test_m_*.py` | Generic utility module tests |
-| `tests/tools/test_*.py` | Developer tool tests (`commit`, `setup`) |
-| `tests/journeys/` | The orchestrator's journeys, in Pester — one file per path an issue takes |
-| `tests/fakes/` | The fakes the journeys run on: GitHub, the engine, a git repository |
-| `tests/checks/` | Validator tests — mirrors `.github/checks/` |
-| tests/test_copier_template.py | Template generation and structure tests — template-only; copier excludes it from generated projects |
-| `tests/conftest.py` | Project-wide fixtures only |
-
-## Testing the orchestrator: journeys
+## Testing the orchestrator: journeys and decision tables
 
 The orchestrator is tested the way an issue travels through it. A **journey** is a Pester 5
 file in `tests/journeys/`, named after the path it follows (`Refine.Tests.ps1`: refine →
@@ -165,6 +181,14 @@ conductor, `Invoke-Orchestration -IssueNumber <n> -From refine|implement|comment
 only what the owner sees: the issue's label, the kind of comments posted (a 🤖 signal and its
 heading, or a · noise line), the pull request's state, and what was pushed to the remote.
 Nothing in a journey reaches into a private function.
+
+A **decision table** is a Pester 5 file in `tests/decisions/`, named after one decision the
+orchestrator makes. Each row is one input — a pipeline state, say — and the outcome the owner
+sees for it, entered through the same conductor (`OwnerComment.Tests.ps1`: what an owner's
+comment leads to in each state). A table asserts what the decision produces, never the rows of
+`$PipelineStates`: the label table is written once, in `lib/Config.ps1`, and a second copy is
+removed, not guarded by a test. A table dot-sources `tests/journeys/Journey.ps1` and runs on
+the same fakes.
 
 The orchestrator has three outside seams, and each has one fake in `tests/fakes/`:
 
@@ -196,7 +220,7 @@ It 'holds a change to a governance file for the owner' {
 ```
 
 `tests/journeys/StateMachine.Tests.ps1` runs last in the same Pester run. It reads every label
-transition the journeys caused, fails — naming it — on one that `$PipelineStates` in
+transition the tables and journeys caused, fails — naming it — on one that `$PipelineStates` in
 `lib/Config.ps1` does not allow, and lists the designed transitions (the `AllowedFrom` entries)
 that no journey has exercised yet. Never widen `AllowedFrom` to make it pass.
 
@@ -205,10 +229,12 @@ Pester alone, without pytest or coverage:
 ```powershell
 Invoke-Pester tests/journeys                               # every file, in file-name order
 Invoke-Pester tests/journeys/Build.Tests.ps1 -Output Detailed
+Invoke-Pester tests/decisions -Output Detailed             # every decision table
 ```
 
-Run alone, a journey file passes on its own. Only `.github/tasks/test.ps1` is sure to run the
-state-machine report after every journey: it lists the journeys first and the report last.
+Run alone, a journey or table file passes on its own. Only `.github/tasks/test.ps1` is sure to
+run the state-machine report after every table and journey: it lists them first, sorted by
+name, and the report last.
 `Invoke-Pester tests/journeys` runs the files in file-name order, so a journey whose name sorts
 after `StateMachine` runs after the report, and the report misses its transitions. `$env:JOURNEY_LOG = 1` shows the orchestrator's own
 log lines while a journey runs. The Python tests the journeys replace stay readable in git at
@@ -279,7 +305,8 @@ uv run pytest                                    # default run: evals deselected
 The Claude CLI must be installed and signed in (in CI, with `CLAUDE_CODE_OAUTH_TOKEN`).
 
 **In CI** — the `eval` job runs only on a PR that changes a file an eval reads, and then
-only the evals whose files changed; skipped, it reports success, so it can be a required
+only the evals whose files changed and whose eval file exists (a generated project has
+none); skipped, it reports success, so it can be a required
 check (`pwsh -NoProfile -File .github/tasks/protect.ps1`). The pipeline's ship stage never merges a PR with a red check.
 
 ## The local gate

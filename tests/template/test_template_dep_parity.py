@@ -18,7 +18,8 @@ TESTS_DIR = REPO_ROOT / "tests"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 PYPROJECT_JINJA = REPO_ROOT / "pyproject.toml.jinja2"
 
-# tests/ is copied verbatim into generated projects, which render pyproject.toml from
+# The tests that travel (tests/conftest.py and tests/app/, copier.yml _exclude keeps
+# every other test folder home) run in generated projects, which render pyproject.toml from
 # the template and so carry no pyproject.toml.jinja2. Parity is a property of the
 # template repo, not of a project produced from it — skip there rather than raising
 # FileNotFoundError and failing every generated project's suite. Absence of the
@@ -37,11 +38,10 @@ _FIRST_PARTY = {"src", "tests"}
 def _collect_test_imports() -> set[str]:
     stdlib = sys.stdlib_module_names
     modules: set[str] = set()
-    for py_file in TESTS_DIR.rglob("*.py"):
-        # tests/template/ tests the template itself and is not copied into a project,
-        # so its imports are not a project's dependencies.
-        if py_file.parent == Path(__file__).parent:
-            continue
+    # Only the tests that travel: the other folders test the template itself and are
+    # not copied into a project, so their imports are not a project's dependencies.
+    travelling = [*TESTS_DIR.glob("*.py"), *(TESTS_DIR / "app").rglob("*.py")]
+    for py_file in travelling:
         try:
             tree = ast.parse(py_file.read_text(encoding="utf-8"))
         except SyntaxError:

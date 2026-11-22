@@ -7,9 +7,25 @@ from datetime import datetime
 from pathlib import Path
 
 import copier
-import pytest
 
 TEMPLATE_ROOT = Path(__file__).parent.parent.parent
+# The test folders that test the template itself and stay home (copier.yml _exclude).
+TEMPLATE_TEST_FOLDERS = (
+    "checks",
+    "decisions",
+    "evals",
+    "fakes",
+    "journeys",
+    "repository",
+    "template",
+)
+# Imports the orchestrator module in a generated project and finds its conductor.
+_IMPORT_MODULE = (
+    "$env:GITHUB_REPOSITORY = 'octocat/sandbox'; "
+    "$env:GITHUB_DEFAULT_BRANCH = 'main'; "
+    "Import-Module ./.github/orchestrator/Orchestrator.psd1 -DisableNameChecking; "
+    "if (-not (Get-Command Invoke-Orchestration -Module Orchestrator)) { exit 1 }"
+)
 
 
 def test_generated_project_passes_tests(tmp_path: Path) -> None:
@@ -110,7 +126,7 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
     assert "{{" not in agents_md_content, "AGENTS.md must not contain Jinja2 syntax"
 
     # Template-only directories must not travel.
-    for stale in (".template", "template", "adr-staging", "tests/template"):
+    for stale in (".template", "template", "adr-staging"):
         assert not (tmp_path / stale).exists(), (
             f"Generated project must not contain {stale!r} directory"
         )
@@ -147,22 +163,56 @@ def test_generated_project_passes_tests(tmp_path: Path) -> None:
             f"Generated .out-of-scope.md must have no '## ' entries; found {line!r}"
         )
 
+    # A project carries the tests of its own code only (#408): tests/app/, and none of
+    # the folders that test the template's orchestrator, workflows, checks and skills.
+    assert (tmp_path / "tests" / "app").is_dir(), "Generated project missing tests/app/"
+    for kept_home in TEMPLATE_TEST_FOLDERS:
+        assert not (tmp_path / "tests" / kept_home).exists(), (
+            f"Generated project must not contain tests/{kept_home}/"
+        )
+
+    # The test command, the module and the checks all need pwsh. A missing pwsh fails
+    # the test rather than skipping it: a skipped gate reports green.
+    pwsh = shutil.which("pwsh")
+    assert pwsh is not None, "pwsh not found: the generated project's checks need it"
+
+    # The one test command runs pytest alone there, and says Pester was not run.
     result = subprocess.run(
-        ["uv", "run", "pytest", "--tb=short", "-q"],
+        [pwsh, "-NoProfile", "-File", ".github/tasks/test.ps1"],
         cwd=tmp_path,
         capture_output=True,
         text=True,
         check=False,
     )
     assert result.returncode == 0, (
-        "pytest failed in generated project:\n"
+        "The test command failed in the generated project:\n"
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
+    assert "Pester  not run" in result.stdout, (
+        f"The test command must say Pester was not run:\n{result.stdout}"
+    )
 
-    pwsh = shutil.which("pwsh")
-    if pwsh is None:
-        pytest.skip("pwsh not available — cannot run generated-project checks")
+    # The orchestrator travels, and its module loads.
+    module = subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            _IMPORT_MODULE,
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert module.returncode == 0, (
+        "The orchestrator module does not load in the generated project:\n"
+        f"stdout:\n{module.stdout}\n"
+        f"stderr:\n{module.stderr}"
+    )
+
     # check-module-map.ps1 and check-token-scope.ps1 interrogate git — initialise
     # and commit so they see the generated project as a repo. Every check-*.ps1 runs,
     # the same rule as the checks job in checks.yml.

@@ -110,7 +110,8 @@ $citationPatterns = @(
 # `.claude` is not a listed root by design: copier excludes it, so it is absent from every
 # generated project — and this check runs there too. For the same reason, a document that
 # ships must not cite a template-only path such as copier.yml or
-# tests/test_copier_template.py; name those in prose, without backticks, instead.
+# a test folder that stays home (tests/journeys/, tests/evals/, …); name those in prose,
+# without backticks, instead.
 $pathShape = '^(src|tests|docs|\.github|\.agents|\.devcontainer)/[\w\-./]*$'
 
 # Naming templates spelled with letters rather than angle brackets, which the path shape

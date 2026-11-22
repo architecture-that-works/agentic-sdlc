@@ -139,7 +139,7 @@ function New-GrillReply {
 }
 
 function New-PlanReply {
-    param([string[]]$Paths = @('src/main.py', 'tests/test_main.py'))
+    param([string[]]$Paths = @('src/main.py', 'tests/app/test_main.py'))
     return ([ordered]@{
         plan_markdown   = "1. Read the name from the query.`n2. Put it in the greeting.`n3. Test both."
         paths_to_modify = @($Paths)
