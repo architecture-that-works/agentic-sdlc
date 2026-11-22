@@ -195,6 +195,9 @@ function Update-Branch {
     $commitOut = git commit --quiet -m (Get-BranchUpdateMessage -IssueNumber $IssueNumber -Branch $Branch) 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "Could not commit the merge of $default into ${Branch}:`n$($commitOut.Trim())" }
 
+    # Never push for an issue that shipped (#377): the push would re-create the branch
+    # GitHub deleted at the merge.
+    Assert-NotShipped -IssueNumber $IssueNumber
     $pushOut = git push --quiet origin "HEAD:refs/heads/$Branch" 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "git push after merging $default failed for branch ${Branch}:`n$($pushOut.Trim())" }
 
@@ -452,6 +455,9 @@ function Invoke-Ship {
         $manual     = (@(Get-IssueLabel -IssueNumber $IssueNumber) -contains 'human:approval') -or
                       ($state -and $state.PSObject.Properties['approval_required'] -and $state.approval_required)
         if ($governance.Count -gt 0 -or $proposed.Count -gt 0 -or $manual -or $localCi) {
+            # Released to the owner (#377): ready is the PR to merge. Never merges it
+            # and never enables auto-merge — only the owner merges a held PR.
+            $null = Set-PRReady -PRNumber $PRNumber
             Set-AgentState -IssueNumber $IssueNumber -Label 'human:approval'
 
             # Only fetch the diffstat on the hold path — the owner is about to read
@@ -474,12 +480,16 @@ function Invoke-Ship {
 
             Add-Comment -Number $IssueNumber -Body ("🤖⏸ Held for human approval`n`nPR #$PRNumber is green on commit $sha and self-reviewed, but " +
                 "$why`n`n**Comment on this issue to change the PR; close the PR to reject it.** Merge PR #$PRNumber to accept. " +
-                "The agent reads the issue, not PR review comments. Nothing reaches the default branch until you merge.")
+                "The agent reads the issue, not PR review comments. Nothing reaches the default branch until you merge.`n`n" +
+                "A draft pull request is the workflow's work in progress; the pull request marked ready for review — " +
+                "this one, now — is the one to merge.")
             Write-Log "⏸ Issue #$IssueNumber held for human approval — $($governance.Count) governance, $($proposed.Count) proposed file(s)." -Color Yellow
             return $false
         }
     }
 
+    # GitHub refuses to merge a draft (#377).
+    $null = Set-PRReady -PRNumber $PRNumber
     gh pr merge $PRNumber --squash --delete-branch 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "gh pr merge failed for PR #$PRNumber" }
 
