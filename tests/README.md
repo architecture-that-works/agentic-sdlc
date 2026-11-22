@@ -179,15 +179,19 @@ file in `tests/journeys/`, named after the path it follows:
 
 | File | Path |
 |------|------|
-| `Refine.Tests.ps1` | refine → architect → plan |
+| `Refine.Tests.ps1` | refine → architect → plan: nothing open, a question answered or left open with a follow-up, a body brought into the template's shape, an epic split into child issues, a plan proposing paths outside the writable ones, the questioning's tools and turn budget, an outsider's issue |
 | `Build.Tests.ps1` | a queued issue through implement → review → ship: merged, held, failed verification, red or missing checks, a refused edit, the secrets denylist, a proposal, an issue shipped mid-round |
 | `Conflict.Tests.ps1` | a branch that conflicts with the default branch: the post-merge conflict rounds, the agent settling the conflict, markers left behind, the default branch moving during a round |
 | `Held.Tests.ps1` | a pull request held for the owner, or left by a failed issue: a revision started by a comment, the owner's merge or close |
+| `Recovery.Tests.ps1` | a stalled issue moving again: re-entered after the stuck time and handed to the owner after the allowed re-entries (an issue without a carrier too), a state a person holds left alone, a pause on a spent usage allowance and its resume, an owner's comment on a failed issue or on one the agent holds |
 
-A journey enters only through the exported entry point the real run calls — the conductor,
+A journey enters only through a public entry point the workflow calls — the conductor,
 `Invoke-Orchestration -IssueNumber <n> -From refine|implement|comment`, or the function a
 workflow step calls itself: `Complete-HeldPR -PRNumber <n> -Branch <branch> -Merged <bool>`
-(afk.yml `pr-closed`) and `Start-ConflictRounds -MergedPR <n>` (afk.yml `conflict-rounds`). It
+(afk.yml `pr-closed`), `Start-ConflictRounds -MergedPR <n>` (afk.yml `conflict-rounds`), and the
+hourly job's `Invoke-Reconciliation` and `Resume-PausedIssues` (afk.yml `reconcile`). Time passes
+through the fakes, not a clock: Set-FakeIssueIdle puts an issue's last activity in the past,
+and a pause is seeded with its resume time (`New-PlannedIssueBody -State @{ paused_until = … }`). It
 asserts only what the owner sees: the issue's label, the kind of comments posted (a 🤖 signal
 and its heading, or a · noise line), the pull request's state, draft flag and timeline, and what
 was pushed to the remote. Nothing in a journey reaches into a private function.
@@ -204,8 +208,8 @@ The orchestrator has three outside seams, and each has one fake in `tests/fakes/
 
 | Fake | Stands in for | What a test does with it |
 |------|---------------|--------------------------|
-| `tests/fakes/GitHub.ps1` | the `gh` command | Seeds issues and comments, reads labels, comments and pull requests back. It holds issues, labels, comments, pull requests, check runs and job logs in memory, records what changed, and records every label change as a transition. Set-FakeChecks sets what every pushed commit's required checks conclude (failed, still running, missing) and each failed job's log; Complete-FakePullRequest is the owner merging or closing a PR by hand and returns the arguments `Complete-HeldPR` gets; Get-FakePrTimeline reads what happened to a PR (opened as draft, marked ready, back to draft, merged). A `gh` call it does not know fails the test and names the call. |
-| `tests/fakes/Engine.ps1` | `Invoke-EngineTask`, the one function that starts a model | Scripts what each Task returns, in order: an outcome, a reply, a checked answer, refused edits, and for an implement task the files it edits; `-During` is what someone else does while that call runs (the owner merging the PR, a change reaching the default branch). A Task with nothing scripted fails the test and names it. |
+| `tests/fakes/GitHub.ps1` | the `gh` command | Seeds issues and comments, reads labels, comments and pull requests back. It holds issues, labels, comments, pull requests, check runs and job logs in memory, records what changed, and records every label change as a transition. Set-FakeChecks sets what every pushed commit's required checks conclude (failed, still running, missing) and each failed job's log; Complete-FakePullRequest is the owner merging or closing a PR by hand and returns the arguments `Complete-HeldPR` gets; Get-FakePrTimeline reads what happened to a PR (opened as draft, marked ready, back to draft, merged). Each issue has a last-activity time every change moves forward, served in the open-issues listing the warden reads; Set-FakeIssueIdle ages it. `Add-FakeIssue -Estimate -Priority` puts the issue on the board with those fields; `issue create` opens an issue (an epic's children); Get-FakeDispatches reads the workflow dispatches as { Stage; Issue }; the AFK runs listing answers no live run. A `gh` call it does not know fails the test and names the call. |
+| `tests/fakes/Engine.ps1` | `Invoke-EngineTask`, the one function that starts a model | Scripts what each Task returns, in order: an outcome, a reply, a checked answer, refused edits, and for an implement task the files it edits; `-During` is what someone else does while that call runs (the owner merging the PR, a change reaching the default branch). Each call is recorded with its Task, Label, Prompt, Tools and turn budget (MaxTurns). Get-EngineUsageLimitText is the engine's spent-allowance message, taken from the adapter's wording, for an `EngineCheck -Output`. A Task with nothing scripted fails the test and names it. |
 | `tests/fakes/Repo.ps1` | the repository | Gives the journey a temporary git repository with a bare remote; git runs for real, so the test asks the remote what was pushed. The stand-in full test command reports one exit code per run (`Start-Journey -TestExit 1, 0`); Push-RemoteCommit pushes someone else's commit; Sync-FakeRepo fetches every branch, as a workflow's full checkout does. |
 
 No journey writes its own stand-in for `gh`: every one uses the fake GitHub. The fakes replace
@@ -283,6 +287,23 @@ removes its line.
 | A refused edit's other work: commits the agent made during the run are pushed without a PR (`test_implement_refusal.py`) | Partly covered: the Build refusal journey shows the attempt's uncommitted work pushed without a PR. A commit the agent makes itself needs the fake engine to commit, which it does not yet |
 | Bringing a branch up to date: a setext heading underline (`=======`) is not a conflict marker; a clean merge of the default branch is committed and pushed without force; a shipped issue merges but pushes nothing (`test_update_branch.py`) | A Conflict journey each: a clean update and a Markdown file with an underline |
 | The conflict probe fails loudly on a branch it cannot read, and the check goes on for the others (`test_conflict_rounds.py`) | A Conflict journey with a held PR whose branch was never fetched |
+| `-WhatIf` reports the decision it would take, giving up included, and changes nothing; the job-summary table (`test_reconcile.py`) | Dropped from the journeys: the warden's survey output for a person running `reconcile.ps1`, not what the owner sees on the issue |
+| A live AFK run defers the in-flight states without spending their re-entry budget; liveness is not asked when no in-flight state is in question (`test_reconcile.py`) | A Recovery journey seeding `LiveRuns` in the fake GitHub; the journeys here answer no live run |
+| A failed dispatch is reported, not claimed as a re-entry (`test_reconcile.py`) | A Recovery journey once the fake GitHub can refuse `gh workflow run` |
+| Pull requests are not issues in the warden's survey (`test_reconcile.py`) | Dropped: the fake's listing holds issues only; the filter is the `--jq` the orchestrator passes |
+| The rows of `$PipelineStates`: every label has a holder, a recovery, `AllowedFrom` and `OnComment`; a disallowed transition throws (`test_reconcile.py`) | Dropped: a second copy of the table. `StateMachine.Tests.ps1` checks every transition the journeys cause against it |
+| The owner's `human:approval` on a new issue survives refine (`approval_required`) (`test_reconcile.py`) | A Refine journey starting from an owner-labelled issue, then a Held one |
+| A usage limit met during a stage, not at the start, pauses without counting an attempt; a probe whose CLI cannot run is not a limit; the spend and session wordings (`test_usage_limit.py`) | A Refine or Build journey scripting the stage's result and the probe; the wordings are the adapter's pattern, dropped as unit tests |
+| A resume while the engine still refuses moves the resume time without a comment; a pause with no resume time is resumed; a failing resume does not stop the run (`test_usage_limit.py`) | A Recovery journey each, scripting `EngineCheck` for the probe |
+| The answer check: an unusable model reply or a failed comment read posts `🤖⚠️ Could not check your reply`; no new reply calls no model; the `since` format (`test_refine.py`) | A Refine journey each; the `since` format is dropped — the fake reads it as GitHub does |
+| A held issue (planned, on `human:approval`) never re-enters refine; the attempt loop recovers on a second attempt (`test_refine.py`) | A Refine journey each |
+| An issue missing from the board is added and cached; an unreadable board adds nothing (`test_refine.py`) | A Refine journey once the fake board has a project number |
+| Owner comments and signal history count only trusted authors, and the prefix narrows the history (`test_refine.py`, `test_signal_comments.py`) | A Build journey asserting an outsider's comment never reaches the implement prompt |
+| An unreadable author is untrusted (`test_trusted_author.py`) | A Refine journey once the fake GitHub can fail the association read |
+| The grill's command: it exists, its dry run, dot-source safety, the schema keys, an answer with prose around it, the `-Trace` tool list, gh noise on stderr, a failed issue fetch (`test_grill.py`) | Dropped from the journeys: the standalone `grill.ps1` and the parser; the refine eval runs the grill end to end. An answer reserved for the owner is the refine eval's |
+| The architect's file-count gate, the trivial impact, the section upsert, a failed analysis flagged and never reported as safe (`test_architect.py`) | A Refine journey with an analysis that fails; the gate and formatting are dropped as unit tests |
+| The epic's dedupe abort (`🤖❌ Plan Aborted — duplicate`), the planner note on a wide blast radius, zero children; key terms, out-of-scope overlap (`test_plan.py`) | A Refine journey each; the key-term and formatting helpers are dropped as unit tests — the epic journey shows the children's shape |
+| An unreadable carrier does not stop the plan; an empty allowlist makes every path a proposal (`test_plan_writable_gate.py`) | Dropped as unit tests of the private classifier; the writable-path journey shows the note and the queue |
 
 ## Evals
 
