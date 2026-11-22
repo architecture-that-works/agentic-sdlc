@@ -3,29 +3,24 @@
     Config.ps1 — settings, run context, and model selection for the orchestrator
     module.
 
-    Loads .env, defines $OrchestratorConfig — the settings table, the one place
-    every orchestrator setting has its value (the engine, its models per tier and
-    each task's tier, read through Get-TaskModel; turn budgets; run limits; waits).
-    Nothing overrides a key: to change a setting, edit it here. Also resolves the
-    $Kanban* constants the environment really supplies (board ids, lanes), resolves
+    Defines $OrchestratorConfig — the settings table, the one place every
+    orchestrator setting has its value (the engine, its models per tier and each
+    task's tier, read through Get-TaskModel; turn budgets; run limits; waits).
+    Nothing overrides a key: to change a setting, edit it here. Reads the board's
+    settings from the environment when they are used (Get-BoardSettings), resolves
     the repo slug and default branch WITHOUT GraphQL, and exposes
     Get-OrchestratorContext — the per-run object (issue, repo, branch, runtime)
     hydrated from the KANBAN_* env transport (ADR-013). Loaded first by
     Orchestrator.psm1.
+
+    Reads no file: a Command a person runs loads the repository's .env into the
+    process environment before it imports the module (.github/tasks/Settings.ps1),
+    a workflow passes repository variables, and a test states the settings it needs.
 #>
 
-# ── Paths + .env loader ───────────────────────────────────────────────────────
+# ── Paths ─────────────────────────────────────────────────────────────────────
 # $_Root is the repo root (this file is .github/orchestrator/lib/, three levels deep).
 $_Root    = "$PSScriptRoot\..\..\.."
-$_EnvPath = "$_Root\.env"
-
-if (Test-Path $_EnvPath) {
-    foreach ($line in (Get-Content $_EnvPath)) {
-        if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$' -and $line -notmatch '^\s*#') {
-            [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2].Trim('"').Trim("'"), 'Process')
-        }
-    }
-}
 
 $KanbanLogFile = "$_Root\logs\kanban.log"
 
@@ -165,21 +160,25 @@ $OrchestratorConfig = @{
     RequiredChecksPollSeconds    = 10
 }
 
-# ── Project constants (env, with defaults) ────────────────────────────────────
-$KanbanProjectNumber    = if ($env:KANBAN_PROJECT_NUMBER)  { [int]$env:KANBAN_PROJECT_NUMBER }  else { 0 }
-# @me is not resolved by gh project in GHA context — use the repo owner from the GHA env var instead.
-$KanbanProjectOwner     = if ($env:KANBAN_PROJECT_OWNER -and $env:KANBAN_PROJECT_OWNER -ne '@me') {
-                              $env:KANBAN_PROJECT_OWNER
-                          } elseif ($env:GITHUB_REPOSITORY_OWNER) {
-                              $env:GITHUB_REPOSITORY_OWNER
-                          } else {
-                              '@me'
-                          }
-$KanbanStatusFieldId    = if ($env:KANBAN_STATUS_FIELD_ID) { $env:KANBAN_STATUS_FIELD_ID }      else { '' }
-$KanbanOpt_Backlog      = if ($env:KANBAN_OPT_BACKLOG)     { $env:KANBAN_OPT_BACKLOG }          else { '' }
-$KanbanOpt_Implementing = if ($env:KANBAN_OPT_IMPLEMENTING){ $env:KANBAN_OPT_IMPLEMENTING }     else { '' }
-$KanbanOpt_Review       = if ($env:KANBAN_OPT_REVIEW)      { $env:KANBAN_OPT_REVIEW }           else { '' }
-$KanbanOpt_Merged       = if ($env:KANBAN_OPT_MERGED)      { $env:KANBAN_OPT_MERGED }           else { '' }
+# ── The board's settings (env, read when used) ────────────────────────────────
+# The GitHub Project the issues move on: written by `task setup` to .env and to the
+# repository variables afk.yml passes. Read from the process environment each time
+# they are used, never frozen when this file loads — so a setting made after the
+# import counts, and a test that states a board gets it without re-importing.
+# The lane option ids are read the same way (Get-LaneOptionId, lib/GitHub.ps1).
+function Get-BoardSettings {
+    # @me is not resolved by gh project in GHA context — use the repo owner from the GHA env var instead.
+    $owner = if ($env:KANBAN_PROJECT_OWNER -and $env:KANBAN_PROJECT_OWNER -ne '@me') { $env:KANBAN_PROJECT_OWNER }
+             elseif ($env:GITHUB_REPOSITORY_OWNER) { $env:GITHUB_REPOSITORY_OWNER }
+             else { '@me' }
+    return [pscustomobject]@{
+        ProjectNumber   = Get-EnvInt 'KANBAN_PROJECT_NUMBER' -Default 0
+        ProjectOwner    = $owner
+        StatusFieldId   = "$env:KANBAN_STATUS_FIELD_ID"
+        EstimateFieldId = "$env:KANBAN_ESTIMATE_FIELD_ID"
+        PriorityFieldId = "$env:KANBAN_PRIORITY_FIELD_ID"
+    }
+}
 
 $KanbanStopWords = @(
     'a','an','the','and','or','for','to','of','in','on','at','with','via','by','from',
@@ -335,16 +334,14 @@ if (-not $KanbanDefaultBranch) {
     throw "Cannot resolve the default branch — set GITHUB_DEFAULT_BRANCH, configure an 'origin' remote, or check 'gh auth status'."
 }
 
-$KanbanEstimateFieldId = if ($env:KANBAN_ESTIMATE_FIELD_ID) { $env:KANBAN_ESTIMATE_FIELD_ID } else { '' }
-$KanbanPriorityFieldId = if ($env:KANBAN_PRIORITY_FIELD_ID) { $env:KANBAN_PRIORITY_FIELD_ID } else { '' }
-
 # ── Run context — single source of truth for this run's key parameters ───────
 # Hydrated from environment variables: the ONLY transport stable across &-calls,
 # dot-sourcing, nested pwsh and subprocesses. Entry points (afk.yml,
 # hitl.ps1) set KANBAN_ISSUE; everything downstream reads
 # it via Get-OrchestratorContext rather than fragile script-scope variables, which a
 # dot-sourced param() block can silently clobber (ADR-013). Add a new per-run key
-# in one place here → every script gets it.
+# in one place here → every script gets it. Built on every call, never cached:
+# the environment it is read from is the one source.
 
 # Read an integer from the environment, falling back cleanly (with a logged
 # warning) when the variable is missing or not a valid integer.
@@ -359,17 +356,15 @@ function Get-EnvInt {
 }
 
 function Get-OrchestratorContext {
-    if ($script:_KanbanContext) { return $script:_KanbanContext }
-    $script:_KanbanContext = [pscustomobject]@{
-        IssueNumber   = Get-EnvInt 'KANBAN_ISSUE' -Default 0
-        Repo          = $KanbanRepo
-        DefaultBranch = $KanbanDefaultBranch
-        ProjectNumber = $KanbanProjectNumber
-        Runtime       = Get-RuntimeName
-        Engine        = $OrchestratorConfig.Engine
+    return [pscustomobject]@{
+        IssueNumber    = Get-EnvInt 'KANBAN_ISSUE' -Default 0
+        Repo           = $KanbanRepo
+        DefaultBranch  = $KanbanDefaultBranch
+        ProjectNumber  = (Get-BoardSettings).ProjectNumber
+        Runtime        = Get-RuntimeName
+        Engine         = $OrchestratorConfig.Engine
         RequiredChecks = @($OrchestratorConfig.RequiredChecks)
     }
-    return $script:_KanbanContext
 }
 
 # ── Model + turn-budget selectors ────────────────────────────────────────────

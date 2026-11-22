@@ -23,14 +23,19 @@
 .PARAMETER Issue
     Issue number to align directly. 0 (default) aligns the whole un-aligned backlog.
 
+.PARAMETER Root
+    The repository root whose .env is read. Default: the repository this script is in.
+
 .EXAMPLE
     pwsh -NoProfile -File .github/tasks/refine.ps1 -Issue 87     # align one issue
     pwsh -NoProfile -File .github/tasks/refine.ps1              # align every un-aligned open issue
 #>
-param([int]$Issue = 0)
+param([int]$Issue = 0, [string]$Root = '')
 
 $ErrorActionPreference = 'Stop'
-Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
+. "$PSScriptRoot\Settings.ps1"
+Import-Settings -Root $Root
+if (-not (Get-Module Orchestrator)) { Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" }
 $KanbanRepo = (Get-OrchestratorContext).Repo
 
 if ($Issue -gt 0) {

@@ -21,6 +21,9 @@
 .PARAMETER WhatIf
     Report the verdicts and change nothing.
 
+.PARAMETER Root
+    The repository root whose .env is read. Default: the repository this script is in.
+
 .EXAMPLE
     pwsh -NoProfile -File .github/tasks/reconcile.ps1
 
@@ -28,10 +31,13 @@
     pwsh -NoProfile -File .github/tasks/reconcile.ps1 -WhatIf
 #>
 param(
-    [switch]$WhatIf
+    [switch]$WhatIf,
+    [string]$Root = ''
 )
 
 $ErrorActionPreference = 'Stop'
-Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
+. "$PSScriptRoot\Settings.ps1"
+Import-Settings -Root $Root
+if (-not (Get-Module Orchestrator)) { Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" }
 
 $null = Invoke-Reconciliation -WhatIf:$WhatIf

@@ -20,14 +20,19 @@
 .PARAMETER Force
     Skip the self-hosted confirmation prompt (for non-interactive use).
 
+.PARAMETER Root
+    The repository root whose .env is read. Default: the repository this script is in.
+
 .EXAMPLE
     pwsh -NoProfile -File .github/tasks/afk.ps1             # dispatch the cloud backfill refine, then walk away
     pwsh -NoProfile -File .github/tasks/afk.ps1 -Force   # same, no prompt even on a self-hosted profile
 #>
-param([switch]$Force)
+param([switch]$Force, [string]$Root = '')
 
 $ErrorActionPreference = 'Stop'
-Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
+. "$PSScriptRoot\Settings.ps1"
+Import-Settings -Root $Root
+if (-not (Get-Module Orchestrator)) { Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" }
 $KanbanRepo = (Get-OrchestratorContext).Repo
 
 # ── Pre-flight: GraphQL budget ───────────────────────────────────────────────

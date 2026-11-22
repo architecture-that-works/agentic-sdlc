@@ -11,7 +11,6 @@ import copier
 TEMPLATE_ROOT = Path(__file__).parent.parent.parent
 # The test folders that test the template itself and stay home (copier.yml _exclude).
 TEMPLATE_TEST_FOLDERS = (
-    "checks",
     "decisions",
     "evals",
     "fakes",

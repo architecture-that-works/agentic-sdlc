@@ -140,7 +140,7 @@ merge, runs the tests and pushes. Conflict markers left in any of these files en
 function Invoke-Develop {
     param([int]$Number, [string]$Branch, [string]$BaseCommit = '', [string[]]$Conflicts = @())
     Write-Log "  Phase 1 — Develop issue #$Number on $Branch" -Color Yellow
-    Move-ToLane -IssueNumber $Number -OptionId $KanbanOpt_Implementing -LaneName 'Implementing'
+    Move-ToLane -IssueNumber $Number -OptionId (Get-LaneOptionId -LaneName 'Implementing') -LaneName 'Implementing'
     Add-Comment -Number $Number -Body "· branch checked out — starting"
 
     if ((Get-ChildItem .agents/skills -Recurse -Filter *.md -ErrorAction SilentlyContinue).Count -eq 0) {

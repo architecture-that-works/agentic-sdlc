@@ -15,16 +15,22 @@
     Failed attempts per round before agent:failed: MaxRetries in
     .github/orchestrator/lib/Config.ps1.
 
+.PARAMETER Root
+    The repository root whose .env is read. Default: the repository this script is in.
+
 .EXAMPLE
     pwsh -NoProfile -File .github/tasks/hitl.ps1              # interactive picker
     pwsh -NoProfile -File .github/tasks/hitl.ps1 -Issue 13     # run orchestration for issue #13 directly
 #>
 param(
-    [int]$Issue = 0
+    [int]$Issue = 0,
+    [string]$Root = ''
 )
 
 $ErrorActionPreference = 'Stop'
-Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
+. "$PSScriptRoot\Settings.ps1"
+Import-Settings -Root $Root
+if (-not (Get-Module Orchestrator)) { Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" }
 $ctx                 = Get-OrchestratorContext
 $KanbanRepo          = $ctx.Repo
 $KanbanProjectNumber = $ctx.ProjectNumber
