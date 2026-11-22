@@ -10,7 +10,7 @@
     the MaxTurns_Refine setting. Both are set in .github/orchestrator/lib/Config.ps1;
     this script takes neither as a parameter.
 
-    Invoke-Grill starts a read-only Claude subagent that runs the Grill-Me protocol
+    Invoke-Grill starts a read-only subagent on the configured engine that runs the Grill-Me protocol
     against one issue: it reads the issue and the codebase, writes an Agent Brief,
     fills open_questions[] (and decided_questions[] where the codebase answers),
     and proposes glossary diffs. The answer is validated against
@@ -59,7 +59,10 @@ if ($Issue -eq 0 -and (-not $Body)) {
     throw "grill.ps1 requires either -Issue <number> OR -Body <text> (-Title optional). See -? for help."
 }
 
-$result = Invoke-Grill -Issue $Issue -Title $Title -Body $Body -DryRun:$DryRun -Trace:$Trace
+# Stdout carries only the answer (the refine eval parses it as JSON): the engine's live
+# rendering of the run goes to the information stream, dropped here; Write-Log still
+# records the run in logs/kanban.log.
+$result = Invoke-Grill -Issue $Issue -Title $Title -Body $Body -DryRun:$DryRun -Trace:$Trace 6>$null
 if ($DryRun) {
     Write-Output $result.prompt
 } else {

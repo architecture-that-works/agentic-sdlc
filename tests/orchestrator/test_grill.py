@@ -296,12 +296,12 @@ def _envelope(subtype: str, result: str, turns: int = 3) -> str:
 def test_grill_reads_the_answer_even_with_prose_around_it() -> None:
     reply = "Here is the result:\n" + json.dumps(_PAYLOAD) + "\nDone."
     out = _grill_with_output(["trust warning on stderr", _envelope("success", reply)])
-    assert out.stdout.strip() == "OK:x", out.stdout + out.stderr
+    assert out.stdout.strip().splitlines()[-1] == "OK:x", out.stdout + out.stderr
 
 
 def test_grill_that_runs_out_of_turns_fails_with_the_reason() -> None:
     out = _grill_with_output([_envelope("error_max_turns", "", turns=40)])
-    assert out.stdout.startswith("ERR:"), out.stdout + out.stderr
+    assert "ERR:" in out.stdout, out.stdout + out.stderr
     assert "error_max_turns" in out.stdout and "40 turn(s)" in out.stdout
 
 
@@ -316,7 +316,7 @@ def _tool_use(*names: str) -> str:
 
 def test_grill_trace_lists_the_tools_it_called_in_order() -> None:
     """The eval's Tool Correctness metric needs the grill's tool calls (#155); the
-    stream-json events carry them, the result envelope still carries the answer."""
+    engine function returns them, and the questioning starts with only the read tools."""
     lines = [
         json.dumps({"type": "system", "subtype": "init"}),
         _tool_use("Read", "Glob"),
@@ -336,6 +336,8 @@ def test_grill_trace_lists_the_tools_it_called_in_order() -> None:
     assert data["tools"] == ["Read", "Glob", "Grep"], out.stderr
     assert data["brief"] == "x"
     assert "stream-json" in data["args"] and "--verbose" in data["args"]
+    assert "--tools Read,Glob,Grep" in data["args"]
+    assert "--allowedTools Read,Glob,Grep" in data["args"]
 
 
 def test_grill_without_trace_returns_the_grill_result_unchanged() -> None:
@@ -343,7 +345,7 @@ def test_grill_without_trace_returns_the_grill_result_unchanged() -> None:
     out = _grill_with_output(
         [_tool_use("Read"), _envelope("success", json.dumps(_PAYLOAD))]
     )
-    assert out.stdout.strip() == "OK:x", out.stdout + out.stderr
+    assert out.stdout.strip().splitlines()[-1] == "OK:x", out.stdout + out.stderr
 
 
 def test_grill_without_a_result_or_valid_answer_fails() -> None:
@@ -372,7 +374,7 @@ def test_grill_fetches_the_issue_even_with_gh_stderr_noise() -> None:
         "try { $r = Invoke-Grill -Issue 42; 'OK:' + $r.agent_brief.feature_name }\n"
         "catch { 'ERR:' + $_.Exception.Message }"
     )
-    assert out.stdout.strip() == "OK:x", out.stdout + out.stderr
+    assert out.stdout.strip().splitlines()[-1] == "OK:x", out.stdout + out.stderr
 
 
 def test_grill_issue_fetch_failure_names_the_issue_and_stderr() -> None:

@@ -147,7 +147,7 @@ function script:Add-Comment { param($Number, $Body) $script:Comments.Add(($Body 
 function script:Set-PlanningState { param($IssueNumber, $State) $script:Saved = $State }
 function script:Get-IssueState { param($IssueNumber) $script:State }
 function script:claude { $global:LASTEXITCODE = 0
-    '{"plan_markdown":"1. do it","paths_to_modify":["src/a.py",".github/workflows/x.yml"]}' }
+    @{ type = 'result'; subtype = 'success'; result = '{"plan_markdown":"1. do it","paths_to_modify":["src/a.py",".github/workflows/x.yml"]}' } | ConvertTo-Json -Compress }
 function script:gh { $global:LASTEXITCODE = 0; '{"title":"t","body":"b"}' }
 
 $script:Comments = [System.Collections.Generic.List[string]]::new()
@@ -198,7 +198,7 @@ function script:Add-Comment { param($Number, $Body) }
 function script:Set-PlanningState { param($IssueNumber, $State) throw 'must not be called with a null state' }
 function script:Get-IssueState { param($IssueNumber) $null }
 function script:claude { $global:LASTEXITCODE = 0
-    '{"plan_markdown":"1. do it","paths_to_modify":[".github/workflows/x.yml"]}' }
+    @{ type = 'result'; subtype = 'success'; result = '{"plan_markdown":"1. do it","paths_to_modify":[".github/workflows/x.yml"]}' } | ConvertTo-Json -Compress }
 function script:gh { $global:LASTEXITCODE = 0; '{"title":"t","body":"b"}' }
 
 Invoke-Plan -Number 7

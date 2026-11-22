@@ -5,7 +5,8 @@
     Logging, runtime detection, the orchestrator lock, the issue template
     reader (Get-IssueTemplate, Get-IssueHeadings) and the pull request template
     filler (Get-PullRequestTemplate, Format-PullRequestBody). These touch only the local
-    filesystem / process environment (no gh, no Claude). Loaded after Config.ps1
+    filesystem / process environment (no gh); the engine ping goes through the
+    engine adapter's Invoke-EngineTask. Loaded after Config.ps1
     (it reads $KanbanLogFile / $_Root from there).
 #>
 
@@ -186,32 +187,27 @@ function Format-PullRequestBody {
     return "$($body.Trim())`n`nCloses #$Number".TrimStart()
 }
 
-# ── Procedure-derivation from agent stream events ────────────────────────────
-# Pure function: inspects tool_use blocks in the parsed stream and returns four
+# ── Procedure-derivation from the agent's tool calls ─────────────────────────
+# Pure function: inspects the tool calls the engine reported ({ Name; Input }, as
+# Invoke-EngineTask hands them to its -OnToolCall callback) and returns four
 # booleans that describe what the agent did (read which files, ran pytest).
 # Used by Invoke-Develop to build the Procedure: line in the Implementation comment.
 function Get-ProcedureRecord {
-    param([array]$StreamEvents)
+    param([array]$ToolCalls)
     $agentsMdRead  = $false
     $contextMdRead = $false
     $skillRead     = $false
     $pytestRun     = $false
 
-    foreach ($ev in @($StreamEvents | Where-Object { $_ })) {
-        $blocks = if ($ev.message.content) { $ev.message.content }
-                  elseif ($ev.content)      { $ev.content }
-                  else                      { @() }
-        foreach ($block in @($blocks | Where-Object { $_ })) {
-            if ($block.type -ne 'tool_use') { continue }
-            if ($block.name -eq 'Read') {
-                $fp = "$($block.input.file_path)"
-                if ($fp -match '(^|[/\\])AGENTS\.md$')                      { $agentsMdRead  = $true }
-                if ($fp -match '(^|[/\\])CONTEXT\.md$')                     { $contextMdRead = $true }
-                if ($fp -match '(^|[/\\])\.agents[/\\]skills[/\\]')          { $skillRead     = $true }
-            }
-            if ($block.name -eq 'Bash' -and "$($block.input.command)" -match 'pytest') {
-                $pytestRun = $true
-            }
+    foreach ($call in @($ToolCalls | Where-Object { $_ })) {
+        if ($call.Name -eq 'Read') {
+            $fp = "$($call.Input.file_path)"
+            if ($fp -match '(^|[/\\])AGENTS\.md$')                      { $agentsMdRead  = $true }
+            if ($fp -match '(^|[/\\])CONTEXT\.md$')                     { $contextMdRead = $true }
+            if ($fp -match '(^|[/\\])\.agents[/\\]skills[/\\]')          { $skillRead     = $true }
+        }
+        if ($call.Name -eq 'Bash' -and "$($call.Input.command)" -match 'pytest') {
+            $pytestRun = $true
         }
     }
 
@@ -221,36 +217,6 @@ function Get-ProcedureRecord {
         skillRead     = $skillRead
         pytestRun     = $pytestRun
     }
-}
-
-# ── Edits the engine refused (#346) ──────────────────────────────────────────
-# Pure function: the repo-relative paths of the file edits the engine refused,
-# unique and in order. Read only from what the engine reports — the
-# `permission_denials[]` of its last `result` stream event — never from the agent's
-# prose. A denied tool that edits no file (a Bash command) is not an edit refusal.
-# Claude Code refuses writes to its protected paths (.devcontainer/, .claude/, ...)
-# in an unattended run whatever the allow rules say, so a retry cannot help.
-function Get-RefusedFiles {
-    param([array]$StreamEvents, [string]$RepoRoot = '')
-    $result = @($StreamEvents | Where-Object { $_ -and $_.type -eq 'result' }) | Select-Object -Last 1
-    if (-not $result -or -not $result.PSObject.Properties['permission_denials']) { return @() }
-
-    $root  = "$RepoRoot".Replace('\', '/').TrimEnd('/')
-    $paths = [System.Collections.Generic.List[string]]::new()
-    foreach ($d in @($result.permission_denials | Where-Object { $_ })) {
-        if ("$($d.tool_name)" -notin @('Write', 'Edit', 'NotebookEdit')) { continue }
-        $fp = "$($d.tool_input.file_path)"
-        if (-not $fp) { $fp = "$($d.tool_input.notebook_path)" }
-        if (-not $fp) { continue }
-        $fp = $fp.Replace('\', '/')
-        if ($root -and [System.IO.Path]::IsPathRooted($fp)) {
-            $rel = [System.IO.Path]::GetRelativePath($root, $fp).Replace('\', '/')
-            if (-not $rel.StartsWith('..')) { $fp = $rel }
-        }
-        $fp = $fp -replace '^\./', ''
-        if (-not $paths.Contains($fp)) { $paths.Add($fp) }
-    }
-    return $paths.ToArray()
 }
 
 # ── LLM-optimized error formatter (issue #119) ────────────────────────────────
@@ -283,11 +249,8 @@ function Format-ErrorBlock {
 # cause: error text from a stage is not trusted, since test output or code under
 # test can mention rate limits too.
 
-# Spend and session limits are how Claude words a spent subscription allowance (#229).
-# "hit your … limit" allows a few words between ("hit your org's monthly spend limit",
-# "hit your daily limit") but stays inside one sentence, so an unrelated "hit your" and
-# a later "limit" in a long error log never pair up.
-$KanbanUsageLimitPattern = '(?i)usage limit|limit reached|rate_limit_error|hit your\b[^.·\n]{0,40}?\blimit|spend limit|session limit'
+# The engine's wording of a spent allowance is $KanbanUsageLimitPattern, defined once
+# in the engine adapter (engines/), which also uses it not to retry such a call.
 
 # The UTC time to resume after a usage-limit message, or $null when $Text is not
 # one. Reads the reset time the engine reports (an epoch after '|', or "resets
@@ -316,12 +279,13 @@ function Get-UsageLimitResume {
     return $until
 }
 
-# One tiny call to the configured engine: the reply text and whether it failed.
-# A CLI that cannot run at all reads as a failure, never a throw.
+# One tiny call to the configured engine (the EngineCheck task): the text it gave
+# back and whether it failed. A CLI that cannot run reads as a failure, never a throw.
 function Invoke-EnginePing {
     try {
-        $out = "ping" | claude --model (Get-TaskModel -Task 'EngineCheck') 2>&1 | Out-String
-        return [pscustomobject]@{ Output = $out; Failed = ($LASTEXITCODE -ne 0) }
+        $run = Invoke-EngineTask -Task 'EngineCheck' -Prompt 'ping' -Label 'Engine check'
+        $out = (@($run.Output, $run.Reply, $run.Cause) | Where-Object { "$_".Trim() }) -join "`n"
+        return [pscustomobject]@{ Output = $out; Failed = ($run.Outcome -ne 'finished') }
     } catch {
         return [pscustomobject]@{ Output = "$_"; Failed = $true }
     }

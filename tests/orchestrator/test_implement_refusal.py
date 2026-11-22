@@ -1,4 +1,4 @@
-"""A refused edit ends the implement round (#346) — stages/Implement.ps1, lib/Util.ps1.
+"""A refused edit ends the implement round (#346) — stages/Implement.ps1, engines/Claude.ps1.
 
 The engine (Claude Code) refuses writes to its protected paths in an unattended run,
 whatever the allow rules say. A retry cannot help, so the round ends after one attempt:
@@ -100,6 +100,7 @@ def _stream(repo: Path) -> list[dict]:
         {
             "type": "result",
             "subtype": "success",
+            "result": "- old.py removed\n- Left undone: none",
             "permission_denials": [
                 {"tool_name": "Edit", "tool_use_id": "t1", "tool_input": edit_input}
             ],
@@ -393,15 +394,17 @@ def test_no_pr_pushes_commits_the_agent_made_during_the_run(
     assert not any("Already Implemented" in c for c in out["comments"])
 
 
-# ── Get-RefusedFiles: what the engine reports, nothing else ───────────────────
+# ── Get-RefusedEdits: what the engine reports, nothing else ───────────────────
+# The engine adapter reads them from its result event; Invoke-EngineTask returns them
+# as RefusedEdits (test_engine_task.py drives that against a stand-in CLI).
 
 
 def _refused(events: list, root: str, cwd: Path) -> list:
     (cwd / "ev.json").write_text(json.dumps(events))
     out = _run(
         f"""
-$ev = Get-Content -Raw ev.json | ConvertFrom-Json
-[pscustomobject]@{{ files = @(Get-RefusedFiles -StreamEvents $ev -RepoRoot '{root}') }} | ConvertTo-Json -Compress
+$ev = @(Get-Content -Raw ev.json | ConvertFrom-Json) | Where-Object {{ $_.type -eq 'result' }} | Select-Object -Last 1
+[pscustomobject]@{{ files = @(Get-RefusedEdits -ResultEvent $ev -RepoRoot '{root}') }} | ConvertTo-Json -Compress
 """,
         cwd=cwd,
     )

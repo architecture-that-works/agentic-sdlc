@@ -47,13 +47,15 @@ $OrchestratorConfig = @{
     # line in TaskTiers. Get-TaskModel reads both and stops the run, naming the key
     # to fill, when a value is missing — it never falls back to a default model.
 
-    # The engine this orchestrator runs on. The only thing that chooses it.
+    # The engine this orchestrator runs on. The only thing that chooses it: the module
+    # loads the adapter in engines/ of the same name (claude → engines/Claude.ps1) and
+    # stops at import when there is none.
     Engine = 'claude'
 
     # One row per engine: its model for each tier.
     # Model IDs — Source: Anthropic models overview, checked 2026-11-20.
-    # A further engine is added as one complete definition once it fits the whole flow;
-    # how an engine is enabled is decided in "Start every engine through one function".
+    # A further engine is added as one complete definition once it fits the whole flow:
+    # its row here and its adapter file in engines/, which supplies Invoke-EngineTask.
     Engines = @{
         claude = @{
             routine  = 'claude-haiku-5-5'
