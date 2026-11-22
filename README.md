@@ -19,13 +19,14 @@ PR — refine → architect → plan → implement → review → ship.
 ## Generate a project
 
 Prerequisites: [uv](https://docs.astral.sh/uv/), [Task](https://taskfile.dev),
-PowerShell 7+, and the GitHub CLI (`gh`).
+PowerShell 7+ with [Pester 5](https://pester.dev) (the orchestrator's tests;
+`Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser -Force`), and the GitHub CLI (`gh`).
 
 ```bash
 uvx copier copy gh:architecture-that-works/agentic-sdlc path/to/new-project
 ```
 
-Copier prompts for `project_name` and `description`. Then `uv sync` and `uv run pytest`.
+Copier prompts for `project_name` and `description`. Then `uv sync` and `pwsh -NoProfile -File .github/tasks/test.ps1` (every test: pytest, then Pester).
 A project starts with an MIT `LICENSE` in its own name (`<project_name> contributors`) and gets its `.github/CODEOWNERS` from `task setup`, written from `GovernancePaths` and owned by whoever runs it.
 
 To check the hello-world server: `docker build -t app:dev . && docker run --rm -p 8000:8000 app:dev`,

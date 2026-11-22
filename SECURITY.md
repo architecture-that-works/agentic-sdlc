@@ -87,9 +87,11 @@ previous design also blocked the agent from *staging* those paths; that was drop
 made every pipeline-improvement issue hands-on while adding no merge-time protection that
 `GovernancePaths` did not already provide.
 
-- **Test coverage:** `tests/orchestrator/test_implement_allowlist.py` (classification, and that
-  the secrets denylist still bites) and `tests/orchestrator/test_ship.py` (the hold fires on an
-  out-of-allowlist path, and an in-allowlist PR still merges).
+- **Test coverage:** the build journeys in `tests/journeys/Build.Tests.ps1` (a change to a
+  governance file is held at `human:approval` with its pull request ready for the owner). The
+  classification of every path, the secrets denylist and the merge of an in-allowlist PR are
+  among the journeys and decision tables still to be written; the deleted Python tests that
+  covered them stay readable in git at commit `2d9477e`.
 
 ### Protected paths
 

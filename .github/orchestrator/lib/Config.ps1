@@ -32,7 +32,7 @@ $KanbanLogFile = "$_Root\logs\kanban.log"
 # ── Settings table ────────────────────────────────────────────────────────────
 # Every orchestrator setting, with its one value. Code reads $OrchestratorConfig.<Key>
 # where it uses the setting; no environment variable, module copy or parameter
-# replaces a key (tests/orchestrator/test_config_table.py checks each key is read).
+# replaces a key.
 $OrchestratorConfig = @{
     # ── Models ────────────────────────────────────────────────────────────────
     # Every model call is a named task. TaskTiers gives each task a tier, a class

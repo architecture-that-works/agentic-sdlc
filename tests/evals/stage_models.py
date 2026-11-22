@@ -14,7 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ORCHESTRATOR = REPO_ROOT / ".github" / "orchestrator" / "Orchestrator.psd1"
 STAGES = ("review", "implement")
 
-# Loads the module the way tests/orchestrator/test_task_model.py does. Both models come
+# Loads the module and asks Get-TaskModel, the one answer to which model a task runs on. Both models come
 # from Get-TaskModel on the engine the orchestrator runs (its Engine setting): review is
 # the Review task, and implement the ImplementLarge task (#341).
 _SCRIPT = f"""

@@ -763,8 +763,7 @@ function Get-IssueLabel {
     .DESCRIPTION
         The orchestrator is GraphQL-bound (ADR-012), and reading labels through
         `gh issue view` costs GraphQL points. Every label read goes through this
-        one REST call so tests/orchestrator/test_graphql_budget.py has a single
-        place to hold the line.
+        one REST call, so there is a single place to hold the line.
     #>
     param([int]$IssueNumber)
 
