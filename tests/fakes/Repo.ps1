@@ -60,9 +60,13 @@ exit $TestExit
     }
     & $git $remote @('init', '--quiet', '--bare', '-b', $Branch)
     & $git $work @('init', '--quiet', '-b', $Branch)
-    & $git $work @('config', 'user.name', 'Journey')
-    & $git $work @('config', 'user.email', 'journey@example.invalid')
-    & $git $work @('config', 'commit.gpgsign', 'false')
+    # Both repositories get an identity: the fake GitHub's squash merge runs
+    # `git commit-tree` in the bare remote, and a runner may have no global identity.
+    foreach ($dir in @($work, $remote)) {
+        & $git $dir @('config', 'user.name', 'Journey')
+        & $git $dir @('config', 'user.email', 'journey@example.invalid')
+        & $git $dir @('config', 'commit.gpgsign', 'false')
+    }
     & $git $work @('add', '-A')
     & $git $work @('commit', '--quiet', '-m', 'chore: start')
     & $git $work @('remote', 'add', 'origin', $remote)
