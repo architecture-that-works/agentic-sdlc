@@ -137,7 +137,8 @@ Describe 'Conflict journey' {
         $headings = Get-FakeCommentHeadings 43
         $headings | Should -Contain '🤖❌ Merge Conflict'
         (Get-FakeComments 43 | Where-Object { $_.Body.StartsWith('🤖❌ Merge Conflict') }).Body | Should -Match '- `CONTEXT.md`'
-        $headings | Should -Contain "🤖🔁 Attempt 1/3 failed at **ship** — Merge conflict between feature/43-name-journeys-glossary and main in: CONTEXT.md"
+        $max = Get-OrchestratorSetting -Name MaxRetries
+        $headings | Should -Contain "🤖🔁 Attempt 1/$max failed at **ship** — Merge conflict between feature/43-name-journeys-glossary and main in: CONTEXT.md"
         $headings | Should -Contain '🤖⚠️ Merge conflict with main — the agent resolves it first'
         $headings[-1] | Should -Be '🤖⏸ Held for human approval'
         $pr = @($global:FakeGitHub.PullRequests)[0]

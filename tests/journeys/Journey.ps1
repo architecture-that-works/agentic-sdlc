@@ -202,7 +202,7 @@ function Add-ImplementRun {
     $first = @($Edits.Keys | Sort-Object)[0]
     $calls = @(@{ Name = 'Read'; Input = @{ file_path = $first } }) +
              @($Edits.Keys | Sort-Object | ForEach-Object { @{ Name = 'Edit'; Input = @{ file_path = $_ } } }) +
-             @(@{ Name = 'Bash'; Input = @{ command = 'uv run pytest tests/test_main.py' } })
+             @(@{ Name = 'Bash'; Input = @{ command = 'uv run pytest tests/app/test_main.py' } })
     $files = ($Edits.Keys | Sort-Object | ForEach-Object { "- ``$_`` — changed" }) -join "`n"
     Add-EngineResult -Task ImplementSmall -Edits $Edits -ToolCalls $calls -RefusedEdits $RefusedEdits -During $During `
         -Reply "$files`n- Left undone: none`n- Issues discovered: none"

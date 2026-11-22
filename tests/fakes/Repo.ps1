@@ -55,7 +55,7 @@ function New-FakeRepo {
 `$code  = [int]`$codes[0]
 if (`$codes.Count -gt 1) { Set-Content -LiteralPath `$exits -Value `$codes[1..(`$codes.Count - 1)] }
 Write-Output "pytest  `$(if (`$code -eq 0) { 'passed' } else { 'failed' })  0.1s"
-if (`$code -ne 0) { Write-Output 'FAILED tests/test_main.py::test_greeting - AssertionError: the greeting names nobody' }
+if (`$code -ne 0) { Write-Output 'FAILED tests/app/test_main.py::test_greeting - AssertionError: the greeting names nobody' }
 Write-Output 'Pester  passed  0.1s  line coverage 0.0% of .github/orchestrator/'
 exit `$code
 "@
