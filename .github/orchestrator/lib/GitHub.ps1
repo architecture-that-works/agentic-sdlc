@@ -588,31 +588,32 @@ function Set-AttemptsSection {
 }
 
 # ── Usage-limit pause and resume ──────────────────────────────────────────────
-# A spent usage allowance parks the issue on agent:paused with the resume time and
-# the stage to resume in the carrier; no attempt is counted. Every pipeline run calls
+# A spent usage allowance parks the issue on agent:paused with the resume time in
+# the carrier; no attempt is counted and no stage is stored — where the issue goes
+# on is decided at the resume, from its readiness (#380). Every pipeline run calls
 # Resume-PausedIssues before its own stage (#306); afk.yml's hourly reconcile is the
 # fallback for a quiet repo.
 function Suspend-ForUsageLimit {
-    param([Parameter(Mandatory)][int]$IssueNumber, [Parameter(Mandatory)][string]$Stage,
-          [Parameter(Mandatory)][datetime]$Until)
+    param([Parameter(Mandatory)][int]$IssueNumber, [Parameter(Mandatory)][datetime]$Until)
     $state = Get-IssueState -IssueNumber $IssueNumber
     if ($state) {
         $state | Add-Member -NotePropertyName paused_until -NotePropertyValue $Until.ToUniversalTime().ToString('o') -Force
-        $state | Add-Member -NotePropertyName paused_stage -NotePropertyValue $Stage -Force
         Set-PlanningState -IssueNumber $IssueNumber -State $state
     }
     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:paused'
-    Add-Comment -Number $IssueNumber -Body ("🤖⏳ Paused — the Claude usage limit is reached. $Stage resumes " +
+    Add-Comment -Number $IssueNumber -Body ("🤖⏳ Paused — the Claude usage limit is reached. Work resumes " +
         "after $($Until.ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC, on the next pipeline run or the hourly check " +
         "(``pwsh -NoProfile -File .github/tasks/reconcile.ps1`` resumes it now). No attempt was counted; nothing for you to do.")
-    Write-Log "⏳ Issue #$IssueNumber paused at $Stage until $($Until.ToString('o'))." -Color Yellow
+    Write-Log "⏳ Issue #$IssueNumber paused until $($Until.ToString('o'))." -Color Yellow
 }
 
 # Resumes every agent:paused issue whose resume time has passed — after one probe
 # confirms the engine answers again; if it still refuses, the resume times move to
-# the new reset time without a comment. Implement-stage pauses go back to
-# agent:backlog (the label restarts implement); refine-stage pauses are dispatched
-# to the refine job.
+# the new reset time without a comment. A due issue — also one with no resume time
+# stored — starts again through Restart-Issue, the one re-entry function: a ready
+# issue goes to agent:backlog, any other loses its pipeline labels and gets a refine
+# run, which reads an owner's answer that came during the pause (#380). The resume
+# posts no comment of its own; Restart-Issue's comment is the record.
 function Resume-PausedIssues {
     # REST, not `gh issue list` (GraphQL): every pipeline run now pays for this call (ADR-012).
     $raw = gh api "repos/$KanbanRepo/issues?labels=agent:paused&state=open&per_page=100" `
@@ -645,20 +646,18 @@ function Resume-PausedIssues {
     }
 
     foreach ($d in $due) {
-        $stage = if ($d.State -and $d.State.PSObject.Properties['paused_stage']) { "$($d.State.paused_stage)" } else { 'implement' }
-        if ($d.State) {
+        # Clear the pause first: Restart-Issue re-reads the carrier, so writing this
+        # older state object after it would undo its attempt reset.
+        if ($d.State -and $d.State.PSObject.Properties['paused_until']) {
             $d.State.PSObject.Properties.Remove('paused_until')
-            $d.State.PSObject.Properties.Remove('paused_stage')
             Set-PlanningState -IssueNumber $d.Number -State $d.State
         }
-        Add-Comment -Number $d.Number -Body "· resumed after the usage-limit pause ($stage)"
-        if ($stage -eq 'refine') {
-            Set-IssueLabel -Number $d.Number -Remove 'agent:paused'
-            gh workflow run afk.yml --repo $KanbanRepo --field stage=refine --field issue_number=$($d.Number) 2>&1 | Out-Null
+        $went = Restart-Issue -IssueNumber $d.Number -Reason 'usage limit lifted'
+        if ($went) {
+            Write-Log "▶ Issue #$($d.Number) resumed ($went)." -Color Green
         } else {
-            Set-AgentState -IssueNumber $d.Number -Label 'agent:backlog'
+            Write-Log "  ⚠️ Issue #$($d.Number) could not be restarted after the pause — the hourly check retries it." -Color Yellow
         }
-        Write-Log "▶ Issue #$($d.Number) resumed ($stage)." -Color Green
     }
 }
 
@@ -848,6 +847,25 @@ function Add-Comment {
     } finally {
         Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
     }
+}
+
+# Dispatches the implement job for one issue (afk.yml stage=implement), so every
+# implement run waits in the one implement-pipeline queue. The caller has already
+# moved the issue to agent:implementing, which the job's resolve step accepts.
+# Shared by the owner-comment revision route and the conflict rounds a merge starts
+# (Start-ConflictRounds, #374). True when the dispatch was accepted.
+function Start-ImplementRound {
+    param([Parameter(Mandatory)][int]$IssueNumber)
+    $out = gh workflow run afk.yml `
+        --repo $KanbanRepo `
+        --ref $KanbanDefaultBranch `
+        --field stage=implement `
+        --field issue_number=$IssueNumber 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "  ⚠️ Could not dispatch the implement job for #${IssueNumber}: $($out.Trim())" -Color Yellow
+        return $false
+    }
+    return $true
 }
 
 # ── Branch helpers ────────────────────────────────────────────────────────────

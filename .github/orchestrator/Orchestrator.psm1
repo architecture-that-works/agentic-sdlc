@@ -84,7 +84,7 @@ function Invoke-Orchestration {
     } catch {
         if ("$($_.Exception.Message)" -like 'USAGE-LIMIT|*') {
             $until = ([datetime](("$($_.Exception.Message)" -split '\|', 2)[1])).ToUniversalTime()
-            Suspend-ForUsageLimit -IssueNumber $IssueNumber -Stage $From -Until $until
+            Suspend-ForUsageLimit -IssueNumber $IssueNumber -Until $until
             return $false
         }
         throw
@@ -140,11 +140,7 @@ function Invoke-Orchestration {
                     }
                     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:implementing'
                     # Dispatch to the implement job so all implement runs stay in one queue.
-                    gh workflow run afk.yml `
-                        --repo $ctx.Repo `
-                        --ref $ctx.DefaultBranch `
-                        --field stage=implement `
-                        --field issue_number=$IssueNumber 2>&1 | Out-Null
+                    $null = Start-ImplementRound -IssueNumber $IssueNumber
                     Add-Comment -Number $IssueNumber -Body "· revision dispatched — implement pipeline will pick up the owner's change request"
                     return $true
                 }
@@ -199,7 +195,7 @@ function Invoke-Orchestration {
                 $check = Invoke-AnswerCheck -IssueNumber $IssueNumber
                 if ($check.Error) {
                     $until = Test-EngineUsageLimit
-                    if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Stage 'refine' -Until $until; return $false }
+                    if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Until $until; return $false }
                     Add-Comment -Number $IssueNumber -Body "🤖⚠️ Could not check your reply — comment again to retry.`n``````text`n$($check.Error)`n``````"
                     return $false
                 }
@@ -235,7 +231,7 @@ function Invoke-Orchestration {
                 } catch {
                     $reason = $_.Exception.Message
                     $until  = Test-EngineUsageLimit
-                    if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Stage 'refine' -Until $until; return $false }
+                    if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Until $until; return $false }
                     $attempt++
                     Add-FailedAttempt -IssueNumber $IssueNumber -Stage $currentStage -Reason $reason -Attempt $attempt -Max $MaxRetries
                     if ($attempt -ge $MaxRetries) {
@@ -352,7 +348,7 @@ function Invoke-Orchestration {
                 $reason = $_.Exception.Message
                 # A spent usage allowance is not the agent's failure: pause, count nothing.
                 $until = Test-EngineUsageLimit
-                if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Stage 'implement' -Until $until; return }
+                if ($until) { Suspend-ForUsageLimit -IssueNumber $IssueNumber -Until $until; return }
                 # The issue shipped — its PR was merged by hand mid-round (#377). Not a
                 # failure: say so once and stop. No label (agent:shipped is terminal and
                 # no state allows a move from it), no attempt, no retry, nothing pushed.

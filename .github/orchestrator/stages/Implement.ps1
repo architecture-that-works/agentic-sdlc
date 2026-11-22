@@ -14,7 +14,8 @@
 
     Phase 1 Develop -- Claude Code implements every requirement; verifies with
                        uv run pytest.
-    Phase 2 PR      -- commits (Claude-generated message), pushes, opens PR.
+    Phase 2 PR      -- commits (Claude-generated message), pushes, opens the PR or
+                       rewrites its description, from the pull request template.
 
     Invoke-Implement opens with a thin readiness re-check (belt-and-suspenders):
     it warns if an issue somehow reached Implementing without full alignment, but
@@ -348,8 +349,24 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
 function Invoke-CommitAndPR {
     # -NoPR commits and pushes only (#346): a round the engine's refusal ended keeps
     # the rest of its work on the branch for the owner, without a PR or a review.
-    param([int]$Number, [string]$Title, [string]$Branch, [switch]$NoPR)
+    #
+    # The PR description is filled from the pull request template (#375) with the
+    # round's facts: the closing note's three values and every command run — those
+    # before this step (-PriorCommands) and this step's own. The template is read and
+    # checked before anything is staged, so a broken one stops the round before any
+    # commit or push; it is filled after the push, so Validation lists the push too.
+    param(
+        [int]$Number, [string]$Title, [string]$Branch, [switch]$NoPR,
+        [string]$Implemented = '', [string]$LeftUndone = '', [string]$IssuesDiscovered = '',
+        [array]$PriorCommands = @()
+    )
     Write-Log "  Phase 2 — Commit $(if ($NoPR) { '+ push (no PR)' } else { '+ PR' }) for issue #$Number" -Color Yellow
+
+    $prTemplate = $null
+    if (-not $NoPR) {
+        $prTemplate = Get-PullRequestTemplate
+        $null = Format-PullRequestBody -Template $prTemplate -Number $Number
+    }
 
     $commands = [System.Collections.Generic.List[object]]::new()
 
@@ -488,28 +505,24 @@ function Invoke-CommitAndPR {
     # A merged PR is not open, so the lookup would find none and a second PR would be
     # opened for a shipped issue (#377).
     Assert-NotShipped -IssueNumber $Number
+    $body = Format-PullRequestBody -Template $prTemplate -Number $Number `
+        -Implemented $Implemented -LeftUndone $LeftUndone -IssuesDiscovered $IssuesDiscovered `
+        -Commands (@($PriorCommands) + $commands.ToArray())
     $existing = gh pr list --head $Branch --json url --limit 1 | ConvertFrom-Json
     $notDraft = $false
-    if ($existing.Count -gt 0) {
-        $prUrl = $existing[0].url
-        Write-Log "  PR already exists: $prUrl" -Color DarkGray
-    } else {
-        $body = @"
-## Summary
-Automated implementation for issue #$Number by Claude Code agent.
-
-## Validation
-- ``uv run pytest`` — ✅ passed (verified by orchestrator)
-
-## Linked Issue
-Closes #$Number
-"@
-        # Opened as a draft (#377): GitHub refuses to merge a draft, so nobody merges
-        # the PR before the workflow releases it (ship marks it ready). A repository
-        # without drafts refuses --draft; only then is it opened ready.
-        $tmp = New-TemporaryFile
-        try {
-            $body | Out-File $tmp.FullName -Encoding utf8
+    $tmp = New-TemporaryFile
+    try {
+        $body | Out-File $tmp.FullName -Encoding utf8
+        if ($existing.Count -gt 0) {
+            # A later round rewrites the description from its own facts (#375).
+            $prUrl = $existing[0].url
+            $editOut = gh pr edit $prUrl --body-file $tmp.FullName 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) { throw "Updating the description of $prUrl failed for issue #${Number}:`n$($editOut.Trim())" }
+            Write-Log "  PR already exists, description rewritten: $prUrl" -Color DarkGray
+        } else {
+            # Opened as a draft (#377): GitHub refuses to merge a draft, so nobody merges
+            # the PR before the workflow releases it (ship marks it ready). A repository
+            # without drafts refuses --draft; only then is it opened ready.
             Assert-NotShipped -IssueNumber $Number
             $createArgs = @('pr', 'create', '--title', "feat(#${Number}): $Title", '--body-file', $tmp.FullName, '--head', $Branch)
             $createOut  = gh @createArgs --draft 2>&1 | Out-String
@@ -521,10 +534,10 @@ Closes #$Number
             if ($LASTEXITCODE -ne 0) { throw "PR creation failed for issue #${Number}:`n$($createOut.Trim())" }
             $prUrl = @($createOut -split '\r?\n' | Where-Object { $_ -match '^\s*https?://' } | Select-Object -Last 1)[0]
             $prUrl = if ($prUrl) { $prUrl.Trim() } else { $createOut.Trim() }
-        } finally {
-            Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
+            Write-Log "  PR created: $prUrl" -Color Green
         }
-        Write-Log "  PR created: $prUrl" -Color Green
+    } finally {
+        Remove-Item $tmp.FullName -ErrorAction SilentlyContinue
     }
 
     $opened = "· PR opened — $prUrl"
@@ -697,7 +710,9 @@ function Invoke-Implement {
             throw "ATTEMPT-RECORDED|Test suite failed after implementation for issue #$IssueNumber"
         }
 
-        $commitResult = Invoke-CommitAndPR -Number $IssueNumber -Title $meta.title -Branch $branch
+        $commitResult = Invoke-CommitAndPR -Number $IssueNumber -Title $meta.title -Branch $branch `
+            -Implemented $devResult.Implemented -LeftUndone $devResult.LeftUndone `
+            -IssuesDiscovered $devResult.IssuesDiscovered -PriorCommands @($devResult.PhaseOneCommands)
         $prUrl        = $commitResult.PrUrl
 
         # The unified 🤖 Implementation comment with five dense lines.

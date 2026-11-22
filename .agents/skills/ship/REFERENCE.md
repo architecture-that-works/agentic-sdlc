@@ -69,6 +69,10 @@ dependencies = ["requests==2.32.3"]
 
 ### [PASS] Auto-close validation — expanded
 
+A PR's description follows `.github/PULL_REQUEST_TEMPLATE.md` (Summary, Left undone, Issues
+discovered, Validation), whose last line is `Closes #<issue-number>`. The orchestrator fills it on
+every round; a PR opened by hand gets it from GitHub. A body without the line still gets it added:
+
 ```bash
 # Check PR body for Closes #N pattern
 gh pr view <number> --json body | jq -r '.body' | grep -iE 'closes\s+#[0-9]+'
