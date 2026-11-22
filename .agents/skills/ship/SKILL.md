@@ -72,7 +72,9 @@ git diff main...HEAD -- requirements*.txt pyproject.toml package*.json
 For each new dependency: verify it is pinned to a specific version and is a known, maintained package. Unpinned or unvetted packages → block merge.
 
 **[PASS] Auto-close validation**
-Confirm the PR body contains `Closes #N` referencing the linked issue:
+A PR's description is what `.github/PULL_REQUEST_TEMPLATE.md` defines — Summary, Left undone,
+Issues discovered, Validation — and the template's last line carries `Closes #N`. Confirm the
+PR body contains `Closes #N` referencing the linked issue:
 ```bash
 gh pr view <number> --json body | jq '.body | test("Closes #[0-9]+")'
 ```
