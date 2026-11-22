@@ -20,7 +20,8 @@
 
     Projects v2 calls (`gh project ...`) have no REST equivalent and are not checked.
     Scans the orchestrator, the Commands, the workflows and the skill scripts; comments
-    are skipped. Exits 0 when every rule holds; exits 1 with one line per violation.
+    are skipped, and a call split over lines with backtick continuations is read as one
+    line, reported at the line it starts on. Exits 0 when every rule holds; exits 1 with one line per violation.
 
 .EXAMPLE
     pwsh .github/checks/check-no-graphql.ps1
@@ -59,13 +60,22 @@ $failures = [System.Collections.Generic.List[string]]::new()
 foreach ($f in $files) {
     $rel = Get-RelativePath $f.FullName
     $inBlock = $false
-    $n = 0
-    foreach ($line in (Get-Content -LiteralPath $f.FullName)) {
-        $n++
+    $lines = @(Get-Content -LiteralPath $f.FullName)
+    $i = 0
+    while ($i -lt $lines.Count) {
+        $line = $lines[$i]
+        $n = $i + 1
+        $i++
         # Comments: <# … #> blocks and full-line # comments.
         if ($inBlock) { if ($line -match '#>') { $inBlock = $false }; continue }
         if ($line -match '^\s*<#') { if ($line -notmatch '#>') { $inBlock = $true }; continue }
         if ($line -match '^\s*#') { continue }
+        # A PowerShell call split with a backtick continuation is one call: join it with the
+        # lines it continues onto, and report the line it starts on.
+        while ($line -match '`\s*$' -and $i -lt $lines.Count) {
+            $line = ($line -replace '`\s*$', ' ') + $lines[$i].TrimStart()
+            $i++
+        }
         foreach ($rule in $rules) {
             if ($line -notmatch $rule.Pattern) { continue }
             if ($rule.Name -eq 'repo view' -and $rel -eq $Fallback -and $line -match '2>\$null') { continue }

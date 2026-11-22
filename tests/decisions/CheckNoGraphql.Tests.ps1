@@ -35,6 +35,10 @@ Describe 'Decision: check-no-graphql' {
            Files = @{ '.github/orchestrator/stages/Ship.ps1' = "#Requires -Version 7.0`ngh issue edit 5 --add-label agent:shipped`n" } }
         @{ Case = 'labels read with gh issue view'; Exit = 1; Line = '.github/orchestrator/stages/Ship.ps1:2: label read is a GraphQL call'
            Files = @{ '.github/orchestrator/stages/Ship.ps1' = "#Requires -Version 7.0`n`$l = gh issue view 5 --json labels`n" } }
+        @{ Case = 'labels read with gh issue view split by a backtick'; Exit = 1; Line = '.github/workflows/afk.yml:4: label read is a GraphQL call'
+           Files = @{ '.github/workflows/afk.yml' = "jobs:`n  run:`n    steps:`n      - run: `$l = gh issue view 5 --repo x/y ```n          --json labels --jq '.labels[].name'`n" } }
+        @{ Case = 'labels read through REST, split by a backtick'; Exit = 0
+           Files = @{ '.github/workflows/afk.yml' = "jobs:`n  run:`n    steps:`n      - run: `$l = gh api repos/x/y/issues/5/labels ```n          --jq '[.[].name]'`n" } }
         @{ Case = 'gh repo view in a comment'; Exit = 0
            Files = @{ '.github/orchestrator/stages/Ship.ps1' = "#Requires -Version 7.0`n# never gh repo view here`n<#`n  gh repo view is GraphQL`n#>`n" } }
         @{ Case = 'a Projects v2 call'; Exit = 0

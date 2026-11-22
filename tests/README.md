@@ -307,9 +307,9 @@ uncalled or a private function is called from outside.
 
 ### Not covered yet
 
-Every behaviour the deleted Python tests (commit `b7ba709`, `tests/orchestrator/` and
-`tests/checks/`) guarded is a journey, a table or a check. What is left here are the static
-rules they held that no longer matter, each dropped with its reason.
+This section lists the static rules that the deleted Python tests (commit `b7ba709`,
+`tests/orchestrator/` and `tests/checks/`) held and that no longer matter, each with the
+reason it was dropped.
 
 | Static rule (deleted test file) | Why it is dropped |
 |---|---|
