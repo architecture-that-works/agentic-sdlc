@@ -39,6 +39,25 @@ Describe 'Refine journey' {
         Assert-JourneyClean
     }
 
+    It 'puts an issue on the board it states, with the estimate and priority refine gives it' {
+        Set-JourneyBoard
+        Add-FakeIssue -Number 11 -Title 'Greet the visitor by name' -Body (New-IssueBody)
+        # With a board, refine first asks for the estimate and the priority the item lacks.
+        Add-EngineResult -Task Refine -Reply (@{ body = (New-IssueBody); estimate = 3; priority = 'P2' } | ConvertTo-Json -Compress)
+        Add-EngineResult -Task Refine -Reply (New-GrillReply)
+        Add-EngineResult -Task Plan -Reply (New-PlanReply)
+
+        $null = Invoke-Orchestration -IssueNumber 11 -From refine
+
+        Get-FakePipelineLabel 11 | Should -Be 'agent:backlog' -Because (Get-JourneyStory 11)
+        $item = Get-FakeBoardItem 11
+        $item | Should -Not -BeNullOrEmpty -Because 'refine adds an issue opened outside sync to the board'
+        $item.status   | Should -Be 'Backlog'
+        $item.estimate | Should -Be 3
+        $item.priority | Should -Be 'P2'
+        Assert-JourneyClean
+    }
+
     It 'asks the owner, records the answer from a comment, and queues the issue' {
         Add-FakeIssue -Number 8 -Title 'Greet the visitor by name' -Body (New-IssueBody)
         $question = [ordered]@{

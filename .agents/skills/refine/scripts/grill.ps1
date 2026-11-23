@@ -53,7 +53,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Import-Module "$PSScriptRoot\..\..\..\..\.github\orchestrator\Orchestrator.psd1" -Force
+# A probe a person runs by hand: it reads .env like the Commands do, before the import.
+. "$PSScriptRoot\..\..\..\..\.github\tasks\Settings.ps1"
+Import-Settings
+if (-not (Get-Module Orchestrator)) { Import-Module "$PSScriptRoot\..\..\..\..\.github\orchestrator\Orchestrator.psd1" }
 
 if ($Issue -eq 0 -and (-not $Body)) {
     throw "grill.ps1 requires either -Issue <number> OR -Body <text> (-Title optional). See -? for help."

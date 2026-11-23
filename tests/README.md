@@ -15,16 +15,18 @@ One folder per kind of test. Each folder of the repository, and where it is test
 |---|---|---|
 | `src/` (`main.py`, `config.py`), `src/utils/`, `src/tools/` | `tests/app/` | pytest, by what the code does: the HTTP server answers requests, the schema accepts and rejects states, the tools write commits and fill in a project. Counted by the 80% coverage gate for `src/` |
 | `.github/orchestrator/` | `tests/journeys/` | Pester 5: a journey per path through `Invoke-Orchestration`, asserting what the owner sees (§ Testing the orchestrator) |
-| `.github/orchestrator/` — its decisions | `tests/decisions/` | Pester 5: a table per decision, a row per input, asserting the outcome through the module (`OwnerComment.Tests.ps1`: what an owner comment leads to in each pipeline state) |
+| `.github/orchestrator/` — its decisions | `tests/decisions/` | Pester 5: a table per decision, a row per input, asserting the outcome through the module (§ Testing the orchestrator) |
 | `.github/orchestrator/lib/Config.ps1` — `$PipelineStates` | `tests/journeys/StateMachine.Tests.ps1` | Pester 5: runs last and checks every label transition the tables and journeys caused |
+| `.github/orchestrator/Orchestrator.psd1` — `FunctionsToExport` | `tests/journeys/ExportReach.Tests.ps1` | Pester 5: runs last and fails, naming it, on each exported function no journey or table reached |
 | the orchestrator's outside seams (`gh`, the engine, the repository) | `tests/fakes/` | the fakes the journeys and tables run on — not tests themselves |
-| `.github/tasks/` | `tests/journeys/` (the stages the commands start); `tests/template/` (`test.ps1` in a generated project) | Pester; pytest |
+| `.github/tasks/` | `tests/journeys/Commands.Tests.ps1` (sync, setup, protect, run in-process on the fake GitHub); `tests/journeys/` (the stages the other commands start); `tests/template/` (`test.ps1` in a generated project) | Pester; pytest |
 | `.github/workflows/`, `Dockerfile`, `.dockerignore`, `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`, `CONTRIBUTING.md` | `tests/repository/` | pytest, reading the files: a workflow job, a template heading, a Dockerfile stage |
-| `.github/checks/` | `tests/checks/` | pytest, running each check on a temporary repository (until decision tables replace it) |
+| `.github/checks/` | `tests/decisions/` (`Check<Name>.Tests.ps1`, one per check) | Pester 5: a table per check, running it on a temporary repository and asserting its exit code and the violation lines it prints |
 | `.agents/skills/` | `tests/evals/` | pytest `-m eval`: a stage's instructions on a stored case, on the stage's model (§ Evals) |
 | `copier.yml`, the `.jinja2` twins, what travels | `tests/template/` | pytest: generates real projects and runs their tests and checks |
 | `.devcontainer/` | `tests/template/` | pytest: the generated project's container definition |
 | `docs/adr/`, `AGENTS.md`, `CONTEXT.md` and the other documents | `.github/checks/` (`check-references.ps1`, `check-module-map.ps1`) | the checks job, not a test |
+| the PowerShell scripts as source: the Library/Runnable contract, the GraphQL budget, the engine boundary, the settings table | `.github/checks/` (`check-script-contract.ps1`, `check-no-graphql.ps1`, `check-engine-adapter.ps1`, `check-settings-read.ps1`) | the checks job, not a test |
 
 `tests/conftest.py` holds the fixtures every pytest test shares (§ conftest.py).
 
@@ -63,12 +65,15 @@ uv run pytest -x tests/app/test_main.py                              # one file,
 
 The coverage floor is 80% (`--cov-fail-under=80`); the `test` job fails below it.
 
-**The repository's files, the checks and the template** (pytest):
+**The repository's files and the template** (pytest):
 
 ```bash
 uv run pytest                              # every pytest test; evals deselected
 uv run pytest tests/template               # generates projects; needs pwsh
 ```
+
+No Python test starts a PowerShell process except the template smoke test and the evals:
+PowerShell code is tested by Pester.
 
 **The orchestrator** (Pester) — see § Testing the orchestrator. **The evals** — see § Evals.
 
@@ -78,7 +83,7 @@ A project generated with Copier carries the tests of its own code only: `tests/a
 `tests/README.md` (this file), `tests/conftest.py` and the one test command, which runs
 pytest alone there. Every other test folder tests the template — its orchestrator, its
 workflows, its checks and its skills — and `copier.yml` `_exclude` keeps it home:
-journeys, decisions, fakes, repository, template, evals and checks. The orchestrator, the
+journeys, decisions, fakes, repository, template and evals. The orchestrator, the
 commands and the checks travel; their tests do not. The template smoke test generates a
 project and asserts exactly this: it holds `tests/app/` and none of the other folders, its
 test command passes, the orchestrator module loads and every check passes. A project
@@ -184,6 +189,11 @@ file in `tests/journeys/`, named after the path it follows:
 | `Conflict.Tests.ps1` | a branch that conflicts with the default branch: the post-merge conflict rounds, the agent settling the conflict, markers left behind, the default branch moving during a round |
 | `Held.Tests.ps1` | a pull request held for the owner, or left by a failed issue: a revision started by a comment, the owner's merge or close |
 | `Recovery.Tests.ps1` | a stalled issue moving again: re-entered after the stuck time and handed to the owner after the allowed re-entries (an issue without a carrier too), a state a person holds left alone, a pause on a spent usage allowance and its resume, an owner's comment on a failed issue or on one the agent holds |
+| `Commands.Tests.ps1` | the Commands a person runs by hand: sync turns an ISSUES.md block into an issue on the board with its estimate and priority, refuses a block without a heading of the issue template or without its fence, and changes nothing in a dry run; setup writes the board's ids to `.env` and the Actions variables, the base labels and the code owners; protect applies the required checks, the branch rules and the merge settings, then verifies them |
+
+A Command journey runs the Command itself, in-process with the call operator and its
+`-Root` pointing at the journey's temporary repository, so it reads and writes that
+repository's `.env`, `ISSUES.md` and code-owners file, never this one's.
 
 A journey enters only through a public entry point the workflow calls — the conductor,
 `Invoke-Orchestration -IssueNumber <n> -From refine|implement|comment`, or the function a
@@ -198,23 +208,53 @@ was pushed to the remote. Nothing in a journey reaches into a private function.
 
 A **decision table** is a Pester 5 file in `tests/decisions/`, named after one decision the
 orchestrator makes. Each row is one input — a pipeline state, say — and the outcome the owner
-sees for it, entered through the same conductor (`OwnerComment.Tests.ps1`: what an owner's
-comment leads to in each state). A table asserts what the decision produces, never the rows of
-`$PipelineStates`: the label table is written once, in `lib/Config.ps1`, and a second copy is
-removed, not guarded by a test. A table dot-sources `tests/journeys/Journey.ps1` and runs on
-the same fakes.
+sees for it, each row one test result, entered through the module's public surface or a
+Command. A table asserts what the decision produces, never the rows of `$PipelineStates` or
+any other setting: those are written once, in `lib/Config.ps1`, and a second copy is removed,
+not guarded by a test. A table dot-sources `tests/journeys/Journey.ps1` and runs on the same
+fakes.
 
-The orchestrator has three outside seams, and each has one fake in `tests/fakes/`:
+| File | Decision |
+|------|----------|
+| `OwnerComment.Tests.ps1` | what an owner's comment leads to in each pipeline state |
+| `PipelineLabel.Tests.ps1` | where an issue goes from each label: re-entered (Restart-Issue) or left alone, and what the hourly warden does with a quiet issue (Invoke-Reconciliation) |
+| `Paths.Tests.ps1` | a changed path: merged, held as a governance file or a proposal, or never staged (the secrets denylist) |
+| `CheckVerdict.Tests.ps1` | ship's verdict on the pushed commit's checks: green, failed, or not passed at the ceiling |
+| `UsageLimit.Tests.ps1` | which engine answers are a spent allowance, the time to resume, and when a paused issue resumes |
+| `ModelTier.Tests.ps1` | task → tier → model, the missing value that stops a run, the engine the setting names, and the estimate that chooses the implement task |
+| `IssueHeadings.Tests.ps1` | the issue template's headings and the style of each section |
+| `CommentKinds.Tests.ps1` | pipeline history, owner comment or neither; the secrets a pipeline comment never shows |
+| `EngineCall.Tests.ps1` | the engine call against a stand-in CLI: its flags, retries, turn budget, checked answer, tool calls and refused edits |
+| `Check<Name>.Tests.ps1` | one per check in `.github/checks/`: its exit code and the violation lines it prints, on a temporary repository |
+
+The engine call's table is the one that enters below the public surface: every journey
+replaces Invoke-EngineTask with the fake engine, so its own table calls it at that seam,
+against the stand-in CLI.
+
+The orchestrator has three outside seams, and each has one fake in `tests/fakes/`; a fourth
+file stands in for the engine's CLI, below the fake engine, for the engine adapter's own tables:
 
 | Fake | Stands in for | What a test does with it |
 |------|---------------|--------------------------|
-| `tests/fakes/GitHub.ps1` | the `gh` command | Seeds issues and comments, reads labels, comments and pull requests back. It holds issues, labels, comments, pull requests, check runs and job logs in memory, records what changed, and records every label change as a transition. Set-FakeChecks sets what every pushed commit's required checks conclude (failed, still running, missing) and each failed job's log; Complete-FakePullRequest is the owner merging or closing a PR by hand and returns the arguments `Complete-HeldPR` gets; Get-FakePrTimeline reads what happened to a PR (opened as draft, marked ready, back to draft, merged). Each issue has a last-activity time every change moves forward, served in the open-issues listing the warden reads; Set-FakeIssueIdle ages it. `Add-FakeIssue -Estimate -Priority` puts the issue on the board with those fields; `issue create` opens an issue (an epic's children); Get-FakeDispatches reads the workflow dispatches as { Stage; Issue }; the AFK runs listing answers no live run. A `gh` call it does not know fails the test and names the call. |
+| `tests/fakes/GitHub.ps1` | the `gh` command | Seeds issues and comments, reads labels, comments and pull requests back. It holds issues, labels, comments, pull requests, check runs and job logs in memory, records what changed, and records every label change as a transition. Set-FakeChecks sets what every pushed commit's required checks conclude (failed, still running, missing) and each failed job's log; Complete-FakePullRequest is the owner merging or closing a PR by hand and returns the arguments `Complete-HeldPR` gets; Get-FakePrTimeline reads what happened to a PR (opened as draft, marked ready, back to draft, merged). Each issue has a last-activity time every change moves forward, served in the open-issues listing the warden reads; Set-FakeIssueIdle ages it. `Add-FakeIssue -Estimate -Priority` puts the issue on the board with those fields; `issue create` opens an issue (an epic's children); Get-FakeDispatches reads the workflow dispatches as { Stage; Issue }; the AFK runs listing answers no live run unless `LiveRuns` (a count) is set. A `gh` call it does not know fails the test and names the call. |
 | `tests/fakes/Engine.ps1` | `Invoke-EngineTask`, the one function that starts a model | Scripts what each Task returns, in order: an outcome, a reply, a checked answer, refused edits, and for an implement task the files it edits; `-During` is what someone else does while that call runs (the owner merging the PR, a change reaching the default branch). Each call is recorded with its Task, Label, Prompt, Tools and turn budget (MaxTurns). Get-EngineUsageLimitText is the engine's spent-allowance message, taken from the adapter's wording, for an `EngineCheck -Output`. A Task with nothing scripted fails the test and names it. |
-| `tests/fakes/Repo.ps1` | the repository | Gives the journey a temporary git repository with a bare remote; git runs for real, so the test asks the remote what was pushed. The stand-in full test command reports one exit code per run (`Start-Journey -TestExit 1, 0`); Push-RemoteCommit pushes someone else's commit; Sync-FakeRepo fetches every branch, as a workflow's full checkout does. |
+| `tests/fakes/Repo.ps1` | the repository | Gives the journey a temporary git repository with a bare remote; git runs for real, so the test asks the remote what was pushed. The stand-in full test command reports one exit code per run (`Start-Journey -TestExit 1, 0`); Push-RemoteCommit pushes someone else's commit; Sync-FakeRepo fetches every branch, as a workflow's full checkout does. New-CheckRepo and Invoke-CheckScript give a check's table a repository of its own. |
+| `tests/fakes/Cli.ps1` | the Claude CLI | Only for the engine adapter's own tables: stands in for `claude`, records each start's arguments and piped prompt, and replays the lines and exit code each attempt prints; a retry's back-off is recorded, not waited. |
 
 No journey writes its own stand-in for `gh`: every one uses the fake GitHub. The fakes replace
-`gh` and `Invoke-EngineTask` inside the module's scope with Pester mocks, so the
-orchestrator's own code runs unchanged and the `Engine` setting is not touched.
+`gh` and `Invoke-EngineTask` inside the module's scope with Pester mocks — and `gh` in the
+caller's scope too, which a Command run with `&` inherits — so the orchestrator's own code
+runs unchanged and the `Engine` setting is not touched.
+
+**A test runs with the settings it states and none of the machine's.** Importing the module
+reads no file: the one reader of `.env` is `.github/tasks/Settings.ps1`, which only the
+Commands a person runs dot-source. The module reads the board's settings from the process
+environment when it uses them, so Start-Journey clears every `KANBAN_*` variable of the
+machine (and the CI run id and job summary), forgets the board an earlier journey read, and
+Stop-Journey puts them back. A journey or table that needs a board states it:
+Set-JourneyBoard puts the fake GitHub's board (its project, Status field and lanes, Estimate
+and Priority) into the environment, as `task setup` leaves it in `.env`. No test reads or
+writes this repository's own `.env`.
 `tests/journeys/Journey.ps1` loads the module once per run (only when it is not loaded yet)
 and starts each journey with a fresh set of fakes. `Start-Journey -ChecksTimeoutSeconds 0` lowers
 ship's ceiling on the wait for the required checks for that journey, so "not passed at the
@@ -241,6 +281,12 @@ transition the tables and journeys caused, fails — naming it — on one that `
 `lib/Config.ps1` does not allow, and lists the designed transitions (the `AllowedFrom` entries)
 that no journey has exercised yet. Never widen `AllowedFrom` to make it pass.
 
+`tests/journeys/ExportReach.Tests.ps1` runs beside it, last. `Journey.ps1` sets a
+recording-only breakpoint on every function in `FunctionsToExport` when it imports the
+module, so a call counts wherever it comes from — a journey, a table, a Command, the module
+itself; the report fails once for each export nothing reached, naming it. Run alone, no
+journey ran, and it is skipped.
+
 Pester alone, without pytest or coverage:
 
 ```powershell
@@ -250,13 +296,14 @@ Invoke-Pester tests/decisions -Output Detailed             # every decision tabl
 ```
 
 Run alone, a journey or table file passes on its own. Only `.github/tasks/test.ps1` is sure to
-run the state-machine report after every table and journey: it lists them first, sorted by
-name, and the report last.
+run the two reports after every table and journey: it lists them first, sorted by name, and
+the reports last.
 `Invoke-Pester tests/journeys` runs the files in file-name order, so a journey whose name sorts
-after `StateMachine` runs after the report, and the report misses its transitions. `$env:JOURNEY_LOG = 1` shows the orchestrator's own
-log lines while a journey runs. The Python tests the journeys replace stay readable in git at
-commit `b7ba709` (`tests/orchestrator/`) and remain the specification of what the journeys must
-cover; what no journey covers yet is listed under [Not covered yet](#not-covered-yet).
+after a report runs after it, and the report misses it. `$env:JOURNEY_LOG = 1` shows the orchestrator's own
+log lines while a journey runs. The Python tests the journeys and tables replaced stay
+readable in git at commit `b7ba709` (`tests/orchestrator/`, `tests/checks/`); a static rule they
+held that still matters is a check in `.github/checks/`, and one that no longer matters is
+listed under [Not covered yet](#not-covered-yet).
 
 **Never widen `FunctionsToExport` to make a test pass.** That is how an explicit API
 list decays back to `'*'`; `check-orchestrator-api.ps1` fails the build if an export goes
@@ -264,41 +311,40 @@ uncalled or a private function is called from outside.
 
 ### Not covered yet
 
-What the deleted Python orchestrator tests (commit `b7ba709`, `tests/orchestrator/`) guarded and
-no journey covers, with where it will be covered or why it is dropped. A journey that covers one
-removes its line.
+This section lists the static rules that the deleted Python tests (commit `b7ba709`,
+`tests/orchestrator/` and `tests/checks/`) held and that no longer matter, each with the
+reason it was dropped.
+
+| Static rule (deleted test file) | Why it is dropped |
+|---|---|
+| The conductor runs refine, architect and plan and grants agent:backlog; the old architect stub is gone; implement runs no alignment step; no `.planning/` file is written; the architecture impact is written into the issue body (`test_script_contract.py`) | Source scans of behaviour the Refine and Build journeys show: refine → architect → plan writes its sections into the issue body and queues it, and implement starts from agent:backlog |
+| The grill library exists and declares no param() (`test_script_contract.py`) | The module does not load without it, and `check-script-contract.ps1` holds the no-param() rule for every library |
+| The default branch is cached in `lib/Config.ps1`, and the stages name the cached value (`test_graphql_budget.py`) | A scan for a variable's name; `check-no-graphql.ps1` refuses the GraphQL call it guarded, and every journey runs on the default branch the run context gives |
+| The label helpers call the REST labels endpoint (`test_graphql_budget.py`) | The fake GitHub answers label reads and writes only through REST, so a journey fails on any other; `check-no-graphql.ps1` refuses the GraphQL forms |
+| setup's base labels: their number, a colour in hex, a description, `--force` (`test_setup_labels.py`) | The setup journey shows every pipeline label created with `--force`; a colour's format is GitHub's to refuse |
+| setup calls the code-owners step (`test_setup_codeowners.py`) | A scan; the setup journey shows the file written |
+| sync strips the header fields, matches the sentinel on its own line, uses the fenced-block pattern and resolves the root two levels up (`test_sync_issues.py`) | Scans of the source; the sync journeys show the issue body without its header fields, the sentinel mentioned in prose above the real one, the fence refused and burned down, and `check-script-contract.ps1` holds every `$PSScriptRoot` path |
+| The settings keep the values a change gave them (`test_config_table.py`) | It pins values — a second copy of the settings table; `check-settings-read.ps1` holds the rule that every setting is read |
+| No path merges without the required checks — a scan of the source (`test_ship.py`) | A source scan, not behaviour: the build journeys and the check-verdict table show that nothing merges with a red, missing or pending check |
+
+These are the behaviours the deleted Python tests of refine and recovery (`test_refine.py`,
+`test_grill.py`, `test_architect.py`, `test_plan.py`, `test_plan_writable_gate.py`,
+`test_reconcile.py`, `test_usage_limit.py`, `test_trusted_author.py`, `test_signal_comments.py`)
+guarded that no journey or table covers yet, each with where it will be covered or why it is
+dropped. A journey or table that covers one removes its line.
 
 | Behaviour (deleted test file) | Where it will be covered, or why it is dropped |
 |---|---|
-| Local CI (`KANBAN_LOCAL_CI`): a pass holds even a writable-only PR, a failure posts `🤖❌ CI Failed`, every `uv` command of `checks.yml` runs (`test_ship.py`) | Out of scope for the build journeys: it runs the real `uv` and check commands in the working tree. A Build journey once the fake repository can stand in for them |
-| Repositories without draft pull requests: the PR opens ready and says so; `--undo` refused is tolerated; any other `pr create` failure still throws (`test_draft_pr.py`) | A Build journey once the fake GitHub can refuse `--draft` the way such a repository does |
-| A revision that produces no commits answers the owner's question and marks the PR ready before the hold (`test_draft_pr.py`) | A Held journey; no revision journey here ends without a commit |
-| A shipped issue stops the round before the engine runs (`test_draft_pr.py`) | Dropped as a journey: the workflow's implement job skips an issue that is not `agent:backlog` or `agent:implementing`, and `$PipelineStates` refuses `agent:shipped → agent:implementing`. The mid-round case is a Build journey |
-| The owner's `human:approval` label, or the hold kept in the carrier (`approval_required`), holds an otherwise writable-only PR; an announced hold is not posted again on a manual `stage=ship` (`test_ship.py`) | A Held journey through `Invoke-Ship`, the exported function the manual `stage=ship` step calls |
-| The check verdict's own rules: runs on another commit are ignored, the newest run of a name counts, a run stuck at `in_progress` with a conclusion is decided by the conclusion, a failed check that is not required still fails ship (`test_ship.py`) | Dropped as unit tests of the private `Get-CheckVerdict`. A Build journey through Set-FakeCheckRuns once a path needs one of them |
-| No path merges without the required checks — a scan of the source (`test_ship.py`) | Dropped: a source scan, not behaviour. The journeys show that nothing merges with a red, missing or pending check |
-| `Test-IssueShipped` is true only for `agent:shipped` (`test_ship.py`) | Dropped as a unit test; the Held journeys show a failed issue still ships when its PR merges, and a shipped one is left alone |
-| The review's turn budget scales with the changed files; out of turns fails at once without counting an attempt; a run with no checked answer is a counted failed attempt; a non-claude engine fails the review with a reason; the prompt's tool declaration (`test_review.py`) | A Build journey per outcome, scripted with `Add-EngineResult -Outcome`; the turn budget and the prompt wording are dropped — they are the stage's inputs, not what the owner sees |
-| The review answer schema's fields; the engine's event stream — the `structured_output` tool call hidden and uncounted, refused edits read from the result event and made repo-relative, no result event is no refusal (`test_review.py`, `test_implement_refusal.py`) | Dropped from the journeys: the fake engine replaces `Invoke-EngineTask`, so the adapter's stream parsing (`engines/Claude.ps1`) is never run. Covered by the review eval and by a test of the adapter when one is written |
-| The pull-request description: each fact under its section in template order, empty facts become `none`, a multi-line comment is left out, a missing or unfillable template or one without a `Closes` line stops before any commit or push, `-NoPR` does not read the template (`test_pr_body.py`) | Dropped as unit tests of the private `Format-PullRequestBody`; `tests/test_pr_template.py` checks the template, and every Build journey's PR carries `Closes #<n>`. A broken template becomes a Build journey if it is ever seen |
-| The allowlist decision tables: every path outside `WritablePaths` is a proposal, an empty allowlist makes everything a proposal (`test_implement_allowlist.py`) | Dropped as unit tests of the private classifier; the Build journeys show a writable path merging, a governance path held, and a proposal and a boundary file held and named |
-| The Procedure line of the `🤖 Implementation` record: AGENTS.md, CONTEXT.md, a skill and pytest detected from the tool calls (`test_implement_record.py`) | A Build journey asserting the Procedure line from scripted `-ToolCalls` |
-| The `🤖 Implementation` record's Files changed: from git, a deleted file, nothing changed gives no section, an attempt that merged the default branch lists only its own files (`test_implement_refusal.py`) | A Build journey asserting the record's file list |
-| A refused edit's other work: commits the agent made during the run are pushed without a PR (`test_implement_refusal.py`) | Partly covered: the Build refusal journey shows the attempt's uncommitted work pushed without a PR. A commit the agent makes itself needs the fake engine to commit, which it does not yet |
-| Bringing a branch up to date: a setext heading underline (`=======`) is not a conflict marker; a clean merge of the default branch is committed and pushed without force; a shipped issue merges but pushes nothing (`test_update_branch.py`) | A Conflict journey each: a clean update and a Markdown file with an underline |
-| The conflict probe fails loudly on a branch it cannot read, and the check goes on for the others (`test_conflict_rounds.py`) | A Conflict journey with a held PR whose branch was never fetched |
 | `-WhatIf` reports the decision it would take, giving up included, and changes nothing; the job-summary table (`test_reconcile.py`) | Dropped from the journeys: the warden's survey output for a person running `reconcile.ps1`, not what the owner sees on the issue |
-| A live AFK run defers the in-flight states without spending their re-entry budget; liveness is not asked when no in-flight state is in question (`test_reconcile.py`) | A Recovery journey seeding `LiveRuns` in the fake GitHub; the journeys here answer no live run |
+| Liveness is not asked when no in-flight state is in question, and a deferred state spends none of its re-entry budget (`test_reconcile.py`) | A Recovery journey; the deferral itself is a row of `PipelineLabel.Tests.ps1` |
 | A failed dispatch is reported, not claimed as a re-entry (`test_reconcile.py`) | A Recovery journey once the fake GitHub can refuse `gh workflow run` |
 | Pull requests are not issues in the warden's survey (`test_reconcile.py`) | Dropped: the fake's listing holds issues only; the filter is the `--jq` the orchestrator passes |
 | The rows of `$PipelineStates`: every label has a holder, a recovery, `AllowedFrom` and `OnComment`; a disallowed transition throws (`test_reconcile.py`) | Dropped: a second copy of the table. `StateMachine.Tests.ps1` checks every transition the journeys cause against it |
 | The owner's `human:approval` on a new issue survives refine (`approval_required`) (`test_reconcile.py`) | A Refine journey starting from an owner-labelled issue, then a Held one |
-| A usage limit met during a stage, not at the start, pauses without counting an attempt; a probe whose CLI cannot run is not a limit; the spend and session wordings (`test_usage_limit.py`) | A Refine or Build journey scripting the stage's result and the probe; the wordings are the adapter's pattern, dropped as unit tests |
-| A resume while the engine still refuses moves the resume time without a comment; a pause with no resume time is resumed; a failing resume does not stop the run (`test_usage_limit.py`) | A Recovery journey each, scripting `EngineCheck` for the probe |
+| A failing resume does not stop the run (`test_usage_limit.py`) | A Recovery journey once the fake GitHub can fail the resume's label change |
 | The answer check: an unusable model reply or a failed comment read posts `🤖⚠️ Could not check your reply`; no new reply calls no model; the `since` format (`test_refine.py`) | A Refine journey each; the `since` format is dropped — the fake reads it as GitHub does |
 | A held issue (planned, on `human:approval`) never re-enters refine; the attempt loop recovers on a second attempt (`test_refine.py`) | A Refine journey each |
-| An issue missing from the board is added and cached; an unreadable board adds nothing (`test_refine.py`) | A Refine journey once the fake board has a project number |
-| Owner comments and signal history count only trusted authors, and the prefix narrows the history (`test_refine.py`, `test_signal_comments.py`) | A Build journey asserting an outsider's comment never reaches the implement prompt |
+| An issue missing from the board is added and cached; an unreadable board adds nothing (`test_refine.py`) | A Refine journey on a board stated with Set-JourneyBoard |
 | An unreadable author is untrusted (`test_trusted_author.py`) | A Refine journey once the fake GitHub can fail the association read |
 | The grill's command: it exists, its dry run, dot-source safety, the schema keys, an answer with prose around it, the `-Trace` tool list, gh noise on stderr, a failed issue fetch (`test_grill.py`) | Dropped from the journeys: the standalone `grill.ps1` and the parser; the refine eval runs the grill end to end. An answer reserved for the owner is the refine eval's |
 | The architect's file-count gate, the trivial impact, the section upsert, a failed analysis flagged and never reported as safe (`test_architect.py`) | A Refine journey with an analysis that fails; the gate and formatting are dropped as unit tests |
@@ -360,7 +406,7 @@ wrong, not from an invented one.
 ```bash
 uv run pytest -m eval                            # every eval (calls Claude)
 uv run pytest -m eval tests/evals/test_review_eval.py
-uv run pytest                                    # default run: evals deselected, checks' own tests run
+uv run pytest                                    # default run: evals deselected
 ```
 
 The Claude CLI must be installed and signed in (in CI, with `CLAUDE_CODE_OAUTH_TOKEN`).
@@ -372,12 +418,11 @@ check (`pwsh -NoProfile -File .github/tasks/protect.ps1`). The pipeline's ship s
 
 ## The local gate
 
-Six commands, all clean, before any push:
+Five commands, all clean, before any push — the last runs every check, as the checks job does:
 
 ```powershell
 pwsh -NoProfile -File .github/tasks/test.ps1 ; uv run ruff check . ; uv run ruff format . ; uv run pyright
-pwsh .github/checks/check-references.ps1
-pwsh .github/checks/check-orchestrator-api.ps1
+Get-ChildItem .github/checks -Filter 'check-*.ps1' | ForEach-Object { pwsh -NoProfile -File $_.FullName }
 ```
 
 Self-review is not a gate. It approved two changes CI then rejected (#154, #192): a

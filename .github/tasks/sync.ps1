@@ -8,31 +8,30 @@
 #   3. On success, removes the synced block from ISSUES.md.
 #
 # Idempotent: an existing open/closed issue with the same title is reused.
+#
+# -Root is the repository root whose .env and ISSUES.md are read (default: the one
+# this script is in).
 
 param(
     [switch]$DryRun,
     [int]$ProjectNumber = 0,
-    [string]$ProjectOwner = ''
+    [string]$ProjectOwner = '',
+    [string]$Root = ''
 )
 
 $ErrorActionPreference = 'Stop'
 
-# The orchestrator module gives the issue template's headings (Get-IssueHeadings).
-Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
+# tasks/ is two levels below the repo root (.github/tasks/).
+$_Root = if ($Root) { $Root } else { (Resolve-Path "$PSScriptRoot\..\..").ProviderPath }
 
 # ── Load .env ─────────────────────────────────────────────────────────────────
 
-# tasks/ is two levels below the repo root (.github/tasks/).
-$_Root    = (Resolve-Path "$PSScriptRoot\..\..").ProviderPath
-$_EnvPath = "$_Root\.env"
+. "$PSScriptRoot\Settings.ps1"
+Import-Settings -Root $_Root
 
-if (Test-Path $_EnvPath) {
-    foreach ($line in (Get-Content $_EnvPath)) {
-        if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$' -and $line -notmatch '^\s*#') {
-            [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2].Trim('"').Trim("'"), 'Process')
-        }
-    }
-}
+# The orchestrator module gives the issue template's headings (Get-IssueHeadings) and
+# the repository slug, resolved without GraphQL (Get-OrchestratorContext, ADR-012).
+if (-not (Get-Module Orchestrator)) { Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" }
 
 if ($ProjectNumber -eq 0) {
     $ProjectNumber = if ($env:KANBAN_PROJECT_NUMBER) { [int]$env:KANBAN_PROJECT_NUMBER } else { 0 }
@@ -43,14 +42,14 @@ if (-not $ProjectOwner) {
 
 # ── Resolve repo ──────────────────────────────────────────────────────────────
 
-$IssuesPath = "$_Root\ISSUES.md"
+$IssuesPath = Join-Path $_Root 'ISSUES.md'
 if (-not (Test-Path $IssuesPath)) {
     Write-Error "ISSUES.md not found in the project root."
     exit 1
 }
 
-$Repo = gh repo view --json nameWithOwner --jq '.nameWithOwner'
-if (-not $Repo) { Write-Error "Could not resolve current repo via gh."; exit 1 }
+$Repo = (Get-OrchestratorContext).Repo
+if (-not $Repo) { Write-Error "Could not resolve the repository — set GITHUB_REPOSITORY or add a git 'origin' remote."; exit 1 }
 
 # Resolve project node ID once — needed for gh project item-edit field updates
 $ProjectId = $null
@@ -102,7 +101,7 @@ if ($Found.Count -eq 0) {
 
 # Every block body carries every heading of the issue template (#369). Refuse the
 # whole run — dry run included — before any issue is created.
-$Headings   = @(@(Get-IssueHeadings).Name)
+$Headings   = @(@(Get-IssueHeadings -Root $_Root).Name)
 $MissingAny = [System.Collections.Generic.List[string]]::new()
 foreach ($match in $Found) {
     $blockTitle = $match.Groups[1].Value.Trim()

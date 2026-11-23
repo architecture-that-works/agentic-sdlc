@@ -697,9 +697,9 @@ function Set-AgentState {
     # what each pipeline label means. This used to be two parallel switch statements
     # over the same label set, i.e. two copies of one mapping that could disagree.
     #
-    # The board option id is resolved here, not stored in the table: $KanbanOpt_* are
-    # repository variables, and freezing them into the table at load time made every
-    # lane move a no-op whenever they were set after the module loaded.
+    # The board option id is resolved here, not stored in the table: the KANBAN_OPT_*
+    # ids are repository variables, and freezing them into the table at load time made
+    # every lane move a no-op whenever they were set after the module loaded.
     $spec     = $PipelineStates[$Label]
     $laneName = if ($spec) { $spec.LaneName } else { '' }
     $laneId   = if ($laneName) { Get-LaneOptionId -LaneName $laneName } else { '' }
@@ -960,14 +960,14 @@ $script:_CachedProjectId  = $null
 $script:_CachedItems      = $null
 $script:_ProjectIdFailed  = $false
 $script:_ItemsFailed      = $false
-$script:_ResolvedOwner    = $null
 $script:_AuthDiagPrinted  = $false
 
 # Trusts the configured owner. Setup resolves and validates it once; runtime
 # probing masked the real gh error from callers. Downstream gh project calls
 # surface their actual error message instead of a generic "cannot resolve owner".
+# Read from the board's settings on every call (Get-BoardSettings).
 function Get-ResolvedOwner {
-    if ($script:_ResolvedOwner) { return $script:_ResolvedOwner }
+    $owner = (Get-BoardSettings).ProjectOwner
 
     if (-not $script:_AuthDiagPrinted) {
         Write-Log "── gh auth diagnostic (once per run) ──" -Color DarkGray
@@ -975,14 +975,11 @@ function Get-ResolvedOwner {
         foreach ($l in ($authOut -split "`r?`n")) { Write-Log "  $l" -Color DarkGray }
         $viewer   = (gh api user --jq '.login' 2>&1 | Out-String).Trim()
         Write-Log "  gh api user → '[$viewer]'" -Color DarkGray
-        Write-Log "  KANBAN_PROJECT_OWNER = '[$KanbanProjectOwner]' (length=$($KanbanProjectOwner.Length))" -Color DarkGray
+        Write-Log "  KANBAN_PROJECT_OWNER = '[$owner]' (length=$($owner.Length))" -Color DarkGray
         $script:_AuthDiagPrinted = $true
     }
 
-    if ($KanbanProjectOwner) {
-        $script:_ResolvedOwner = $KanbanProjectOwner
-        return $KanbanProjectOwner
-    }
+    if ($owner) { return $owner }
     Write-Log "  ⚠️ KANBAN_PROJECT_OWNER not configured — run: task setup" -Color Yellow
     return $null
 }
@@ -1022,7 +1019,7 @@ function Get-ProjectId {
     if (-not $owner) { $script:_ProjectIdFailed = $true; return $null }
     $out = Invoke-GhProjectRetry -Description 'gh project list' -Block {
         gh project list --owner $owner --format json --jq `
-            ".projects[] | select(.number == $KanbanProjectNumber) | .id" 2>&1 | Out-String
+            ".projects[] | select(.number == $((Get-BoardSettings).ProjectNumber)) | .id" 2>&1 | Out-String
     }
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ gh project list failed: $($out.Trim())" -Color Yellow
@@ -1045,7 +1042,7 @@ function Get-AllProjectItems {
     $owner = Get-ResolvedOwner
     if (-not $owner) { $script:_ItemsFailed = $true; return $null }
     $out = Invoke-GhProjectRetry -Description 'gh project item-list' -Block {
-        gh project item-list $KanbanProjectNumber --owner $owner --format json --limit 200 2>&1 | Out-String
+        gh project item-list (Get-BoardSettings).ProjectNumber --owner $owner --format json --limit 200 2>&1 | Out-String
     }
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ gh project item-list failed: $($out.Trim())" -Color Yellow
@@ -1090,14 +1087,14 @@ function Get-ProjectItemId {
 # Resolving them here means a transition reads whatever is configured when it runs
 # — holding them in the table instead froze the values at module-load time, which
 # silently turned every lane move into a no-op for any caller that set them after
-# the import (every test in test_pipeline_label.py, and any re-setup mid-session).
+# the import (and any re-setup mid-session).
 function Get-LaneOptionId {
     param([string]$LaneName)
     switch ($LaneName) {
-        'Backlog'      { $KanbanOpt_Backlog      }
-        'Implementing' { $KanbanOpt_Implementing }
-        'Review'       { $KanbanOpt_Review       }
-        'Shipped'      { $KanbanOpt_Merged       }
+        'Backlog'      { "$env:KANBAN_OPT_BACKLOG" }
+        'Implementing' { "$env:KANBAN_OPT_IMPLEMENTING" }
+        'Review'       { "$env:KANBAN_OPT_REVIEW" }
+        'Shipped'      { "$env:KANBAN_OPT_MERGED" }
         default        { '' }
     }
 }
@@ -1127,7 +1124,7 @@ function Move-ToLane {
         return
     }
 
-    $ghArgs = @('project','item-edit','--id',$itemId,'--field-id',$KanbanStatusFieldId,'--project-id',$projectId,'--single-select-option-id',$OptionId)
+    $ghArgs = @('project','item-edit','--id',$itemId,'--field-id',(Get-BoardSettings).StatusFieldId,'--project-id',$projectId,'--single-select-option-id',$OptionId)
     $out = Invoke-GhProjectRetry -Description 'gh project item-edit' -Block {
         gh @ghArgs 2>&1 | Out-String
     }
@@ -1155,13 +1152,14 @@ function Add-IssueToBoard {
     param([int]$IssueNumber)
     if (Get-ProjectItemId -IssueNumber $IssueNumber) { return $true }
     # Board unreadable (not configured, or item-list failed) — nothing to add to.
-    if ($KanbanProjectNumber -le 0 -or $null -eq $script:_CachedItems) { return $false }
+    $number = (Get-BoardSettings).ProjectNumber
+    if ($number -le 0 -or $null -eq $script:_CachedItems) { return $false }
     $owner = Get-ResolvedOwner
     if (-not $owner) { return $false }
 
     $url = "https://github.com/$KanbanRepo/issues/$IssueNumber"
     $out = Invoke-GhProjectRetry -Description 'gh project item-add' -Block {
-        gh project item-add $KanbanProjectNumber --owner $owner --url $url --format json 2>&1 | Out-String
+        gh project item-add $number --owner $owner --url $url --format json 2>&1 | Out-String
     }
     $itemId = $null
     if ($LASTEXITCODE -eq 0) { try { $itemId = ($out.Trim() | ConvertFrom-Json).id } catch {} }
@@ -1177,7 +1175,7 @@ function Add-IssueToBoard {
         priority = $null
     }
     Write-Log "  Issue #$IssueNumber added to the project board." -Color DarkGray
-    Move-ToLane -IssueNumber $IssueNumber -OptionId $KanbanOpt_Backlog -LaneName 'Backlog'
+    Move-ToLane -IssueNumber $IssueNumber -OptionId (Get-LaneOptionId -LaneName 'Backlog') -LaneName 'Backlog'
     return $true
 }
 
@@ -1205,14 +1203,15 @@ function Get-PriorityOptionId {
 
 function Set-ProjectEstimate {
     param([int]$IssueNumber, [int]$Estimate)
-    if (-not $KanbanEstimateFieldId) {
+    $fieldId = (Get-BoardSettings).EstimateFieldId
+    if (-not $fieldId) {
         Write-Log "  ⚠️ KANBAN_ESTIMATE_FIELD_ID not configured — run: task setup" -Color Yellow
         return
     }
     $itemId    = Get-ProjectItemId -IssueNumber $IssueNumber
     $projectId = Get-ProjectId
     if (-not $itemId -or -not $projectId) { return }
-    $out = gh project item-edit --id $itemId --field-id $KanbanEstimateFieldId --project-id $projectId --number $Estimate 2>&1 | Out-String
+    $out = gh project item-edit --id $itemId --field-id $fieldId --project-id $projectId --number $Estimate 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Could not set Estimate field: $($out.Trim())" -Color Yellow
     } else {
@@ -1222,7 +1221,8 @@ function Set-ProjectEstimate {
 
 function Set-ProjectPriority {
     param([int]$IssueNumber, [string]$Priority)
-    if (-not $KanbanPriorityFieldId) {
+    $fieldId = (Get-BoardSettings).PriorityFieldId
+    if (-not $fieldId) {
         Write-Log "  ⚠️ KANBAN_PRIORITY_FIELD_ID not configured — run: task setup" -Color Yellow
         return
     }
@@ -1234,7 +1234,7 @@ function Set-ProjectPriority {
     $itemId    = Get-ProjectItemId -IssueNumber $IssueNumber
     $projectId = Get-ProjectId
     if (-not $itemId -or -not $projectId) { return }
-    $out = gh project item-edit --id $itemId --field-id $KanbanPriorityFieldId --project-id $projectId --single-select-option-id $optionId 2>&1 | Out-String
+    $out = gh project item-edit --id $itemId --field-id $fieldId --project-id $projectId --single-select-option-id $optionId 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
         Write-Log "  ⚠️ Could not set Priority field: $($out.Trim())" -Color Yellow
     } else {

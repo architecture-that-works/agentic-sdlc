@@ -6,13 +6,18 @@
     loads it once, whatever the number of journeys. The import sees a sandbox
     repository name, the default branch `main` and none of the board settings, so
     the module never resolves anything against the real repository; the process
-    environment is put back afterwards.
+    environment is put back afterwards. The import reads no file. It also sets a
+    recording-only breakpoint on every exported function, so the export-reach report
+    (ExportReach.Tests.ps1, run last) knows which ones the journeys and tables reached.
 
-    Then loads the three fakes (tests/fakes/): GitHub, the engine, and the repo.
+    Then loads the fakes (tests/fakes/): GitHub, the engine, the repo, and the stand-in
+    CLI that the engine adapter's own tables run against.
     Start-Journey gives one journey a fresh set of them, with `gh` and
-    Invoke-EngineTask mocked in the module's scope, and sets the few settings a
-    journey may lower (the required-checks ceiling); Stop-Journey puts them back and
-    removes the repo.
+    Invoke-EngineTask mocked in the module's scope, clears every setting of the
+    machine it runs on (the KANBAN_* variables, the repository owner) and the board
+    the module read in an earlier journey, and sets the few settings a journey may
+    lower (the required-checks ceiling); Stop-Journey puts them back and removes the
+    repo. A journey that needs a board states it: Set-JourneyBoard.
 
     Not a test file (no .Tests.ps1): Pester never runs it on its own. No top-level
     param() (ADR-013).
@@ -31,11 +36,19 @@ if (-not (Get-Module Orchestrator)) {
     } finally {
         foreach ($n in $names) { [System.Environment]::SetEnvironmentVariable($n, $saved[$n]) }
     }
+    # Each call of an exported function is recorded by name, wherever it comes from — a
+    # journey, a table, a Command, or the module itself.
+    foreach ($name in @((Get-Module Orchestrator).ExportedFunctions.Keys)) {
+        $record = [scriptblock]::Create(
+            "if (`$null -eq `$global:OrchestratorExportReach) { `$global:OrchestratorExportReach = @{} }; `$global:OrchestratorExportReach['$name'] = `$true")
+        $null = Set-PSBreakpoint -Command $name -Action $record
+    }
 }
 
 . (Join-Path $PSScriptRoot '../fakes/GitHub.ps1')
 . (Join-Path $PSScriptRoot '../fakes/Engine.ps1')
 . (Join-Path $PSScriptRoot '../fakes/Repo.ps1')
+. (Join-Path $PSScriptRoot '../fakes/Cli.ps1')
 
 # A fresh GitHub, engine and repository for one journey. Call it from BeforeEach or It:
 # the mocks last for that Pester block.
@@ -43,31 +56,38 @@ if (-not (Get-Module Orchestrator)) {
 #   -ChecksTimeoutSeconds  ship's ceiling on the wait for the required checks
 #                          (RequiredChecksTimeoutSeconds) for this journey: 0 reads the
 #                          checks once, so "not passed at the ceiling" ends at once
+#   -RealEngine            leave Invoke-EngineTask unmocked: the engine adapter runs,
+#                          against whatever `claude` the table stands in
 function Start-Journey {
     param(
         [string]$Name = '',
         [hashtable]$Files = @{ 'README.md' = "# Sandbox`n" },
         [int[]]$TestExit = @(0),
-        [int]$ChecksTimeoutSeconds = -1
+        [int]$ChecksTimeoutSeconds = -1,
+        [switch]$RealEngine
     )
+    $global:OrchestratorJourneyStarts = 1 + [int]$global:OrchestratorJourneyStarts
     $repo = New-FakeRepo -Files $Files -TestExit $TestExit
     $null = New-FakeGitHub -Remote $repo.Remote -Journey $Name
     $null = New-FakeEngine
     Install-FakeGitHub
-    Install-FakeEngine
+    if (-not $RealEngine) { Install-FakeEngine }
     # The orchestrator's console log stays in its log file (in the repo's folder);
     # the run's output is Pester's. $env:JOURNEY_LOG shows it.
     if (-not $env:JOURNEY_LOG) { Mock Write-Host -ModuleName Orchestrator -MockWith { } }
-    # Each workflow run is a fresh process, which reads the project board afresh: the
-    # module keeps the board it read for the rest of its process, so a journey starts
-    # with none read yet and sees the fake GitHub's own board.
-    & (Get-Module Orchestrator) { $script:_CachedItems = $null; $script:_ItemsFailed = $false }
-    # Local CI and the Actions job summary are the machine's that runs a journey, not
-    # the journey's: the warden's summary table never lands in the test job's summary.
-    $repo | Add-Member -NotePropertyName LocalCi -NotePropertyValue $env:KANBAN_LOCAL_CI
-    $repo | Add-Member -NotePropertyName StepSummary -NotePropertyValue $env:GITHUB_STEP_SUMMARY
-    $env:KANBAN_LOCAL_CI = $null
-    $env:GITHUB_STEP_SUMMARY = $null
+    # The board, local CI and the rest of the KANBAN_* settings are settings of the
+    # machine that runs a journey, not of the journey, and so are the workflow run a
+    # CI runner is in and its job summary: cleared here, put back by Stop-Journey. So
+    # is what the module read from an earlier journey's board.
+    $machine = @{}
+    $names = @('GITHUB_REPOSITORY_OWNER', 'GITHUB_RUN_ID', 'GITHUB_STEP_SUMMARY') +
+             @([System.Environment]::GetEnvironmentVariables('Process').Keys | Where-Object { "$_" -like 'KANBAN_*' })
+    foreach ($n in $names) {
+        $machine[$n] = [System.Environment]::GetEnvironmentVariable($n)
+        [System.Environment]::SetEnvironmentVariable($n, $null)
+    }
+    $repo | Add-Member -NotePropertyName Machine -NotePropertyValue $machine
+    Reset-JourneyBoardCache
     $repo | Add-Member -NotePropertyName ChecksTimeout -NotePropertyValue (Get-OrchestratorSetting -Name RequiredChecksTimeoutSeconds)
     if ($ChecksTimeoutSeconds -ge 0) { Set-OrchestratorSetting -Name RequiredChecksTimeoutSeconds -Value $ChecksTimeoutSeconds }
     return $repo
@@ -76,10 +96,30 @@ function Start-Journey {
 function Stop-Journey {
     param($Repo)
     if (-not $Repo) { return }
-    $env:KANBAN_LOCAL_CI = $Repo.LocalCi
-    $env:GITHUB_STEP_SUMMARY = $Repo.StepSummary
+    foreach ($n in @([System.Environment]::GetEnvironmentVariables('Process').Keys | Where-Object { "$_" -like 'KANBAN_*' })) {
+        [System.Environment]::SetEnvironmentVariable($n, $null)
+    }
+    foreach ($n in $Repo.Machine.Keys) { [System.Environment]::SetEnvironmentVariable($n, $Repo.Machine[$n]) }
+    Reset-JourneyBoardCache
     Set-OrchestratorSetting -Name RequiredChecksTimeoutSeconds -Value $Repo.ChecksTimeout
     Remove-FakeRepo -Repo $Repo
+}
+
+# States the fake GitHub's board (Get-FakeBoardSettings) in the process environment, as
+# `task setup` leaves it in .env: the project, its Status field and lanes, and the
+# Estimate and Priority fields. Stop-Journey clears it.
+function Set-JourneyBoard {
+    $settings = Get-FakeBoardSettings
+    foreach ($k in $settings.Keys) { [System.Environment]::SetEnvironmentVariable($k, $settings[$k]) }
+}
+
+# What the module read from a board — its items and its id — lasts for one process in
+# a real run; between journeys it is forgotten, so each one reads its own board.
+function Reset-JourneyBoardCache {
+    & (Get-Module Orchestrator) {
+        $script:_CachedItems = $null; $script:_CachedProjectId = $null
+        $script:_ProjectIdFailed = $false; $script:_ItemsFailed = $false
+    }
 }
 
 # One value of the orchestrator's settings table ($OrchestratorConfig, lib/Config.ps1),
@@ -228,9 +268,12 @@ function Get-GlossaryText {
 # -Edits, runs a test and closes with its bullets. -Message scripts the commit message
 # the run's commit asks for; leave it out when the run commits nothing.
 # -RefusedEdits and -During go to the fake engine as they are (tests/fakes/Engine.ps1).
+# -Task is the implement task the run is scripted for (ImplementSmall unless the estimate
+# makes it ImplementLarge).
 function Add-ImplementRun {
     param(
         [Parameter(Mandatory)][hashtable]$Edits,
+        [ValidateSet('ImplementSmall', 'ImplementLarge')][string]$Task = 'ImplementSmall',
         [string]$Message = '',
         [string[]]$RefusedEdits = @(),
         [scriptblock]$During = $null
@@ -240,9 +283,20 @@ function Add-ImplementRun {
              @($Edits.Keys | Sort-Object | ForEach-Object { @{ Name = 'Edit'; Input = @{ file_path = $_ } } }) +
              @(@{ Name = 'Bash'; Input = @{ command = 'uv run pytest tests/app/test_main.py' } })
     $files = ($Edits.Keys | Sort-Object | ForEach-Object { "- ``$_`` — changed" }) -join "`n"
-    Add-EngineResult -Task ImplementSmall -Edits $Edits -ToolCalls $calls -RefusedEdits $RefusedEdits -During $During `
+    Add-EngineResult -Task $Task -Edits $Edits -ToolCalls $calls -RefusedEdits $RefusedEdits -During $During `
         -Reply "$files`n- Left undone: none`n- Issues discovered: none"
     if ($Message) { Add-EngineResult -Task CommitMessage -Reply $Message }
+}
+
+# One queued issue through one implement → review → ship round of the conductor: the
+# agent edits -Edits and commits, the review approves. Returns the issue's pull request.
+function Invoke-BuildRound {
+    param([Parameter(Mandatory)][int]$Number, [Parameter(Mandatory)][hashtable]$Edits, [string]$Title = 'Describe the decisions')
+    Add-FakeIssue -Number $Number -Title $Title -Body (New-PlannedIssueBody -Number $Number) -Labels @('agent:backlog')
+    Add-ImplementRun -Edits $Edits -Message "docs(#$Number): $($Title.ToLower())"
+    Add-ReviewVerdict
+    Invoke-Orchestration -IssueNumber $Number -From implement
+    return @($global:FakeGitHub.PullRequests | Where-Object { $_.Head -like "feature/$Number-*" })[0]
 }
 
 # The review's checked answer. -During goes to the fake engine as it is.

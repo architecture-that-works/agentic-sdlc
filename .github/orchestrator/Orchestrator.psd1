@@ -66,7 +66,6 @@
 
         # Shared helpers used by the task scripts
         'Write-Log'
-        'Set-EnvVar'
         'Get-ResolvedOwner'
 
         # setup.ps1 writes a project's .github/CODEOWNERS from GovernancePaths (#393)

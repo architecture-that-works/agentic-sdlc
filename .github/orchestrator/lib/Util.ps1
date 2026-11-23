@@ -72,9 +72,10 @@ $KanbanIssueTemplatePath = '.github/ISSUE_TEMPLATE/issue.md'
 
 # The template's body: the text below its leading YAML front matter, or the whole
 # file when it has none. Throws, naming the file, when it is missing or holds no
-# heading. Never returns $null.
+# heading. Never returns $null. -Root is the repository whose template is read.
 function Get-IssueTemplate {
-    $path = Join-Path $_Root $KanbanIssueTemplatePath
+    param([string]$Root = $_Root)
+    $path = Join-Path $Root $KanbanIssueTemplatePath
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "The issue template $KanbanIssueTemplatePath is missing. It gives every issue its headings; restore it before running the pipeline."
     }
@@ -95,7 +96,8 @@ function Get-IssueTemplate {
 #   bullet    the next line starts with `-`
 # A heading with neither text nor a list under it is inline.
 function Get-IssueHeadings {
-    $lines    = @((Get-IssueTemplate) -split "`n")
+    param([string]$Root = $_Root)
+    $lines    = @((Get-IssueTemplate -Root $Root) -split "`n")
     $headings = [System.Collections.Generic.List[object]]::new()
     for ($i = 0; $i -lt $lines.Count; $i++) {
         if ($lines[$i] -notmatch '^\*\*([^*]+)\*\*:(.*)$') { continue }

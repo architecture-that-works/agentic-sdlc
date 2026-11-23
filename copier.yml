@@ -25,7 +25,6 @@ _exclude:
     - "copier.yml"
     - "logs"
     - ".template"
-    - "tests/checks"
     - "tests/decisions"
     - "tests/evals"
     - "tests/fakes"
