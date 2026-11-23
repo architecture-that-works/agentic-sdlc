@@ -265,7 +265,9 @@ function Get-GlossaryText {
 }
 
 # One implement run: the agent reads the first file it edits, edits every file in
-# -Edits, runs a test and closes with its bullets. -Message scripts the commit message
+# -Edits, runs a test and closes with its checked answer — -Implemented, -LeftUndone
+# and -IssuesDiscovered, the three lists of the closing note (one item naming the
+# edited files, and two empty lists, unless given). -Message scripts the commit message
 # the run's commit asks for; leave it out when the run commits nothing.
 # -RefusedEdits and -During go to the fake engine as they are (tests/fakes/Engine.ps1).
 # -Task is the implement task the run is scripted for (ImplementSmall unless the estimate
@@ -276,16 +278,28 @@ function Add-ImplementRun {
         [ValidateSet('ImplementSmall', 'ImplementLarge')][string]$Task = 'ImplementSmall',
         [string]$Message = '',
         [string[]]$RefusedEdits = @(),
-        [scriptblock]$During = $null
+        [scriptblock]$During = $null,
+        [string[]]$Implemented = @(),
+        [string[]]$LeftUndone = @(),
+        [string[]]$IssuesDiscovered = @()
     )
     $first = @($Edits.Keys | Sort-Object)[0]
     $calls = @(@{ Name = 'Read'; Input = @{ file_path = $first } }) +
              @($Edits.Keys | Sort-Object | ForEach-Object { @{ Name = 'Edit'; Input = @{ file_path = $_ } } }) +
              @(@{ Name = 'Bash'; Input = @{ command = 'uv run pytest tests/app/test_main.py' } })
-    $files = ($Edits.Keys | Sort-Object | ForEach-Object { "- ``$_`` — changed" }) -join "`n"
+    if (-not $PSBoundParameters.ContainsKey('Implemented')) {
+        $Implemented = @("Changed $((@($Edits.Keys | Sort-Object)) -join ', ')")
+    }
     Add-EngineResult -Task $Task -Edits $Edits -ToolCalls $calls -RefusedEdits $RefusedEdits -During $During `
-        -Reply "$files`n- Left undone: none`n- Issues discovered: none"
+        -Answer (New-ClosingNote -Implemented $Implemented -LeftUndone $LeftUndone -IssuesDiscovered $IssuesDiscovered)
     if ($Message) { Add-EngineResult -Task CommitMessage -Reply $Message }
+}
+
+# The implement task's checked answer: the closing note's three lists, as the engine
+# returns it for .agents/skills/implement/answer.schema.json.
+function New-ClosingNote {
+    param([string[]]$Implemented = @(), [string[]]$LeftUndone = @(), [string[]]$IssuesDiscovered = @())
+    return @{ implemented = @($Implemented); left_undone = @($LeftUndone); issues_discovered = @($IssuesDiscovered) }
 }
 
 # One queued issue through one implement → review → ship round of the conductor: the

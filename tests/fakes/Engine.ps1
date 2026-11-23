@@ -9,7 +9,9 @@
 
     A test scripts each Task (EngineCheck, Refine, Plan, ImplementLarge,
     ImplementSmall, Review, CommitMessage) as a queue of results with Add-EngineResult:
-    an Outcome, a Reply, the Output, a checked Answer (for a call with -Schema), the
+    an Outcome, a Reply, the Output, a checked Answer (for a call with -Schema — the
+    implement tasks' closing note and the review's verdict; a call with -Schema that
+    finishes without one fails, as the engine adapter's does), the
     RefusedEdits, and for an implement task the Edits it makes to the working tree
     and the ToolCalls it reports while it runs. -During is what happens elsewhere
     while that call runs — the owner merging the pull request by hand, say — run once
@@ -132,14 +134,22 @@ function Invoke-FakeEngineTask {
         if ($OnToolCall) { $null = & $OnToolCall ([pscustomobject]@{ Name = "$($call.Name)"; Input = [pscustomobject]$call.Input }) }
     }
 
-    $finished = $result.Outcome -eq 'finished'
+    # A call with -Schema that finishes without a scripted Answer fails, as the engine
+    # adapter fails a run whose result holds no checked answer.
+    $outcome = $result.Outcome
+    $cause   = if ($outcome -eq 'max_turns') { "$Label ran out of turns" } elseif ($outcome -ne 'finished') { "$Label failed (scripted)" } else { $null }
+    if ($Schema -and $outcome -eq 'finished' -and $null -eq $result.Answer) {
+        $outcome = 'failed'
+        $cause   = "$Label produced no checked answer: the result holds no structured_output"
+    }
+    $finished = $outcome -eq 'finished'
     return [pscustomobject]@{
         Reply        = $result.Reply
         ToolsCalled  = $called.ToArray()
-        Outcome      = $result.Outcome
+        Outcome      = $outcome
         RefusedEdits = @($result.RefusedEdits)
         Answer       = if ($Schema -and $finished) { $result.Answer } else { $null }
         Output       = $result.Output
-        Cause        = if ($finished) { $null } elseif ($result.Outcome -eq 'max_turns') { "$Label ran out of turns" } else { "$Label failed (scripted)" }
+        Cause        = $cause
     }
 }

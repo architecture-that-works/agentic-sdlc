@@ -116,6 +116,66 @@ Describe 'Build journey' {
         Assert-JourneyClean
     }
 
+    It 'carries every item of the closing note to the issue, the attempt record and the pull request' {
+        Add-FakeIssue -Number 25 -Title 'Describe the journeys in the docs' -Body (New-PlannedIssueBody -Number 25) -Labels @('agent:backlog')
+        $found = @('README.md does not link the journeys page', 'the glossary has no row for Journey', 'docs/ has no index')
+        Add-ImplementRun -Edits (Get-DocsEdit) -Message 'docs(#25): describe the journeys' `
+            -Implemented 'Described the journeys in docs/journeys.md' -IssuesDiscovered $found
+        Add-ReviewVerdict
+
+        Invoke-Orchestration -IssueNumber 25 -From implement
+
+        Get-FakePipelineLabel 25 | Should -Be 'agent:shipped' -Because (Get-JourneyStory 25)
+        # The engine was asked for the checked answer the implement skill's schema defines.
+        $schema = Get-Content -Raw (Join-Path $PSScriptRoot '../../.agents/skills/implement/answer.schema.json') | ConvertFrom-Json | ConvertTo-Json -Depth 20 -Compress
+        (Get-FakeEngineCalls -Task ImplementSmall)[0].Schema | Should -Be $schema
+        $record = @(Get-FakeComments 25 | Where-Object { $_.Body.StartsWith('🤖 Implementation') })[0].Body
+        $record | Should -Match '(?m)^Implemented:\n- Described the journeys in docs/journeys\.md$'
+        $record | Should -Match '(?m)^Left undone: none$'
+        $record | Should -Match ([regex]::Escape("Issues discovered:`n- $($found -join "`n- ")`nCommands:"))
+        $pr = (Get-PullRequests)[0]
+        $pr.Body | Should -Match ([regex]::Escape("## Issues discovered`n`n- $($found -join "`n- ")`n"))
+        $pr.Body | Should -Match '(?m)^## Left undone\n\nnone$'
+        $pr.Body | Should -Match '(?m)^## Summary\n\n- Described the journeys in docs/journeys\.md$'
+        $entry = @((Get-CarrierState 25).attempts)[-1]
+        @($entry.implemented)       | Should -Be @('Described the journeys in docs/journeys.md')
+        @($entry.left_undone).Count | Should -Be 0
+        @($entry.issues_discovered) | Should -Be $found
+        Assert-JourneyClean
+    }
+
+    It 'fails the attempt of an implement run that gives no checked answer, and records no note for it' {
+        Add-FakeIssue -Number 26 -Title 'Describe the journeys in the docs' -Body (New-PlannedIssueBody -Number 26) -Labels @('agent:backlog')
+        # The first run ends without an answer; the second answers without two of the lists.
+        Add-EngineResult -Task ImplementSmall -Edits (Get-DocsEdit)
+        Add-EngineResult -Task ImplementSmall -Edits (Get-DocsEdit) -Answer @{ implemented = @('Described the journeys') }
+        Add-ImplementRun -Edits (Get-DocsEdit -Line 'A journey follows one issue.') -Message 'docs(#26): describe the journeys' `
+            -LeftUndone 'the index of docs/'
+        Add-ReviewVerdict
+
+        Invoke-Orchestration -IssueNumber 26 -From implement
+
+        Get-FakePipelineLabel 26 | Should -Be 'agent:shipped' -Because (Get-JourneyStory 26)
+        $max = Get-OrchestratorSetting -Name MaxRetries
+        $headings = Get-FakeCommentHeadings 26
+        $headings | Should -Contain "🤖🔁 Attempt 1/$max failed at **implement** — Implement produced no checked answer: the result holds no structured_output"
+        $headings | Should -Contain "🤖🔁 Attempt 2/$max failed at **implement** — Implement produced no checked answer: 'left_undone' is not a list"
+        @($headings | Where-Object { $_ -eq '🤖❌ Implement Failed' }).Count | Should -Be 2
+        # Only the run that answered posted a record.
+        @($headings | Where-Object { $_ -eq '🤖 Implementation' }).Count | Should -Be 1
+        $attempts = @((Get-CarrierState 26).attempts)
+        $attempts.Count | Should -Be 3
+        foreach ($failed in $attempts[0..1]) {
+            $failed.reason | Should -Match 'produced no checked answer'
+            foreach ($field in 'implemented', 'left_undone', 'issues_discovered') {
+                $failed.PSObject.Properties[$field] | Should -BeNullOrEmpty -Because "a run without a checked answer said nothing ($field)"
+            }
+        }
+        @($attempts[2].left_undone) | Should -Be @('the index of docs/')
+        @($attempts[2].issues_discovered).Count | Should -Be 0
+        Assert-JourneyClean
+    }
+
     It 'gives the next attempt the failing verification run, and that attempt goes on' {
         Stop-Journey $script:repo
         $script:repo = Start-Journey -Name 'Build: verification fails, then passes' -Files (Get-JourneyFiles) -TestExit 1, 0

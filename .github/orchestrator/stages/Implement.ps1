@@ -68,6 +68,40 @@ function Format-ChangedFiles {
     return "`n`n**Files changed ($($entries.Count)):**`n$lines"
 }
 
+# The closing note read from the implement run's checked answer (#418): its three
+# lists, every item kept, in answer order. The fields are described in
+# .agents/skills/implement/answer.schema.json. Throws when the answer lacks a list, so
+# nothing is recorded as `none` that the agent did not say.
+function Get-ClosingNote {
+    param($Answer)
+    $fields = [ordered]@{ Implemented = 'implemented'; LeftUndone = 'left_undone'; IssuesDiscovered = 'issues_discovered' }
+    $note   = @{}
+    foreach ($key in $fields.Keys) {
+        $name  = $fields[$key]
+        $has   = if ($Answer -is [System.Collections.IDictionary]) { $Answer.Contains($name) }
+                 elseif ($null -ne $Answer) { $null -ne $Answer.PSObject.Properties[$name] }
+                 else { $false }
+        # Read the value directly: an if-expression would unroll the list.
+        $value = $null
+        if ($has) { $value = $Answer.$name }
+        if ($value -isnot [System.Collections.IList]) {
+            throw "Implement produced no checked answer: '$name' is not a list"
+        }
+        $note[$key] = [string[]]@($value | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+    }
+    return $note
+}
+
+# One list of the closing note in the 🤖 Implementation record: `<Label>: none` when
+# empty, else the label and one `- <item>` line per item. The labels are what the
+# review reads.
+function Format-NoteSection {
+    param([string]$Label, [string[]]$Items)
+    $lines = Format-NoteItems -Items $Items
+    if (-not $lines) { return "${Label}: none" }
+    return "${Label}:`n$lines"
+}
+
 # The five dense lines of the 🤖 Implementation record, shared by every way an
 # attempt ends: Commands and Procedure are returned too, for the Attempts entry.
 function New-ImplementationRecord {
@@ -78,9 +112,9 @@ function New-ImplementationRecord {
                      "skill $(if ($DevResult.SkillRead)          {'✓'} else {'✗'})  " +
                      "pytest $(if ($DevResult.TestedOnce)        {'✓'} else {'✗'})"
     $body = "🤖 Implementation$($DevResult.FileSection)" +
-            "`n`nImplemented: $($DevResult.Implemented)" +
-            "`nLeft undone: $($DevResult.LeftUndone)" +
-            "`nIssues discovered: $($DevResult.IssuesDiscovered)" +
+            "`n`n$(Format-NoteSection -Label 'Implemented' -Items $DevResult.Implemented)" +
+            "`n$(Format-NoteSection -Label 'Left undone' -Items $DevResult.LeftUndone)" +
+            "`n$(Format-NoteSection -Label 'Issues discovered' -Items $DevResult.IssuesDiscovered)" +
             "`nCommands: $commandsLine" +
             "`nProcedure: $procedureLine"
     return @{ Body = $body; Commands = $commandsLine; Procedure = $procedureLine }
@@ -176,10 +210,9 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
 5. After implementation run the tests of what you changed (a test, a test file or a folder) with ``uv run pytest <target>``, and run ``uv run ruff check``. Do not run the whole suite: the orchestrator runs it after you finish.
 6. If the tests you ran fail, diagnose and fix the root cause before stopping.
 7. Do NOT commit any changes — only implement.
-8. End your response with bullets — the orchestrator posts them to the issue: one per file you
-   changed, then ``- Left undone:`` (what you skipped or did not check) and ``- Issues discovered:``
-   (what the owner must know — a risk, a bug outside scope, a stale document). Write ``none``
-   rather than omitting either.
+8. Your answer is your closing note, checked against ``.agents/skills/implement/answer.schema.json``,
+   which says what each field holds. The orchestrator posts every item to the issue and the pull
+   request; an empty list means none.
 "@
 
     $sp       = Get-IssueEstimate -IssueNumber $Number
@@ -211,29 +244,23 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
         }
     }
 
+    # The closing note is a checked answer (#418): the engine checks it against the
+    # skill's schema, and a run without one comes back failed.
+    $schema = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '../../../.agents/skills/implement/answer.schema.json') |
+              ConvertFrom-Json | ConvertTo-Json -Depth 20 -Compress
+
     $run = Invoke-EngineTask -Task $devTask -Prompt $prompt -Label 'Implement' `
-        -Tools 'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep' -MaxTurns $devTurns -OnToolCall $onToolCall
+        -Tools 'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep' -MaxTurns $devTurns -OnToolCall $onToolCall -Schema $schema
     if ($run.Outcome -eq 'max_turns') {
         throw "Implement used its whole turn budget ($devTurns) before it finished."
     }
-    if ($run.Outcome -ne 'finished') { throw "The engine failed to implement: $($run.Cause)" }
+    if ($run.Outcome -ne 'finished') {
+        $why = if ("$($run.Cause)" -match 'no checked answer') { $run.Cause } else { "The engine failed to implement: $($run.Cause)" }
+        throw $why
+    }
+    $note       = Get-ClosingNote -Answer $run.Answer
     $testedOnce = $implementProgress.Tested
     $toolCalls  = $implementProgress.Calls.ToArray()
-
-    # Split the last 20 agent bullets into Implemented / Left undone / Issues discovered.
-    $bullets  = ("$($run.Reply)" -split '\r?\n') |
-                Where-Object { $_ -match '^\s*[-*•]' } |
-                Select-Object -Last 20
-    $implLines = @($bullets | Where-Object { $_ -notmatch '^\s*[-*•]\s+Left undone:' -and
-                                              $_ -notmatch '^\s*[-*•]\s+Issues discovered:' })
-    $luLine    = $bullets | Where-Object { $_ -match '^\s*[-*•]\s+Left undone:' }    | Select-Object -First 1
-    $idLine    = $bullets | Where-Object { $_ -match '^\s*[-*•]\s+Issues discovered:' } | Select-Object -First 1
-
-    $implementedText = if ($implLines) {
-        ($implLines | ForEach-Object { ($_ -replace '^\s*[-*•]\s+', '').Trim() }) -join '; '
-    } else { 'none' }
-    $leftUndoneText  = if ($luLine)  { ($luLine  -replace '^\s*[-*•]\s+Left undone:\s*',     '').Trim() } else { 'none' }
-    $issuesDiscText  = if ($idLine)  { ($idLine  -replace '^\s*[-*•]\s+Issues discovered:\s*', '').Trim() } else { 'none' }
 
     # A merge left in conflict at the start of the attempt (#367) is completed before
     # anything is measured: the merge commit — with the agent's resolution — becomes
@@ -254,9 +281,9 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
             RefusedFiles     = @()
             MarkerFiles      = $markerFiles
             AttemptBase      = $BaseCommit
-            Implemented      = $implementedText
-            LeftUndone       = $leftUndoneText
-            IssuesDiscovered = $issuesDiscText
+            Implemented      = $note.Implemented
+            LeftUndone       = $note.LeftUndone
+            IssuesDiscovered = $note.IssuesDiscovered
             PhaseOneCommands = @()
             AgentsMdRead     = $proc.agentsMdRead
             ContextMdRead    = $proc.contextMdRead
@@ -307,9 +334,9 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
         RefusedFiles     = $refusedFiles
         MarkerFiles      = @()
         AttemptBase      = $BaseCommit
-        Implemented      = $implementedText
-        LeftUndone       = $leftUndoneText
-        IssuesDiscovered = $issuesDiscText
+        Implemented      = $note.Implemented
+        LeftUndone       = $note.LeftUndone
+        IssuesDiscovered = $note.IssuesDiscovered
         PhaseOneCommands = $phaseOneCommands
         AgentsMdRead     = $proc.agentsMdRead
         ContextMdRead    = $proc.contextMdRead
@@ -326,13 +353,13 @@ function Invoke-CommitAndPR {
     # the rest of its work on the branch for the owner, without a PR or a review.
     #
     # The PR description is filled from the pull request template (#375) with the
-    # round's facts: the closing note's three values and every command run — those
+    # round's facts: the closing note's three lists and every command run — those
     # before this step (-PriorCommands) and this step's own. The template is read and
     # checked before anything is staged, so a broken one stops the round before any
     # commit or push; it is filled after the push, so Validation lists the push too.
     param(
         [int]$Number, [string]$Title, [string]$Branch, [switch]$NoPR,
-        [string]$Implemented = '', [string]$LeftUndone = '', [string]$IssuesDiscovered = '',
+        [string[]]$Implemented = @(), [string[]]$LeftUndone = @(), [string[]]$IssuesDiscovered = @(),
         [array]$PriorCommands = @()
     )
     Write-Log "  Phase 2 — Commit $(if ($NoPR) { '+ push (no PR)' } else { '+ PR' }) for issue #$Number" -Color Yellow

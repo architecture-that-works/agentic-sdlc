@@ -138,8 +138,17 @@ function Get-PullRequestTemplate {
     return "$(Get-Content -LiteralPath $path -Raw)"
 }
 
+# Pure: one list of the implementing agent's closing note as `- <item>` lines, in
+# order, every item kept; '' for an empty list. Shared by the 🤖 Implementation record
+# and the pull request description (#418).
+function Format-NoteItems {
+    param([string[]]$Items)
+    return (@($Items | Where-Object { "$_".Trim() }) | ForEach-Object { "- $("$_".Trim())" }) -join "`n"
+}
+
 # Pure: the pull request description built from the template. The template's sections
-# keep their order; under each goes its fact (an empty one becomes `none`), and under
+# keep their order; under each goes its fact (a closing-note list as one `- <item>`
+# line per item; an empty one becomes `none`), and under
 # the Validation section one line per command, in the order run. The template's
 # `Closes #` line becomes `Closes #<Number>`, the last line. Throws on a level-2
 # heading it cannot fill, naming it, and on a template without a `Closes #` line.
@@ -147,16 +156,16 @@ function Format-PullRequestBody {
     param(
         [string]$Template,
         [int]$Number,
-        [string]$Implemented = '',
-        [string]$LeftUndone = '',
-        [string]$IssuesDiscovered = '',
+        [string[]]$Implemented = @(),
+        [string[]]$LeftUndone = @(),
+        [string[]]$IssuesDiscovered = @(),
         [array]$Commands = @()
     )
     $commandLines = @($Commands | Where-Object { $_ } | ForEach-Object { "- ``$($_.Name)`` → $($_.Exit)" })
     $facts = @{
-        Implemented      = $Implemented
-        LeftUndone       = $LeftUndone
-        IssuesDiscovered = $IssuesDiscovered
+        Implemented      = Format-NoteItems -Items $Implemented
+        LeftUndone       = Format-NoteItems -Items $LeftUndone
+        IssuesDiscovered = Format-NoteItems -Items $IssuesDiscovered
         Commands         = ($commandLines -join "`n")
     }
 
