@@ -211,8 +211,11 @@ $KanbanStopWords = @(
 #   AllowedFrom      the set of pipeline labels (or $null for "no pipeline label")
 #                    that may transition INTO this state. Set-AgentState throws when
 #                    the current label is absent from this list — strict enforcement
-#                    so callers never reach an invalid transition silently. Add an
-#                    entry here (not in the caller) to permit a new path.
+#                    so callers never reach an invalid transition silently. Setting
+#                    the label the issue already carries is no transition and is never
+#                    listed. Only transitions on the designed path are listed, and
+#                    each one is exercised by a journey or table
+#                    (tests/journeys/StateMachine.Tests.ps1).
 #   OnComment        routing action for the central comment router
 #                    (Invoke-Orchestration -From comment):
 #                      refine  — judge the owner's reply against open questions
@@ -242,7 +245,7 @@ $PipelineStates = [ordered]@{
         LaneName    = 'Implementing'
         Holder      = 'agent'
         Recovery    = 'restart'
-        AllowedFrom = @('agent:backlog', 'agent:implementing', 'agent:reviewing', 'human:approval')
+        AllowedFrom = @('agent:backlog', 'agent:reviewing', 'human:approval')
         OnComment   = 'ack'
     }
     'agent:reviewing' = @{
@@ -277,7 +280,7 @@ $PipelineStates = [ordered]@{
         LaneName    = 'Backlog'
         Holder      = 'human'
         Recovery    = 'none'
-        AllowedFrom = @($null, 'human:decision', 'agent:failed', 'agent:refining')
+        AllowedFrom = @($null, 'agent:failed', 'agent:refining')
         OnComment   = 'refine'
     }
     'human:approval' = @{

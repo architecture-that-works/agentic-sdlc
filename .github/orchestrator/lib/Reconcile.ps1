@@ -58,6 +58,11 @@ function Restart-Issue {
     Reset-AttemptCount -IssueNumber $IssueNumber
 
     if (Test-Readiness -State $state) {
+        # Already at agent:backlog: setting it again changes nothing and so starts
+        # nothing — dispatch its implement run, as the warden does.
+        if (@(Get-IssueLabel -IssueNumber $IssueNumber) -contains 'agent:backlog') {
+            return Start-ImplementRun -IssueNumber $IssueNumber -Reason $Reason
+        }
         # Refined, architected and planned: agent:backlog is accepted, and its label
         # event starts implement → review → ship again on top of whatever the
         # feature branch already holds.

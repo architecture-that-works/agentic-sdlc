@@ -48,7 +48,10 @@ jobs:
       # The one full test command: pytest with the src/ coverage gate, then the
       # orchestrator's decision tables and journeys in Pester (hosted runners ship pwsh and
       # Pester 5; the command prints the version it ran on).
+      # Budget: about twice the run time the command's summary prints. The step-level
+      # timeout guards the suite's own runtime, independent of install/cache cost.
       - run: pwsh -NoProfile -File .github/tasks/test.ps1
+        timeout-minutes: 5
 
   audit:
     runs-on: ubuntu-latest

@@ -3,8 +3,10 @@
     Held journeys — a pull request held for the owner (human:approval), or left by a
     failed issue, and what the owner does with it. Enters as the workflow does: an owner comment through
     Invoke-Orchestration -From comment, then the implement round it dispatched
-    (-From implement); a merge or close of the PR through Complete-HeldPR, with the
-    arguments the pull_request-closed step passes. Asserts what the owner sees.
+    (-From implement); a ship the owner runs by hand through Invoke-Ship and Resolve-PR,
+    as the workflow's stage=ship job does; a merge or close of the PR through
+    Complete-HeldPR, with the arguments the pull_request-closed step passes. Asserts
+    what the owner sees.
 #>
 
 BeforeAll {
@@ -51,6 +53,23 @@ Describe 'Held journey' {
             $headings = Get-FakeCommentHeadings 50
             @($headings | Where-Object { $_ -eq '🤖⏸ Held for human approval' }).Count | Should -Be 2
             $headings[-1] | Should -Be '🤖⏸ Held for human approval'
+            Assert-JourneyClean
+        }
+
+        It 'holds the pull request again when the owner runs ship by hand while a revision is queued' {
+            Add-FakeComment -Issue 50 -Body 'Please also say that a journey asserts only what the owner sees.'
+            $null = Invoke-Orchestration -IssueNumber 50 -From comment
+            Get-FakePipelineLabel 50 | Should -Be 'agent:implementing' -Because (Get-JourneyStory 50)
+
+            # The owner changes their mind and runs stage=ship, as the workflow's ship job does.
+            $null = Invoke-Ship -IssueNumber 50 -PRNumber (Resolve-PR -IssueNumber 50)
+
+            Get-FakePipelineLabel 50 | Should -Be 'human:approval' -Because (Get-JourneyStory 50)
+            $headings = @(Get-FakeCommentHeadings 50)
+            @($headings | Where-Object { $_ -eq '🤖⏸ Held for human approval' }).Count | Should -Be 2
+            $pr.State   | Should -Be 'OPEN'
+            $pr.IsDraft | Should -BeFalse
+            Get-RemoteFileContent $repo -Branch main -Path 'CONTEXT.md' | Should -Be (Get-GlossaryText).TrimEnd("`n")
             Assert-JourneyClean
         }
 

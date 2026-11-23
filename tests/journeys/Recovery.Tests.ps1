@@ -1,8 +1,9 @@
 #Requires -Version 7.0
 <#
     Recovery journeys — how the workflow gets a stalled issue moving again: an issue
-    whose label claims work nobody is doing, a spent usage allowance, and an owner's
-    comment on a failed issue or on one the agent holds.
+    whose label claims work nobody is doing, a spent usage allowance (at the start of a
+    run, or while refine, review or the answer check runs) and the resume that follows,
+    and an owner's comment on a failed issue or on one the agent holds.
 
     Each journey enters through a public entry point the workflow itself calls: the
     hourly warden (Invoke-Reconciliation), the resume of due pauses
@@ -20,6 +21,31 @@ BeforeAll {
     # The pipeline states a person holds, read from the one label table.
     function Get-HumanHeldStates {
         return & (Get-Module Orchestrator) { @($PipelineStates.Keys | Where-Object { $PipelineStates[$_].Holder -eq 'human' }) }
+    }
+
+    # While a stage's model call runs, the allowance runs out: the engine's next readiness
+    # check reports it. Pass as -During of that call.
+    $script:SpendAllowance = { Add-EngineResult -Task EngineCheck -Outcome failed -Output (Get-EngineUsageLimitText) }
+
+    # Asserts issue -Number is paused by a spent allowance, with no attempt counted.
+    function Assert-Paused {
+        param([int]$Number)
+        Get-FakePipelineLabel $Number | Should -Be 'agent:paused' -Because (Get-JourneyStory $Number)
+        @(Get-FakeCommentHeadings $Number)[-1] | Should -BeLike '🤖⏳ Paused — the Claude usage limit is reached. Work resumes after *'
+        (Get-CarrierState $Number).paused_until | Should -Not -BeNullOrEmpty
+        @(Get-FakeCommentHeadings $Number | Where-Object { $_ -like '🤖🔁*' -or $_ -like '🤖❌*' }) | Should -BeNullOrEmpty -Because 'a pause is not a failure'
+    }
+
+    # A refined issue that waits on the owner's answers to two questions.
+    function New-WaitingIssueBody {
+        param([int]$Number, [hashtable]$State = @{})
+        $open = @(
+            [ordered]@{ id = 1; text = 'Greet by first name or full name?'; raised_by = 'self-grill-subagent'
+                decision = 'First name — because it reads friendlier'; alternatives = @('Full name — formal') }
+            [ordered]@{ id = 2; text = 'What does a visitor without a name see?'; raised_by = 'self-grill-subagent'
+                decision = 'The greeting of today — nothing changes for them'; alternatives = @('An error — strict') }
+        )
+        return New-PlannedIssueBody -Number $Number -Unplanned -State (@{ open_questions = $open } + $State)
     }
 }
 
@@ -215,6 +241,105 @@ Describe 'Recovery journey' {
 
         Get-FakePipelineLabel 47 | Should -Be 'agent:backlog' -Because (Get-JourneyStory 47)
         @(Get-FakeCommentHeadings 47) | Should -Be @('· restarting from implement (usage limit lifted)')
+        Assert-JourneyClean
+    }
+
+    It 'pauses an issue the owner holds, or one that failed, when a comment comes in while the allowance is spent' {
+        Add-FakeIssue -Number 70 -Title 'Greet the visitor by name' -Body (New-PlannedIssueBody -Number 70) -Labels @('human:approval')
+        Add-FakeComment -Issue 70 -Body 'Please also greet by title.'
+        Add-FakeIssue -Number 71 -Title 'Greet the visitor by title' -Body (New-PlannedIssueBody -Number 71) -Labels @('agent:failed')
+        Add-FakeComment -Issue 71 -Body 'Try again.'
+
+        foreach ($n in 70, 71) {
+            & $script:SpendAllowance
+            $null = Invoke-Orchestration -IssueNumber $n -From comment
+            Assert-Paused $n
+        }
+        # The owner's hold is kept for ship.
+        (Get-CarrierState 70).approval_required | Should -BeTrue
+        @(Get-FakeEngineCalls).Task | Should -Be @('EngineCheck', 'EngineCheck')
+        Get-FakeDispatches | Should -BeNullOrEmpty
+        Assert-JourneyClean
+    }
+
+    It 'pauses a refine whose questioning stopped while the allowance was spent' {
+        Add-FakeIssue -Number 72 -Title 'Greet the visitor by name' -Body (New-IssueBody)
+        Add-EngineResult -Task Refine -Outcome failed -During $script:SpendAllowance
+
+        $null = Invoke-Orchestration -IssueNumber 72 -From refine
+
+        Assert-Paused 72
+        (Get-FakeIssue 72).Body | Should -Not -Match '## Attempts'
+        Assert-JourneyClean
+    }
+
+    It 'pauses an implement round whose review stopped while the allowance was spent' {
+        Add-FakeIssue -Number 73 -Title 'Describe the decisions' -Body (New-PlannedIssueBody -Number 73) -Labels @('agent:backlog')
+        Add-ImplementRun -Edits @{ 'docs/decisions.md' = "# Decisions`n" } -Message 'docs(#73): describe the decisions'
+        Add-EngineResult -Task Review -Outcome failed -During $script:SpendAllowance
+
+        Invoke-Orchestration -IssueNumber 73 -From implement
+
+        Assert-Paused 73
+        # The work is kept on its pull request for the resumed round.
+        @($global:FakeGitHub.PullRequests | Where-Object { $_.Head -like 'feature/73-*' -and $_.State -eq 'OPEN' }).Count | Should -Be 1
+        Assert-JourneyClean
+    }
+
+    It 'pauses an issue waiting on decisions when checking the owner''s reply stopped on a spent allowance' {
+        Add-FakeIssue -Number 74 -Title 'Greet the visitor by name' -Body (New-WaitingIssueBody -Number 74) -Labels @('human:decision')
+        Add-FakeComment -Issue 74 -Body 'ok'
+        Add-EngineResult -Task Refine -Outcome failed -During $script:SpendAllowance
+
+        $null = Invoke-Orchestration -IssueNumber 74 -From comment
+
+        Assert-Paused 74
+        # The questions stay open: the resumed refine reads the reply again.
+        @((Get-CarrierState 74).open_questions).Count | Should -Be 2
+        Assert-JourneyClean
+    }
+
+    It 'asks again for what is still open when a paused issue that waits on answers resumes' {
+        $past = @{ paused_until = (Get-Date).ToUniversalTime().AddMinutes(-5).ToString('o') }
+        Add-FakeIssue -Number 75 -Title 'Greet the visitor by name' -Body (New-WaitingIssueBody -Number 75 -State $past) -Labels @('agent:paused')
+        # The owner answered one question during the pause.
+        Add-FakeComment -Issue 75 -Body '1A. Not sure about the second one yet.'
+
+        Resume-PausedIssues
+        Get-FakePipelineLabel 75 | Should -BeNullOrEmpty -Because (Get-JourneyStory 75)
+        @(Get-FakeDispatches | Where-Object { $_.Stage -eq 'refine' -and $_.Issue -eq 75 }).Count | Should -Be 1
+
+        # The dispatched refine run reads the reply.
+        Add-EngineResult -Task Refine -Reply ([ordered]@{
+            answers       = @(
+                [ordered]@{ id = 1; status = 'answered'; decision = 'Greet by first name.' }
+                [ordered]@{ id = 2; status = 'open'; follow_up = 'Pick A (the greeting of today) or B (an error).' }
+            )
+            new_questions = @()
+        } | ConvertTo-Json -Depth 4 -Compress)
+        $null = Invoke-Orchestration -IssueNumber 75 -From refine
+
+        Get-FakePipelineLabel 75 | Should -Be 'human:decision' -Because (Get-JourneyStory 75)
+        @(Get-FakeCommentHeadings 75)[-1] | Should -Be '🤖⏸ Thanks — 1 answer(s) recorded. Still needed:'
+        (Get-FakeIssue 75).Body | Should -Match 'Greet by first name or full name\? → Greet by first name\.'
+        Assert-JourneyClean
+    }
+
+    It 'fails an issue whose refine starts while its pause is not due yet' {
+        # Today's behaviour, not a settled rule: a refine run (an issue event or a stage=refine
+        # dispatch) on a pause that is not due tries to leave agent:paused for agent:refining,
+        # which the table refuses, and the conductor fails the issue. Whether refine should
+        # skip a paused issue instead is an open follow-up; if the orchestrator changes,
+        # update this journey rather than read its failure as a regression.
+        $future = @{ paused_until = (Get-Date).ToUniversalTime().AddHours(1).ToString('o') }
+        Add-FakeIssue -Number 76 -Title 'Greet the visitor by name' -Body (New-PlannedIssueBody -Number 76 -Unplanned -State $future) -Labels @('agent:paused')
+
+        $null = Invoke-Orchestration -IssueNumber 76 -From refine
+
+        Get-FakePipelineLabel 76 | Should -Be 'agent:failed' -Because (Get-JourneyStory 76)
+        @(Get-FakeCommentHeadings 76)[-1] | Should -Be '🤖❌ Orchestrator Error'
+        (Get-FakeComments 76)[-1].Body | Should -Match "transition from 'agent:paused' to 'agent:refining' is not allowed"
+        @(Get-FakeEngineCalls | Where-Object Task -ne 'EngineCheck') | Should -BeNullOrEmpty
         Assert-JourneyClean
     }
 

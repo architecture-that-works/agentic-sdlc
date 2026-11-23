@@ -16,7 +16,7 @@ One folder per kind of test. Each folder of the repository, and where it is test
 | `src/` (`main.py`, `config.py`), `src/utils/`, `src/tools/` | `tests/app/` | pytest, by what the code does: the HTTP server answers requests, the schema accepts and rejects states, the setup tool fills in a project. Counted by the 80% coverage gate for `src/` |
 | `.github/orchestrator/` | `tests/journeys/` | Pester 5: a journey per path through `Invoke-Orchestration`, asserting what the owner sees (§ Testing the orchestrator) |
 | `.github/orchestrator/` — its decisions | `tests/decisions/` | Pester 5: a table per decision, a row per input, asserting the outcome through the module (§ Testing the orchestrator) |
-| `.github/orchestrator/lib/Config.ps1` — `$PipelineStates` | `tests/journeys/StateMachine.Tests.ps1` | Pester 5: runs last and checks every label transition the tables and journeys caused |
+| `.github/orchestrator/lib/Config.ps1` — `$PipelineStates` | `tests/journeys/StateMachine.Tests.ps1` | Pester 5: runs last, checks every label transition the tables and journeys caused, and that each designed transition was caused |
 | `.github/orchestrator/Orchestrator.psd1` — `FunctionsToExport` | `tests/journeys/ExportReach.Tests.ps1` | Pester 5: runs last and fails, naming it, on each exported function no journey or table reached |
 | the orchestrator's outside seams (`gh`, the engine, the repository) | `tests/fakes/` | the fakes the journeys and tables run on — not tests themselves |
 | `.github/tasks/` | `tests/journeys/Commands.Tests.ps1` (sync, setup, protect, run in-process on the fake GitHub); `tests/journeys/` (the stages the other commands start); `tests/template/` (`test.ps1` in a generated project) | Pester; pytest |
@@ -41,12 +41,12 @@ pwsh -NoProfile -File .github/tasks/test.ps1
 
 It runs `uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80`, then one
 Pester run over every decision table and every journey with the line coverage Pester
-measures for `.github/orchestrator/` (reported, not gated), the state-machine report last.
+measures for `.github/orchestrator/`, the state-machine report last.
 It prints the Pester version it runs on, before the run and on Pester's summary line, so a
 difference between a machine and the runner shows in the output. It ends with one line per
-runner: passed or failed, how long it took, and Pester's coverage, and exits non-zero when
-either runner failed. When there are Pester tests it needs Pester 5; without it, it stops
-and prints the line that installs it:
+runner: passed or failed, how long it took, and for Pester the measured line coverage and
+the floor, and exits non-zero when either runner failed. When there are Pester tests it
+needs Pester 5; without it, it stops and prints the line that installs it:
 
 ```powershell
 Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser -Force
@@ -54,6 +54,17 @@ Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser -Force
 
 With no Pester test folder — a generated project — it runs pytest alone and says Pester was
 not run.
+
+The Pester run holds three gates, so what the tables and journeys reached cannot slip back
+unnoticed. The measured values are in the command's output; each limit is set in one place:
+
+| Gate | Fails when | Set in |
+|---|---|---|
+| Coverage floor | the line coverage of `.github/orchestrator/` is below the floor, even when every test passed | `$CoverageFloor` in `.github/tasks/test.ps1` |
+| Complete state machine | a designed transition — an `AllowedFrom` entry of `$PipelineStates` — was exercised by no table or journey | `$PipelineStates` in `.github/orchestrator/lib/Config.ps1`, checked by `tests/journeys/StateMachine.Tests.ps1` |
+| Time budget | the run takes longer than the step allows | `timeout-minutes` of the step of the `test` job in `.github/workflows/checks.yml` that runs the command |
+
+None of them applies in a generated project, where Pester does not run.
 
 **The application** (pytest):
 
@@ -279,8 +290,12 @@ It 'holds a change to a governance file for the owner' {
 
 `tests/journeys/StateMachine.Tests.ps1` runs last in the same Pester run. It reads every label
 transition the tables and journeys caused, fails — naming it — on one that `$PipelineStates` in
-`lib/Config.ps1` does not allow, and lists the designed transitions (the `AllowedFrom` entries)
-that no journey has exercised yet. Never widen `AllowedFrom` to make it pass.
+`lib/Config.ps1` does not allow, and fails once for each designed transition (an `AllowedFrom`
+entry) that no table or journey exercised, naming it. Never widen `AllowedFrom` to make it
+pass. A designed transition is caused by a journey or row entered the way the real run enters;
+an entry nothing in the orchestrator can cause is removed from the table, never kept on a list
+of exceptions. Setting the label an issue already carries is no transition. Run alone, no
+journey ran: it lists the designed transitions and those not exercised, and passes.
 
 `tests/journeys/ExportReach.Tests.ps1` runs beside it, last. `Journey.ps1` sets a
 recording-only breakpoint on every function in `FunctionsToExport` when it imports the
