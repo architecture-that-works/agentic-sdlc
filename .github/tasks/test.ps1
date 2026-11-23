@@ -14,9 +14,11 @@
          there the command runs pytest alone and says Pester was not run.
       2. uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
       3. One Pester run: every decision table (tests/decisions/) and every journey
-         (tests/journeys/), sorted by name, then the state-machine report
-         (tests/journeys/StateMachine.Tests.ps1) last, so the report reads the
-         transitions every one of them caused. Line coverage is measured over
+         (tests/journeys/), sorted by name, then the two reports last, so they read
+         what every one of them did: the state-machine report
+         (tests/journeys/StateMachine.Tests.ps1) checks the label transitions, the
+         export-reach report (tests/journeys/ExportReach.Tests.ps1) that every
+         exported function was reached. Line coverage is measured over
          .github/orchestrator/ and reported, not gated.
 
     It prints the Pester version it runs on, before the run and on Pester's summary
@@ -35,7 +37,7 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).ProviderPath
 # ── Pester 5, when there are Pester tests ────────────────────────────────────
 $journeys  = Join-Path $root 'tests/journeys'
 $decisions = Join-Path $root 'tests/decisions'
-$report    = Join-Path $journeys 'StateMachine.Tests.ps1'
+$reports   = @('StateMachine.Tests.ps1', 'ExportReach.Tests.ps1' | ForEach-Object { Join-Path $journeys $_ })
 $pesterDirs = @($decisions, $journeys | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
 $runPester  = $pesterDirs.Count -gt 0
 $pester = $null
@@ -67,8 +69,8 @@ try {
         Write-Host "━━━ Pester $($pester.Version)" -ForegroundColor Cyan
         Import-Module $pester.Path -Force
         $tables = @($pesterDirs | ForEach-Object { Get-ChildItem -LiteralPath $_ -Filter '*.Tests.ps1' -File } |
-            Where-Object { $_.FullName -ne $report } | Sort-Object Name | ForEach-Object { $_.FullName })
-        $files  = $tables + @($report | Where-Object { Test-Path -LiteralPath $_ })
+            Where-Object { $_.FullName -notin $reports } | Sort-Object Name | ForEach-Object { $_.FullName })
+        $files  = $tables + @($reports | Where-Object { Test-Path -LiteralPath $_ })
 
         $coverageFile = Join-Path ([System.IO.Path]::GetTempPath()) "pester-coverage-$PID.xml"
         $config = New-PesterConfiguration
@@ -81,8 +83,11 @@ try {
         $config.CodeCoverage.OutputPath  = $coverageFile
         $config.CodeCoverage.CoveragePercentTarget = 0   # reported, not gated
 
-        # A fresh record of the transitions the tables and journeys cause, read by the report.
+        # A fresh record of what the tables and journeys do, read by the reports: the
+        # label transitions, the exported functions reached, the journeys started.
         $global:OrchestratorJourneyTransitions = $null
+        $global:OrchestratorExportReach = $null
+        $global:OrchestratorJourneyStarts = 0
         $clock.Restart()
         $result = Invoke-Pester -Configuration $config
         $pesterTime = $clock.Elapsed.TotalSeconds

@@ -15,13 +15,18 @@
 .PARAMETER Issue
     Issue number to resume. Required.
 
+.PARAMETER Root
+    The repository root whose .env is read. Default: the repository this script is in.
+
 .EXAMPLE
     pwsh -NoProfile -File .github/tasks/retry.ps1 -Issue 25
 #>
-param([int]$Issue = 0)
+param([int]$Issue = 0, [string]$Root = '')
 
 $ErrorActionPreference = 'Stop'
-Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
+. "$PSScriptRoot\Settings.ps1"
+Import-Settings -Root $Root
+if (-not (Get-Module Orchestrator)) { Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" }
 
 if ($Issue -eq 0) { throw "-Issue is required. Usage: pwsh -NoProfile -File .github/tasks/retry.ps1 -Issue N" }
 

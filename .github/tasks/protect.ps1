@@ -38,31 +38,51 @@
               gh api repos/{owner}/{repo} --jq .security_and_analysis
               gh api repos/{owner}/{repo}   (merge settings: allow_squash_merge, …)
 
+.PARAMETER Root
+    The repository root whose .env is read. Default: the repository this script is in.
+
 .EXAMPLE
     pwsh -NoProfile -File .github/tasks/protect.ps1
 #>
+param([string]$Root = '')
 
 $ErrorActionPreference = 'Stop'
 
+. "$PSScriptRoot\Settings.ps1"
+Import-Settings -Root $Root
+
 # The required check names live once, in the orchestrator config (RequiredChecks, #373):
 # ship waits for the same list on the commit it pushed.
-Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
+if (-not (Get-Module Orchestrator)) { Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" }
 
 # ── Resolve repo ───────────────────────────────────────────────────────────────
+# The slug comes from the run context, resolved without GraphQL (ADR-012); the
+# visibility from the REST repository read.
 
-$RepoJson = gh repo view --json nameWithOwner,visibility 2>&1 | Out-String
+$Repo = (Get-OrchestratorContext).Repo
+if (-not $Repo) {
+    Write-Error "Could not determine the repository — set GITHUB_REPOSITORY or add a git 'origin' remote."
+    exit 1
+}
+$RepoJson = gh api "repos/$Repo" 2>&1 | Out-String
 $RepoInfo = $null
 if ($LASTEXITCODE -eq 0) {
     try { $RepoInfo = $RepoJson | ConvertFrom-Json } catch { $RepoInfo = $null }
 }
-$Repo = if ($RepoInfo) { "$($RepoInfo.nameWithOwner)".Trim() } else { '' }
-if (-not $Repo) {
-    Write-Error "Could not determine repo name. Ensure 'gh auth login' has been run."
+if (-not $RepoInfo) {
+    Write-Error "Could not read repository '$Repo': $($RepoJson.Trim()) — ensure 'gh auth login' has been run."
     exit 1
 }
 # Only a public repository has secret scanning at no cost; private and internal ones need
 # GitHub Secret Protection, so a refusal there is reported rather than treated as an error.
-$IsPublic = "$($RepoInfo.visibility)" -eq 'PUBLIC'
+$IsPublic = "$($RepoInfo.visibility)" -eq 'public'
+
+# A JSON request body, as a file gh sends with --input.
+function Write-RequestBody([string]$Json) {
+    $file = [System.IO.Path]::GetTempFileName()
+    Set-Content -LiteralPath $file -Value $Json -Encoding utf8NoBOM
+    return $file
+}
 
 $Branch   = "main"
 # Job names in checks.yml, from RequiredChecks in lib/Config.ps1 — the one list.
@@ -100,12 +120,14 @@ $BodyObject = [ordered]@{
     required_conversation_resolution = $false
 }
 
-$BodyJson = $BodyObject | ConvertTo-Json -Depth 10
+$BodyFile = Write-RequestBody ($BodyObject | ConvertTo-Json -Depth 10)
 
 # ── Apply via GitHub API ────────────────────────────────────────────────────────
 
-$Result = $BodyJson | gh api --method PUT "repos/$Repo/branches/$Branch/protection" --input - 2>&1 | Out-String
-if ($LASTEXITCODE -ne 0) {
+$Result = gh api --method PUT "repos/$Repo/branches/$Branch/protection" --input $BodyFile 2>&1 | Out-String
+$Exit = $LASTEXITCODE
+Remove-Item -LiteralPath $BodyFile -ErrorAction SilentlyContinue
+if ($Exit -ne 0) {
     Write-Error "Failed to apply branch protection:`n$Result"
     exit 1
 }
@@ -129,8 +151,11 @@ $MergeSettings = [ordered]@{
     allow_update_branch         = $true
 }
 
-$MergeResult = $MergeSettings | ConvertTo-Json | gh api --method PATCH "repos/$Repo" --input - 2>&1 | Out-String
-if ($LASTEXITCODE -ne 0) {
+$MergeFile = Write-RequestBody ($MergeSettings | ConvertTo-Json)
+$MergeResult = gh api --method PATCH "repos/$Repo" --input $MergeFile 2>&1 | Out-String
+$Exit = $LASTEXITCODE
+Remove-Item -LiteralPath $MergeFile -ErrorAction SilentlyContinue
+if ($Exit -ne 0) {
     Write-Error "Failed to apply merge settings:`n$MergeResult"
     exit 1
 }
@@ -143,15 +168,17 @@ Write-Host "  ✅ Merge settings applied." -ForegroundColor Green
 Write-Host ""
 Write-Host "🔒 Switching on secret scanning and push protection in '$Repo'..." -ForegroundColor Cyan
 
-$SecurityJson = [ordered]@{
+$SecurityFile = Write-RequestBody ([ordered]@{
     security_and_analysis = [ordered]@{
         secret_scanning                 = [ordered]@{ status = 'enabled' }
         secret_scanning_push_protection = [ordered]@{ status = 'enabled' }
     }
-} | ConvertTo-Json -Depth 5
+} | ConvertTo-Json -Depth 5)
 
-$SecurityResult = $SecurityJson | gh api --method PATCH "repos/$Repo" --input - 2>&1 | Out-String
-if ($LASTEXITCODE -ne 0) {
+$SecurityResult = gh api --method PATCH "repos/$Repo" --input $SecurityFile 2>&1 | Out-String
+$Exit = $LASTEXITCODE
+Remove-Item -LiteralPath $SecurityFile -ErrorAction SilentlyContinue
+if ($Exit -ne 0) {
     if ($IsPublic) {
         Write-Error "Failed to switch on secret scanning and push protection:`n$SecurityResult"
         exit 1

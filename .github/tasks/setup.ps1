@@ -15,28 +15,30 @@
     Run once after creating the GitHub Project and setting KANBAN_PROJECT_NUMBER
     and KANBAN_PROJECT_OWNER in .env.
 
+.PARAMETER Root
+    The repository root whose .env is read and written, and whose .github/CODEOWNERS
+    is written. Default: the repository this script is in.
+
 .EXAMPLE
     task setup
 #>
+param([string]$Root = '')
 
 $ErrorActionPreference = 'Stop'
 
 # tasks/ is two levels below the repo root (.github/tasks/).
-$_Root    = "$PSScriptRoot\..\.."
-$_EnvPath = "$_Root\.env"
+$_Root    = if ($Root) { $Root } else { (Resolve-Path "$PSScriptRoot\..\..").ProviderPath }
+$_EnvPath = Join-Path $_Root '.env'
 
 # ── Load .env ─────────────────────────────────────────────────────────────────
+# Setup writes the board's ids back into .env, so the file must exist.
 
-if (-not (Test-Path $_EnvPath)) {
-    Write-Error ".env not found at $_EnvPath"
-    exit 1
-}
+. "$PSScriptRoot\Settings.ps1"
+Import-Settings -Root $_Root -Required
 
-foreach ($line in (Get-Content $_EnvPath)) {
-    if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$' -and $line -notmatch '^\s*#') {
-        [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2].Trim('"').Trim("'"), 'Process')
-    }
-}
+# The run context gives the repository slug without GraphQL (ADR-012); GovernancePaths
+# give the code owners.
+if (-not (Get-Module Orchestrator)) { Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" }
 
 $ProjectNumber = if ($env:KANBAN_PROJECT_NUMBER) { [int]$env:KANBAN_PROJECT_NUMBER } else { 0 }
 $ProjectOwner  = if ($env:KANBAN_PROJECT_OWNER)  { $env:KANBAN_PROJECT_OWNER }       else { '' }
@@ -219,16 +221,16 @@ $laneMerged       = Select-Option 'Shipped'      $laneMerged
 # ── Write .env ────────────────────────────────────────────────────────────────
 
 function Set-EnvVar([string]$Path, [string]$Key, [string]$Value) {
-    $lines  = if (Test-Path $Path) { Get-Content $Path } else { @() }
+    $lines  = if (Test-Path $Path) { @(Get-Content $Path) } else { @() }
     $found  = $false
-    $result = foreach ($line in $lines) {
+    $result = @(foreach ($line in $lines) {
         if ($line -match "^\s*$([regex]::Escape($Key))\s*=") {
             "$Key=$Value"
             $found = $true
         } else {
             $line
         }
-    }
+    })
     if (-not $found) { $result += "$Key=$Value" }
     $result | Out-File $Path -Encoding utf8
 }
@@ -286,10 +288,9 @@ foreach ($kv in $ghVars.GetEnumerator()) {
 Write-Host ""
 Write-Host "🏷️  Provisioning base labels..." -ForegroundColor Cyan
 
-$_LabelRepo = gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>&1 | Out-String
-$_LabelRepo = $_LabelRepo.Trim()
+$_LabelRepo = (Get-OrchestratorContext).Repo
 
-if ($LASTEXITCODE -ne 0 -or -not $_LabelRepo) {
+if (-not $_LabelRepo) {
     Write-Host "  ⚠️  Could not resolve repo — skipping label provisioning." -ForegroundColor Yellow
 } else {
     $BaseLabels = @(
@@ -328,7 +329,6 @@ if ($LASTEXITCODE -ne 0 -or -not $_LabelRepo) {
 
 Write-Host ""
 Write-Host "👤 Writing .github/CODEOWNERS from GovernancePaths..." -ForegroundColor Cyan
-Import-Module "$PSScriptRoot\..\orchestrator\Orchestrator.psd1" -Force
 $null = Write-CodeOwners -Root $_Root
 
 Write-Host ""

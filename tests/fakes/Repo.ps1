@@ -200,3 +200,69 @@ function Get-RemoteFiles {
     param([Parameter(Mandatory)]$Repo, [Parameter(Mandatory)][string]$Branch)
     return @(git --git-dir $Repo.Remote diff --name-only "refs/heads/$($Repo.Branch)...refs/heads/$Branch" 2>$null)
 }
+
+# ── A repository for one check ────────────────────────────────────────────────
+# The check tables (tests/decisions/Check*.Tests.ps1) run a validator of .github/checks/
+# on a temporary repository of their own: the check is copied into it (a check finds the
+# repository from its own location), -Files are written — one or more @{ path = content }
+# tables, a later one overriding an earlier — and the tree is committed once (-NoGit
+# leaves it without git). Returns the repository's root; Remove-CheckRepo deletes it.
+function New-CheckRepo {
+    param([Parameter(Mandatory)][string]$Check, [hashtable[]]$Files = @(), [switch]$NoGit)
+    $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).ProviderPath
+    $root = Join-Path ([System.IO.Path]::GetTempPath()) "check-$([guid]::NewGuid().ToString('N').Substring(0, 12))"
+    $null = New-Item -ItemType Directory -Force -Path (Join-Path $root '.github/checks')
+    Copy-Item -LiteralPath (Join-Path $projectRoot ".github/checks/$Check") -Destination (Join-Path $root ".github/checks/$Check")
+    foreach ($table in $Files) { Set-CheckFiles -Root $root -Files $table }
+    if (-not $NoGit) {
+        foreach ($a in @(@('init', '--quiet', '-b', 'main'), @('config', 'user.name', 'Check'), @('config', 'user.email', 'check@example.invalid'), @('config', 'commit.gpgsign', 'false'))) {
+            $null = & git -C $root @a 2>&1
+        }
+        $null = Add-CheckCommit -Root $root -Message 'chore: start'
+    }
+    return $root
+}
+
+# Writes -Files (@{ path = content }, $null deletes) into the check's repository.
+function Set-CheckFiles {
+    param([Parameter(Mandatory)][string]$Root, [hashtable]$Files = @{})
+    foreach ($path in $Files.Keys) {
+        $full = Join-Path $Root $path
+        if ($null -eq $Files[$path]) { Remove-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue; continue }
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path $full)
+        Set-Content -LiteralPath $full -Value $Files[$path] -Encoding utf8NoBOM -NoNewline
+    }
+}
+
+# Writes -Files and commits everything; returns the commit's sha.
+function Add-CheckCommit {
+    param([Parameter(Mandatory)][string]$Root, [hashtable]$Files = @{}, [string]$Message = 'change')
+    Set-CheckFiles -Root $Root -Files $Files
+    $null = & git -C $Root add -A 2>&1
+    $out = & git -C $Root commit --quiet --allow-empty -m $Message 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "git commit in the check repository failed: $($out | Out-String)" }
+    return "$(& git -C $Root rev-parse HEAD)".Trim()
+}
+
+# Runs the check in its repository, in-process: { Exit; Lines; Output }.
+function Invoke-CheckScript {
+    param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Check, [hashtable]$Arguments = @{})
+    Push-Location -LiteralPath $Root
+    try {
+        $global:LASTEXITCODE = 0
+        $exit = 0
+        $lines = try {
+            & (Join-Path $Root ".github/checks/$Check") @Arguments *>&1
+            $exit = $LASTEXITCODE
+        } catch { $exit = 1; "$_" }
+    } finally {
+        Pop-Location
+    }
+    $text = @($lines | ForEach-Object { "$_" })
+    return [pscustomobject]@{ Exit = $exit; Lines = $text; Output = ($text -join "`n") }
+}
+
+function Remove-CheckRepo {
+    param([string]$Root)
+    if ($Root) { Remove-Item -LiteralPath $Root -Recurse -Force -ErrorAction SilentlyContinue }
+}
