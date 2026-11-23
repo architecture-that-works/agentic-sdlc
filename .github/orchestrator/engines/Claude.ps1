@@ -268,31 +268,121 @@ function Invoke-EngineTask {
     }
 }
 
-# Commit message — the engine first, the supplied message as the fallback.
-function Get-CommitMessage {
-    param([string]$Diff, [Parameter(Mandatory)][string]$FallbackMessage)
+# ── Commit message ────────────────────────────────────────────────────────────
+#
+# The rules of a commit message, written once (#417). The generator's prompt states
+# them, every reply is checked against them, and the fallback meets them too. A pull
+# request's title is the first line of the message, and a squash merge puts it on the
+# default branch with " (#<pr>)" behind it; the limit is on the title.
+#   Name   what a broken rule is called in a log
+#   Text   the rule as the prompt states it; {0} is the caller's issue number
+#   Broken { param($FirstLine, $Message, $Number) } — $true when the rule is broken
+$CommitMessageTypes   = @('feat', 'fix', 'refactor', 'test', 'docs', 'chore', 'perf', 'ci', 'build', 'revert')
+$CommitFirstLineLimit = 72
+$CommitTrailerPattern = '(?im)^\s*(Co-Authored-By|Signed-off-by)\s*:'
+$CommitMessageRules   = @(
+    @{ Name = 'format'
+       Text = "The first line is ``<type>(#{0}): <description>`` — <type> is one of $($CommitMessageTypes -join ', '); the scope is the issue number #{0}; the description is in the imperative mood."
+       Broken = { param($FirstLine, $Message, $Number) $FirstLine -cnotmatch "^($($CommitMessageTypes -join '|'))\(#$Number\): \S" } }
+    @{ Name = 'length'
+       Text = "The whole first line is at most $CommitFirstLineLimit characters."
+       Broken = { param($FirstLine, $Message, $Number) $FirstLine.Length -gt $CommitFirstLineLimit } }
+    @{ Name = 'period'
+       Text = 'The first line does not end with a period.'
+       Broken = { param($FirstLine, $Message, $Number) $FirstLine.EndsWith('.') } }
+    @{ Name = 'fence'
+       Text = 'The message holds no markdown fence (```) — it is the message alone, with no explanation around it.'
+       Broken = { param($FirstLine, $Message, $Number) $Message.Contains('```') } }
+    @{ Name = 'trailer'
+       Text = 'The message holds no Co-Authored-By or Signed-off-by trailer.'
+       Broken = { param($FirstLine, $Message, $Number) $Message -match $CommitTrailerPattern } }
+)
 
+# Pure: the first rule -Message breaks, as { Name; Text } with the number filled in,
+# or $null when it meets every rule.
+function Get-CommitRuleBroken {
+    param([AllowEmptyString()][string]$Message, [Parameter(Mandatory)][int]$Number)
+    $first = @("$Message" -split '\r?\n')[0]
+    foreach ($rule in $CommitMessageRules) {
+        if (& $rule.Broken $first "$Message" $Number) {
+            return [pscustomobject]@{ Name = $rule.Name; Text = ($rule.Text -f $Number) }
+        }
+    }
+    return $null
+}
+
+# Pure: -Message without its Co-Authored-By and Signed-off-by lines, trimmed.
+function Remove-CommitTrailers {
+    param([AllowEmptyString()][string]$Message)
+    $lines = @("$Message" -split '\r?\n' | Where-Object { $_ -notmatch $CommitTrailerPattern })
+    return ($lines -join "`n").Trim()
+}
+
+# Pure: the message used when the engine gives none — `feat(#<Number>): <Title>`,
+# the title cut at the last word boundary that keeps the line within the limit, with
+# trailing spaces and periods removed. It meets every rule.
+function Get-CommitFallback {
+    param([Parameter(Mandatory)][int]$Number, [AllowEmptyString()][string]$Title)
+    $prefix = "feat(#${Number}): "
+    $room   = $CommitFirstLineLimit - $prefix.Length
+    $text   = (("$Title" -replace '```', '') -replace '\s+', ' ').Trim().TrimEnd('.', ' ')
+    if ($text.Length -gt $room) {
+        $cut  = $text.Substring(0, $room + 1)
+        $last = $cut.LastIndexOf(' ')
+        $text = if ($last -gt 0) { $cut.Substring(0, $last) } else { $text.Substring(0, $room) }
+        $text = $text.TrimEnd('.', ' ')
+    }
+    if (-not $text) { $text = "implement issue #$Number" }
+    return "$prefix$text"
+}
+
+# Commit message — the engine first, checked against the rules; asked once more,
+# naming the broken rule, when a reply breaks one; the fallback otherwise.
+# Returns { Message; FromEngine } — FromEngine says whether the engine wrote it.
+function Get-CommitMessage {
+    param(
+        [AllowEmptyString()][string]$Diff,
+        [Parameter(Mandatory)][int]$Number,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Title
+    )
+
+    $rules  = ($CommitMessageRules | ForEach-Object { "- $($_.Text -f $Number)" }) -join "`n"
     $prompt = @"
-Generate a conventional commit message for the following staged diff.
+Generate a conventional commit message for the following staged diff of issue #$Number.
 
 Rules:
-- Format: <type>(<scope>): <description>
-- Types: feat, fix, refactor, test, docs, chore, perf, ci, build, revert
-- Scope: the module, file, or area changed (omit if not obvious)
-- Description: imperative mood, <= 72 chars, no trailing period
-- Add a blank line + body only if the change is complex or non-obvious
-- Return ONLY the commit message — no explanation, no markdown fences
+$rules
+- Add a blank line + body only if the change is complex or non-obvious.
+- Return ONLY the commit message.
 
 DIFF:
 $Diff
 "@
 
-    $run = Invoke-EngineTask -Task 'CommitMessage' -Prompt $prompt -Label 'Commit message'
-    if ($run.Outcome -eq 'finished' -and $run.Reply.Trim()) {
-        Write-Log "  Commit message via the engine." -Color DarkGray
-        return $run.Reply.Trim()
+    $ask = $prompt
+    for ($round = 1; $round -le 2; $round++) {
+        $run = Invoke-EngineTask -Task 'CommitMessage' -Prompt $ask -Label 'Commit message'
+        if ($run.Outcome -ne 'finished' -or -not "$($run.Reply)".Trim()) {
+            Write-Log "  Engine gave no commit message — using the issue title fallback." -Color Yellow
+            break
+        }
+        $message = Remove-CommitTrailers -Message $run.Reply
+        $broken  = Get-CommitRuleBroken -Message $message -Number $Number
+        if (-not $broken) {
+            Write-Log "  Commit message via the engine." -Color DarkGray
+            return [pscustomobject]@{ Message = $message; FromEngine = $true }
+        }
+        Write-Log "  Commit message breaks the rule '$($broken.Name)' (reply $round of 2)." -Color Yellow
+        $ask = @"
+$prompt
+
+Your previous reply broke this rule: $($broken.Text)
+Your previous reply was:
+$message
+
+Write the commit message again, meeting every rule.
+"@
     }
 
-    Write-Log "  Engine unavailable — using issue title fallback." -Color Yellow
-    return $FallbackMessage
+    return [pscustomobject]@{ Message = (Get-CommitFallback -Number $Number -Title $Title); FromEngine = $false }
 }

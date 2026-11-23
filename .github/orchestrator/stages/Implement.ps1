@@ -413,9 +413,13 @@ function Invoke-CommitAndPR {
         Add-Comment -Number $Number -Body ("🤖 Secrets Denylist`n`n" + ($lines -join "`n"))
     }
 
+    # The pull request's title is the first line of the message written for the commit
+    # it is opened on (#417); without a new commit of this round, the fallback's.
+    $prTitle = $null
     if (git diff --cached --name-only 2>&1) {
         $diff    = git diff --staged 2>&1 | Out-String
-        $message = Get-CommitMessage -Diff $diff -FallbackMessage "feat(#${Number}): $Title"
+        $message = (Get-CommitMessage -Diff $diff -Number $Number -Title $Title).Message
+        $prTitle = @($message -split '\r?\n')[0]
         $msgFile = New-TemporaryFile
         try {
             $message | Out-File $msgFile.FullName -Encoding utf8
@@ -446,6 +450,7 @@ function Invoke-CommitAndPR {
         }
 
         Write-Log "  ✅ No new changes this run — prior commits on branch. Proceeding to PR." -Color Green
+        $prTitle = @((Get-CommitFallback -Number $Number -Title $Title) -split '\r?\n')[0]
     }
 
     # Capture stderr so any push rejection (workflow scope, branch protection,
@@ -484,7 +489,8 @@ function Invoke-CommitAndPR {
     try {
         $body | Out-File $tmp.FullName -Encoding utf8
         if ($existing.Count -gt 0) {
-            # A later round rewrites the description from its own facts (#375).
+            # A later round rewrites the description from its own facts (#375) and
+            # leaves the title as it is (#417).
             $prUrl = $existing[0].url
             $editOut = gh pr edit $prUrl --body-file $tmp.FullName 2>&1 | Out-String
             if ($LASTEXITCODE -ne 0) { throw "Updating the description of $prUrl failed for issue #${Number}:`n$($editOut.Trim())" }
@@ -494,7 +500,7 @@ function Invoke-CommitAndPR {
             # the PR before the workflow releases it (ship marks it ready). A repository
             # without drafts refuses --draft; only then is it opened ready.
             Assert-NotShipped -IssueNumber $Number
-            $createArgs = @('pr', 'create', '--title', "feat(#${Number}): $Title", '--body-file', $tmp.FullName, '--head', $Branch)
+            $createArgs = @('pr', 'create', '--title', $prTitle, '--body-file', $tmp.FullName, '--head', $Branch)
             $createOut  = gh @createArgs --draft 2>&1 | Out-String
             if ($LASTEXITCODE -ne 0 -and (Test-DraftUnsupported -Output $createOut)) {
                 Write-Log "  ⚠️ This repository does not support draft pull requests — opening the PR ready for review." -Color Yellow

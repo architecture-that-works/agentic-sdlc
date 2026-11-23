@@ -111,7 +111,7 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
           PATHS_SHARED: '^(tests/evals/(eval_goldens\.py|stage_models\.py)|\.github/orchestrator/lib/Config\.ps1)$'
-          PATHS_COMMIT: '^(src/tools/commit\.py|tests/evals/test_commit_eval\.py|tests/evals/goldens/commit\.jsonl)$'
+          PATHS_COMMIT: '^(\.github/orchestrator/engines/Claude\.ps1|tests/evals/test_commit_eval\.py|tests/evals/goldens/commit\.jsonl)$'
           PATHS_REFINE: '^(\.agents/skills/refine/(SKILL\.md|scripts/grill\.ps1)|\.github/orchestrator/lib/Grill\.ps1|tests/evals/test_refine_eval\.py|tests/evals/goldens/refine\.jsonl)$'
           PATHS_REVIEW: '^(\.agents/skills/review/SKILL\.md|\.agents/skills/review/answer\.schema\.json|tests/evals/test_review_eval\.py|tests/evals/goldens/review\.jsonl)$'
           PATHS_IMPLEMENT: '^(\.agents/skills/implement/SKILL\.md|tests/evals/test_implement_eval\.py|tests/evals/goldens/implement\.jsonl)$'
