@@ -169,29 +169,57 @@ function New-IssueBody {
 
 # An issue body that has been refined, architected and planned, with nothing open:
 # what refine leaves behind when it queues an issue at agent:backlog.
+#   -Unplanned  refined only: architect and plan have not run (a refine that stopped)
+#   -State      further carrier fields, e.g. @{ paused_until = '<iso time>' }
 function New-PlannedIssueBody {
-    param([int]$Number, [string]$Goal = 'The glossary names the journeys.')
-    $state = [ordered]@{
+    param([int]$Number, [string]$Goal = 'The glossary names the journeys.', [switch]$Unplanned, [hashtable]$State = @{})
+    $carrier = [ordered]@{
         issue_number      = $Number
         lane              = 'backlog'
         readiness         = [ordered]@{
             refined     = @{ done = $true; populated_by = 'self-grill-subagent'; timestamp = '2026-11-01T10:00:00Z' }
-            architected = @{ done = $true; populated_by = 'architecture'; timestamp = '2026-11-01T10:01:00Z' }
-            planned     = @{ done = $true; populated_by = 'plan (claude)'; timestamp = '2026-11-01T10:02:00Z' }
+            architected = @{ done = -not $Unplanned; populated_by = 'architecture'; timestamp = '2026-11-01T10:01:00Z' }
+            planned     = @{ done = -not $Unplanned; populated_by = 'plan (claude)'; timestamp = '2026-11-01T10:02:00Z' }
         }
         open_questions    = @()
         decided_questions = @()
         transitions       = @(@{ from = $null; to = 'backlog'; runtime = 'laptop'; timestamp = '2026-11-01T10:00:00Z' })
-    } | ConvertTo-Json -Depth 6
+    }
+    foreach ($key in $State.Keys) { $carrier[$key] = $State[$key] }
+    $json = $carrier | ConvertTo-Json -Depth 6
     return @"
 $(New-IssueBody -Goal $Goal)
 
 <!-- AGENT-STATE:BEGIN -->
 ``````json
-$state
+$json
 ``````
 <!-- AGENT-STATE:END -->
 "@
+}
+
+# The issue's carrier — the AGENT-STATE block of its body, as the owner can read it —
+# as an object; $null when the body holds none.
+function Get-CarrierState {
+    param([Parameter(Mandatory)][int]$Number)
+    $body = (Get-FakeIssue $Number).Body
+    if ($body -notmatch '(?s)<!-- AGENT-STATE:BEGIN -->\s*```json\s*(?<json>.+?)\s*```\s*<!-- AGENT-STATE:END -->') { return $null }
+    return $Matches['json'] | ConvertFrom-Json
+}
+
+# An issue body in the shape of the issue template: one section per heading the
+# orchestrator's template reader gives (Get-IssueHeadings), in the template's style.
+function New-TemplateBody {
+    param([string]$Text = 'The home page greets a visitor by name.')
+    $lines = foreach ($h in @(Get-IssueHeadings)) {
+        switch ($h.Style) {
+            'inline'   { "**$($h.Name)**: $Text" }
+            'numbered' { "**$($h.Name)**:`n1. $Text" }
+            'checkbox' { "**$($h.Name)**:`n- [ ] $Text" }
+            default    { "**$($h.Name)**:`n- $Text" }
+        }
+    }
+    return ($lines -join "`n")
 }
 
 # The self-grill's answer: an Agent Brief and the questions, as JSON text.

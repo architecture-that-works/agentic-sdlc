@@ -6,9 +6,15 @@
     in memory, answers the `gh` calls the orchestrator makes, and records what they
     changed. A test sets a starting state (New-FakeGitHub, Add-FakeIssue,
     Add-FakeComment, Set-FakeChecks / Set-FakeCheckRuns for CI and its job logs), acts
-    as the owner on a pull request (Complete-FakePullRequest: merge or close it), runs a
+    as the owner on a pull request (Complete-FakePullRequest: merge or close it), lets
+    time pass on an issue (Set-FakeIssueIdle, or Add-FakeIssue -IdleMinutes), runs a
     journey, and reads the end state (Get-FakeIssue, Get-FakeComments,
-    Get-FakePullRequest, Get-FakePrTimeline, Get-FakePipelineLabel).
+    Get-FakePullRequest, Get-FakePrTimeline, Get-FakePipelineLabel, Get-FakeDispatches).
+
+    Each issue has a last-activity time (updated_at) that every change to it moves to
+    now: a label, a comment, a body edit. The repository-wide open-issues listing the
+    hourly warden reads serves it. The AFK workflow-runs listing the warden's liveness
+    check reads answers no live run unless the journey sets LiveRuns (a count).
 
     It also holds one project board (its fields, options and items: Get-FakeBoardItem;
     Get-FakeBoardSettings gives the KANBAN_* settings a journey states for it), the
@@ -54,6 +60,7 @@ $global:FakeGhJq = @{
     Files       = '.[] | "\(.filename)\t+\(.additions) -\(.deletions)"'
     Login       = '.login'
     Survey      = '.[] | select(.pull_request == null) | {n: .number, u: .updated_at, l: [.labels[].name]} | @json'
+    # The live AFK runs other than the asking run: a journey runs in no workflow run (id 0).
     LiveRuns    = '[.workflow_runs[] | select((.status == "in_progress" or .status == "queued") and .id != 0)] | length'
 }
 
@@ -185,6 +192,10 @@ function Get-FakeBoardItem {
     return @($global:FakeGitHub.Board | Where-Object { $_.content.number -eq $Issue }) | Select-Object -First 1
 }
 
+# An issue as the owner opened it. Its last activity (updated_at) is now, unless
+# -IdleMinutes puts it that far in the past; every change the fake makes to it moves
+# it forward again, as GitHub does. -Estimate / -Priority put it on the project board
+# with those fields set, as a board the owner keeps by hand.
 function Add-FakeIssue {
     param(
         [Parameter(Mandatory)][int]$Number,
@@ -193,7 +204,9 @@ function Add-FakeIssue {
         [string[]]$Labels = @(),
         [string]$AuthorAssociation = 'OWNER',
         [string]$State = 'OPEN',
-        [int]$IdleMinutes = 0
+        [int]$IdleMinutes = 0,
+        [int]$Estimate = 0,
+        [string]$Priority = ''
     )
     $global:FakeGitHub.Issues["$Number"] = [pscustomobject]@{
         Number            = $Number
@@ -201,11 +214,25 @@ function Add-FakeIssue {
         Body              = $Body
         State             = $State
         AuthorAssociation = $AuthorAssociation
-        # When anything last touched it (-IdleMinutes ago): the warden reads it as updated_at.
-        UpdatedAt         = (Get-Date).ToUniversalTime().AddMinutes(-$IdleMinutes).ToString('yyyy-MM-ddTHH:mm:ssZ')
         Labels            = [System.Collections.Generic.List[string]]::new([string[]]@($Labels))
         Assignees         = [System.Collections.Generic.List[string]]::new()
+        # When anything last touched it (-IdleMinutes ago): the warden reads it as updated_at.
+        UpdatedAt         = Get-FakeNow
     }
+    if ($IdleMinutes -gt 0) { Set-FakeIssueIdle -Number $Number -Minutes $IdleMinutes }
+    if ($Estimate -gt 0 -or $Priority) {
+        $global:FakeGitHub.Board.Add([pscustomobject]@{
+            id = "ITEM_$Number"; content = [pscustomobject]@{ number = $Number; repository = $global:FakeGitHub.Repo }
+            status = 'Backlog'; estimate = $(if ($Estimate -gt 0) { $Estimate } else { $null }); priority = $(if ($Priority) { $Priority } else { $null })
+        })
+    }
+}
+
+# Time passing with nobody touching the issue: its last activity becomes -Minutes ago.
+function Set-FakeIssueIdle {
+    param([Parameter(Mandatory)][int]$Number, [Parameter(Mandatory)][int]$Minutes)
+    $issue = Get-FakeIssueRecord -Number $Number
+    $issue.UpdatedAt = (Get-Date).ToUniversalTime().AddMinutes(-$Minutes).ToString('yyyy-MM-ddTHH:mm:ssZ')
 }
 
 # A comment as the owner writes it (or anyone, with -AuthorAssociation). The fake's
@@ -217,7 +244,7 @@ function Add-FakeComment {
         [string]$AuthorAssociation = 'OWNER',
         [string]$Login = $global:FakeGitHub.Login
     )
-    Get-FakeIssueRecord -Number $Issue | Out-Null
+    $record = Get-FakeIssueRecord -Number $Issue
     $global:FakeGitHub.Comments.Add([pscustomobject]@{
         Id                = $global:FakeGitHub.Comments.Count + 1
         Issue             = $Issue
@@ -226,6 +253,7 @@ function Add-FakeComment {
         Login             = $Login
         CreatedAt         = Get-FakeNow
     })
+    $record.UpdatedAt = $global:FakeGitHub.Comments[-1].CreatedAt
 }
 
 # Check runs for one commit: @{ name = conclusion }. Without them a commit gets the
@@ -335,6 +363,15 @@ function Get-FakePrTimeline {
     return @($global:FakeGitHub.Changes | Where-Object { $_.StartsWith($prefix) } | ForEach-Object { $_.Substring($prefix.Length) })
 }
 
+# The workflow dispatches (`gh workflow run`), oldest first: { Workflow; Stage; Issue }.
+function Get-FakeDispatches {
+    return @($global:FakeGitHub.Dispatches | ForEach-Object {
+        $fields = @{}
+        foreach ($f in @($_.Fields)) { $k, $v = "$f" -split '=', 2; $fields[$k] = $v }
+        [pscustomobject]@{ Workflow = $_.Workflow; Stage = $fields['stage']; Issue = [int]$fields['issue_number'] }
+    })
+}
+
 # The transitions this fake recorded since New-FakeGitHub, removals nothing followed included.
 function Get-FakeTransitions {
     Complete-FakeTransitions
@@ -382,10 +419,17 @@ function Complete-FakeTransitions {
     }
 }
 
+# Any change to an issue is activity: it moves the issue's updated_at to now.
+function Update-FakeActivity {
+    param($Issue)
+    $Issue.UpdatedAt = Get-FakeNow
+}
+
 function Remove-FakeLabel {
     param([int]$Number, [string]$Label)
     $issue = Get-FakeIssueRecord -Number $Number
     if (-not $issue.Labels.Remove($Label)) { return $false }
+    Update-FakeActivity $issue
     $global:FakeGitHub.Changes.Add("#${Number}: label - $Label")
     if ($Label -in $global:FakeGitHub.PipelineLabels -and -not $global:FakeGitHub.Pending.ContainsKey("$Number")) {
         $global:FakeGitHub.Pending["$Number"] = $Label
@@ -404,6 +448,7 @@ function Add-FakeLabel {
         Add-FakeTransition -Issue $Number -From $from -To $Label
     }
     $issue.Labels.Add($Label)
+    Update-FakeActivity $issue
     $global:FakeGitHub.Changes.Add("#${Number}: label + $Label")
 }
 
@@ -672,11 +717,13 @@ function Invoke-FakeGhRoute {
             if ($rest -match '^issues/(\d+)/comments$' -and $method -eq 'GET' -and $jq -eq $global:FakeGhJq.Bodies) {
                 return @(Get-FakeComments -Issue ([int]$Matches[1]) | ForEach-Object { $_.Body })
             }
+            # Every open issue with its last activity and labels: the hourly warden's survey.
             if ($rest -eq 'issues' -and $method -eq 'GET' -and $jq -eq $global:FakeGhJq.Survey) {
                 return @($fake.Issues.Values | Where-Object State -eq 'OPEN' | ForEach-Object {
                     [ordered]@{ n = $_.Number; u = $_.UpdatedAt; l = @($_.Labels) } | ConvertTo-Json -Compress
                 })
             }
+            # How many AFK runs are live, other than the asking run: none unless LiveRuns is set.
             if ($rest -eq 'actions/workflows/afk.yml/runs' -and $method -eq 'GET' -and $jq -eq $global:FakeGhJq.LiveRuns) {
                 return "$($fake.LiveRuns)"
             }
@@ -713,7 +760,14 @@ function Invoke-FakeGhRoute {
             $fields = "$($Flags['--json'])" -split ','
             if ($jq -or $Flags['--label']) { throw 'unknown' }
             $state = if ($Flags['--state']) { $Flags['--state'].ToUpper() } else { 'OPEN' }
-            $issues = @($fake.Issues.Values | Where-Object { $state -eq 'ALL' -or $_.State -eq $state } | ForEach-Object {
+            # GitHub's search, as far as the orchestrator uses it: issues whose title or
+            # body holds every word of the query.
+            $words = @("$($Flags['--search'])" -split '\s+' | Where-Object { $_ })
+            $issues = @($fake.Issues.Values | Where-Object {
+                $text = "$($_.Title) $($_.Body)"
+                ($state -eq 'ALL' -or $_.State -eq $state) -and
+                    @($words | Where-Object { $text -notmatch [regex]::Escape($_) }).Count -eq 0
+            } | ForEach-Object {
                 $issue = $_
                 $o = [ordered]@{}
                 foreach ($f in $fields) {
@@ -748,6 +802,7 @@ function Invoke-FakeGhRoute {
             $issue = Get-FakeIssueRecord -Number ([int]$Pos[2])
             if ($Flags['--body-file']) {
                 $issue.Body = Read-FakeBodyFile -Path $Flags['--body-file']
+                Update-FakeActivity $issue
                 $fake.Changes.Add("#$($issue.Number): body edited")
                 return "https://github.com/$($fake.Repo)/issues/$($issue.Number)"
             }
@@ -770,6 +825,7 @@ function Invoke-FakeGhRoute {
         '^issue close$' {
             $issue = Get-FakeIssueRecord -Number ([int]$Pos[2])
             $issue.State = 'CLOSED'
+            Update-FakeActivity $issue
             $fake.Changes.Add("#$($issue.Number): closed")
             return ''
         }

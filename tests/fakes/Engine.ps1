@@ -33,8 +33,26 @@ function New-FakeEngine {
 # Mocks Invoke-EngineTask in the Orchestrator module's scope for the current Pester block.
 function Install-FakeEngine {
     Mock Invoke-EngineTask -ModuleName Orchestrator -MockWith {
-        Invoke-FakeEngineTask -Task $Task -Prompt $Prompt -Label $Label -Tools $Tools -Schema $Schema -OnToolCall $OnToolCall
+        Invoke-FakeEngineTask -Task $Task -Prompt $Prompt -Label $Label -Tools $Tools -MaxTurns $MaxTurns -Schema $Schema -OnToolCall $OnToolCall
     }
+}
+
+# What the engine prints when the usage allowance is spent, taken from the wording the
+# engine adapter recognises ($KanbanUsageLimitPattern, engines/) — never restated here.
+# -ResetsAt adds the reset time the way the CLI reports it (an epoch after '|').
+# Script it as an EngineCheck -Output: the readiness check then reads a spent allowance.
+function Get-EngineUsageLimitText {
+    param([datetime]$ResetsAt)
+    $pattern = & (Get-Module Orchestrator) { $KanbanUsageLimitPattern }
+    $wording = (($pattern -replace '^\(\?i\)', '') -split '\|')[0]
+    if ($wording -notmatch $pattern -or $wording -match '[\\\[\](){}?*+^$]') {
+        throw "Get-EngineUsageLimitText: the adapter's first usage-limit wording '$wording' is not plain text."
+    }
+    $text = "Claude $wording"
+    if ($PSBoundParameters.ContainsKey('ResetsAt')) {
+        $text += "|$([DateTimeOffset]::new($ResetsAt.ToUniversalTime()).ToUnixTimeSeconds())"
+    }
+    return $text
 }
 
 # One scripted result for -Task, queued behind those already scripted for it.
@@ -67,7 +85,8 @@ function Add-EngineResult {
     })
 }
 
-# The calls the engine received, oldest first: { Task; Label; Prompt; Tools; Schema }.
+# The calls the engine received, oldest first: { Task; Label; Prompt; Tools; MaxTurns; Schema }.
+# MaxTurns is the turn budget an agentic call passed (0 for a one-shot call).
 function Get-FakeEngineCalls {
     param([string]$Task = '')
     return @($global:FakeEngine.Calls | Where-Object { -not $Task -or $_.Task -eq $Task })
@@ -84,10 +103,10 @@ function Assert-FakeEngineClean {
 }
 
 function Invoke-FakeEngineTask {
-    param([string]$Task, [string]$Prompt, [string]$Label, [string[]]$Tools, [string]$Schema, [scriptblock]$OnToolCall)
+    param([string]$Task, [string]$Prompt, [string]$Label, [string[]]$Tools, [int]$MaxTurns, [string]$Schema, [scriptblock]$OnToolCall)
     $engine = $global:FakeEngine
     if (-not $engine) { throw "The fake engine is not set up (New-FakeEngine) — Task '$Task'" }
-    $engine.Calls.Add([pscustomobject]@{ Task = $Task; Label = $Label; Prompt = $Prompt; Tools = @($Tools); Schema = $Schema })
+    $engine.Calls.Add([pscustomobject]@{ Task = $Task; Label = $Label; Prompt = $Prompt; Tools = @($Tools | Where-Object { $_ }); MaxTurns = $MaxTurns; Schema = $Schema })
 
     $queue = $engine.Queues[$Task]
     if ($queue -and $queue.Count -gt 0) {
