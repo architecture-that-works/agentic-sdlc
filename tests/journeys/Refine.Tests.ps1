@@ -2,7 +2,8 @@
 <#
     Refine journeys — an issue the owner opened, from its first run to agent:backlog,
     human:decision or agent:failed: a reply that settles the questions or leaves one
-    open, a body reshaped to the issue template, an epic split into child issues, a
+    open, a refine the owner starts by hand on a failed issue, an owner's hold from the
+    start, an engine that breaks while it reads a reply, a body reshaped to the issue template, an epic split into child issues, a
     plan proposing paths outside the writable ones, the questioning's tools and turn
     budget, and the outsider's issue. Enters only through Invoke-Orchestration
     (-From refine | comment) and asserts what the owner sees: the label, the comments,
@@ -11,6 +12,30 @@
 
 BeforeAll {
     . (Join-Path $PSScriptRoot 'Journey.ps1')
+
+    # A refined issue that waits on the owner's answers to two questions, as refine left
+    # it: architect and plan have not run on the answers yet.
+    function New-WaitingIssueBody {
+        param([int]$Number)
+        $open = @(
+            [ordered]@{ id = 1; text = 'Greet by first name or full name?'; raised_by = 'self-grill-subagent'
+                decision = 'First name — because it reads friendlier'; alternatives = @('Full name — formal') }
+            [ordered]@{ id = 2; text = 'What does a visitor without a name see?'; raised_by = 'self-grill-subagent'
+                decision = 'The greeting of today — nothing changes for them'; alternatives = @('An error — strict') }
+        )
+        return New-PlannedIssueBody -Number $Number -Unplanned -State @{ open_questions = $open }
+    }
+
+    # The answer check's reply: the first question answered, the second still open.
+    function New-PartialAnswerReply {
+        return ([ordered]@{
+            answers       = @(
+                [ordered]@{ id = 1; status = 'answered'; decision = 'Greet by first name.' }
+                [ordered]@{ id = 2; status = 'open'; follow_up = 'Pick A (the greeting of today) or B (an error).' }
+            )
+            new_questions = @()
+        } | ConvertTo-Json -Depth 4 -Compress)
+    }
 }
 
 Describe 'Refine journey' {
@@ -131,6 +156,60 @@ Describe 'Refine journey' {
         $body | Should -Match 'Greet by first name or full name\? → Greet by first name\.'
         # Nothing new to plan while a question is open: the plan ran once, on the first pass.
         @(Get-FakeEngineCalls -Task Plan).Count | Should -Be 1
+        Assert-JourneyClean
+    }
+
+    It 'refines and queues a failed issue when the owner starts refine for it by hand' {
+        # A refine that failed before anything was written; the owner dispatches stage=refine.
+        Add-FakeIssue -Number 17 -Title 'Greet the visitor by name' -Body (New-IssueBody) -Labels @('agent:failed')
+        Add-EngineResult -Task Refine -Reply (New-GrillReply)
+        Add-EngineResult -Task Plan -Reply (New-PlanReply)
+
+        $null = Invoke-Orchestration -IssueNumber 17 -From refine
+
+        Get-FakePipelineLabel 17 | Should -Be 'agent:backlog' -Because (Get-JourneyStory 17)
+        (Get-FakeIssue 17).Body | Should -Match '## Implementation Plan'
+        @(Get-FakeCommentHeadings 17)[-1] | Should -BeLike '🤖✅ Ready — refined, architected and planned*'
+        Assert-JourneyClean
+    }
+
+    It 'refines an issue the owner held for approval from the start, and keeps the hold for ship' {
+        Add-FakeIssue -Number 18 -Title 'Greet the visitor by name' -Body (New-IssueBody) -Labels @('human:approval')
+        Add-EngineResult -Task Refine -Reply (New-GrillReply)
+        Add-EngineResult -Task Plan -Reply (New-PlanReply)
+
+        $null = Invoke-Orchestration -IssueNumber 18 -From refine
+
+        Get-FakePipelineLabel 18 | Should -Be 'agent:backlog' -Because (Get-JourneyStory 18)
+        (Get-CarrierState 18).approval_required | Should -BeTrue
+        @(Get-FakeCommentHeadings 18)[-1] | Should -BeLike '🤖✅ Ready — refined, architected and planned*'
+        Assert-JourneyClean
+    }
+
+    It 'asks again for what is still open when the owner starts refine by hand on a failed issue that waits on answers' {
+        Add-FakeIssue -Number 19 -Title 'Greet the visitor by name' -Body (New-WaitingIssueBody -Number 19) -Labels @('agent:failed')
+        Add-FakeComment -Issue 19 -Body '1A. Not sure about the second one yet.'
+        Add-EngineResult -Task Refine -Reply (New-PartialAnswerReply)
+
+        $null = Invoke-Orchestration -IssueNumber 19 -From refine
+
+        Get-FakePipelineLabel 19 | Should -Be 'human:decision' -Because (Get-JourneyStory 19)
+        @(Get-FakeCommentHeadings 19)[-1] | Should -Be '🤖⏸ Thanks — 1 answer(s) recorded. Still needed:'
+        (Get-FakeIssue 19).Body | Should -Match 'Greet by first name or full name\? → Greet by first name\.'
+        Get-FakeEngineCalls -Task Plan | Should -BeNullOrEmpty
+        Assert-JourneyClean
+    }
+
+    It 'fails an issue waiting on decisions when the engine breaks while it reads the owner''s reply' {
+        Add-FakeIssue -Number 21 -Title 'Greet the visitor by name' -Body (New-WaitingIssueBody -Number 21) -Labels @('human:decision')
+        Add-FakeComment -Issue 21 -Body 'ok'
+        Add-EngineResult -Task Refine -During { throw 'The engine CLI stopped: broken pipe' }
+
+        $null = Invoke-Orchestration -IssueNumber 21 -From comment
+
+        Get-FakePipelineLabel 21 | Should -Be 'agent:failed' -Because (Get-JourneyStory 21)
+        @(Get-FakeCommentHeadings 21)[-1] | Should -Be '🤖❌ Orchestrator Error'
+        (Get-FakeComments 21)[-1].Body | Should -Match 'broken pipe'
         Assert-JourneyClean
     }
 

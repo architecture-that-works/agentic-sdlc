@@ -19,12 +19,23 @@
          (tests/journeys/StateMachine.Tests.ps1) checks the label transitions, the
          export-reach report (tests/journeys/ExportReach.Tests.ps1) that every
          exported function was reached. Line coverage is measured over
-         .github/orchestrator/ and reported, not gated.
+         .github/orchestrator/.
+
+    The Pester run holds three gates:
+      - Coverage floor: the run fails when the line coverage of .github/orchestrator/
+        is below $CoverageFloor, set once below in this file.
+      - Complete state machine: the state-machine report fails, naming it, for each
+        designed transition (an AllowedFrom entry of $PipelineStates in
+        .github/orchestrator/lib/Config.ps1) no table or journey exercised.
+      - Time budget: the step of the `test` job in .github/workflows/checks.yml that
+        runs this command stops at its timeout-minutes.
+    None of them applies where Pester does not run (a generated project).
 
     It prints the Pester version it runs on, before the run and on Pester's summary
     line, so a difference between a machine and the runner shows in the output. It ends
-    with one summary line per runner — passed or failed, and how long it took — and
-    exits non-zero when either runner failed.
+    with one summary line per runner — passed or failed, and how long it took; for
+    Pester also the measured line coverage and the floor — and exits non-zero when
+    either runner failed or the coverage is below the floor.
 
 .EXAMPLE
     pwsh -NoProfile -File .github/tasks/test.ps1
@@ -32,6 +43,10 @@
 param()
 
 $ErrorActionPreference = 'Stop'
+
+# The lowest line coverage of .github/orchestrator/ the Pester run accepts, in whole percent.
+$CoverageFloor = 83
+
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).ProviderPath
 
 # ── Pester 5, when there are Pester tests ────────────────────────────────────
@@ -64,6 +79,8 @@ try {
     $pesterPassed = $true
     $pesterTime   = 0
     $coverage     = ''
+    $covered      = $true
+    $percent      = 0   # no coverage measured is below any floor
     if ($runPester) {
         Write-Host ''
         Write-Host "━━━ Pester $($pester.Version)" -ForegroundColor Cyan
@@ -81,7 +98,7 @@ try {
         $config.CodeCoverage.Path        = @(Get-ChildItem -LiteralPath (Join-Path $root '.github/orchestrator') -Recurse -File -Include '*.ps1', '*.psm1' |
             ForEach-Object { $_.FullName })
         $config.CodeCoverage.OutputPath  = $coverageFile
-        $config.CodeCoverage.CoveragePercentTarget = 0   # reported, not gated
+        $config.CodeCoverage.CoveragePercentTarget = 0   # gated below, on line coverage ($CoverageFloor)
 
         # A fresh record of what the tables and journeys do, read by the reports: the
         # label transitions, the exported functions reached, the journeys started.
@@ -101,9 +118,13 @@ try {
             $hit  = @($result.CodeCoverage.CommandsExecuted | ForEach-Object $key | Sort-Object -Unique)
             $all  = @(@($result.CodeCoverage.CommandsExecuted) + @($result.CodeCoverage.CommandsMissed) | ForEach-Object $key | Sort-Object -Unique)
             if ($all.Count -gt 0) {
-                $coverage = 'line coverage {0:N1}% of .github/orchestrator/ ({1} of {2} lines)' -f (100 * $hit.Count / $all.Count), $hit.Count, $all.Count
+                $percent  = 100 * $hit.Count / $all.Count
+                $coverage = 'line coverage {0:N1}% of .github/orchestrator/ ({1} of {2} lines)' -f $percent, $hit.Count, $all.Count
             }
         }
+        $coverage += ", floor $CoverageFloor%"
+        # The coverage gate.
+        $covered = $percent -ge $CoverageFloor
     }
 } finally {
     Pop-Location
@@ -115,9 +136,12 @@ Write-Host ''
 Write-Host 'Test summary'
 Write-Output ('pytest  {0}  {1:N1}s' -f (& $verdict ($pytestExit -eq 0)), $pytestTime)
 if ($runPester) {
-    Write-Output ('Pester  {0}  {1:N1}s  Pester {2}  {3}' -f (& $verdict $pesterPassed), $pesterTime, $pester.Version, $coverage)
+    Write-Output ('Pester  {0}  {1:N1}s  Pester {2}  {3}' -f (& $verdict ($pesterPassed -and $covered)), $pesterTime, $pester.Version, $coverage)
 } else {
     Write-Output 'Pester  not run — no tests/decisions/ or tests/journeys/ in this project'
 }
-if ($pytestExit -ne 0 -or -not $pesterPassed) { exit 1 }
+if (-not $covered) {
+    Write-Output "        line coverage is below the floor of $CoverageFloor% (`$CoverageFloor in .github/tasks/test.ps1)"
+}
+if ($pytestExit -ne 0 -or -not $pesterPassed -or -not $covered) { exit 1 }
 exit 0

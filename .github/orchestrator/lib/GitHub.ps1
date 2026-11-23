@@ -727,6 +727,13 @@ function Set-AgentState {
         Where-Object { $PipelineStates.Contains($_) })
     $replace = @($current | Where-Object { $_ -ne $Label })
 
+    # The label the issue already carries is no transition: nothing on the issue
+    # changes, so AllowedFrom is not asked. The lane still follows the label.
+    if ($current.Count -eq 1 -and $current[0] -eq $Label) {
+        if ($laneId -and $laneName) { Move-ToLane -IssueNumber $IssueNumber -OptionId $laneId -LaneName $laneName }
+        return
+    }
+
     # AllowedFrom enforcement — strict transition gate so invalid paths surface
     # immediately rather than silently reaching the wrong state (ADR-015).
     # Extend AllowedFrom in Config.ps1 to permit a new valid path.

@@ -63,17 +63,28 @@ Describe 'Decision: re-entering an issue' {
         Assert-JourneyClean
     }
 
-    # agent:backlog is already the go signal (the warden dispatches its run instead), and
-    # agent:shipped is terminal: neither is re-entered.
-    It 'refuses to re-enter an issue at <From> and leaves its label' -ForEach @(
-        @{ From = 'agent:backlog' }
-        @{ From = 'agent:shipped' }
-    ) {
-        Add-FakeIssue -Number 43 -Title 'Name the decisions' -Body (New-PlannedIssueBody -Number 43) -Labels @($From)
+    # agent:backlog is already the go signal: setting it again would start nothing, so
+    # its implement run is dispatched, as the warden does.
+    It 'gives a planned issue at agent:backlog its implement run again, and leaves its label' {
+        Add-FakeIssue -Number 43 -Title 'Name the decisions' -Body (New-PlannedIssueBody -Number 43) -Labels @('agent:backlog')
 
-        { Restart-Issue -IssueNumber 43 } | Should -Throw "*transition from '$From' to 'agent:backlog' is not allowed*"
+        $stage = Restart-Issue -IssueNumber 43 -Reason 'retry requested'
 
-        Get-FakePipelineLabel 43 | Should -Be $From
+        $stage | Should -Be 'implement'
+        Get-FakePipelineLabel 43 | Should -Be 'agent:backlog'
+        @($global:FakeGitHub.Dispatches | ForEach-Object { "$($_.Workflow) $($_.Fields -join ' ')" }) | Should -Be @('afk.yml stage=implement issue_number=43')
+        @(Get-FakeCommentHeadings 43)[-1] | Should -Be '· re-dispatching implement (retry requested)'
+        Get-FakeTransitions | Should -BeNullOrEmpty
+        Assert-JourneyClean
+    }
+
+    # agent:shipped is terminal: it is never re-entered.
+    It 'refuses to re-enter an issue at agent:shipped and leaves its label' {
+        Add-FakeIssue -Number 43 -Title 'Name the decisions' -Body (New-PlannedIssueBody -Number 43) -Labels @('agent:shipped')
+
+        { Restart-Issue -IssueNumber 43 } | Should -Throw "*transition from 'agent:shipped' to 'agent:backlog' is not allowed*"
+
+        Get-FakePipelineLabel 43 | Should -Be 'agent:shipped'
         Get-FakeTransitions | Should -BeNullOrEmpty
     }
 
