@@ -159,6 +159,8 @@ Describe 'Refine journey' {
     It 'splits an issue estimated as an epic into child issues written in the template''s shape' {
         $threshold = Get-OrchestratorSetting -Name DecomposeThreshold
         Add-FakeIssue -Number 13 -Title 'Greet visitors on every page' -Body (New-IssueBody) -Estimate $threshold -Priority 'P2'
+        # An unrelated open issue: the duplicate search before each child must not match it.
+        Add-FakeIssue -Number 20 -Title 'Export the report as a spreadsheet' -Body 'The monthly report can be downloaded.'
         Add-EngineResult -Task Refine -Reply (New-GrillReply)
         $children = @('Greet by name on the home page', 'Greet by name on the about page', 'Greet by name on the contact page')
         Add-EngineResult -Task Plan -Reply ([ordered]@{
@@ -184,7 +186,7 @@ Describe 'Refine journey' {
         $headings | Should -Contain '🤖 Plan — Lean PRD published' -Because (Get-JourneyStory 13)
         $headings | Should -Contain '🤖 Plan — decomposition complete'
         (Get-FakeIssue 13).Body | Should -Match '## Lean PRD'
-        $created = @($global:FakeGitHub.Issues.Values | Where-Object { $_.Number -ne 13 })
+        $created = @($global:FakeGitHub.Issues.Values | Where-Object { $_.Number -notin 13, 20 })
         @($created.Title) | Should -Be $children
         foreach ($child in $created) {
             foreach ($name in @(Get-IssueHeadings).Name) { $child.Body | Should -Match ([regex]::Escape("**$name**:")) }
@@ -194,6 +196,10 @@ Describe 'Refine journey' {
         }
         # No implementation plan of its own: the children are the plan.
         (Get-FakeIssue 13).Body | Should -Not -Match '## Implementation Plan'
+        # Today's behaviour, not a settled rule: the split parent is still queued, so implement
+        # would run on the epic as well as on its children. Whether the parent should instead be
+        # held or closed is an open follow-up (raised under "Issues discovered" on #410); if the
+        # orchestrator changes, update this line rather than read its failure as a regression.
         Get-FakePipelineLabel 13 | Should -Be 'agent:backlog'
         Assert-JourneyClean
     }

@@ -760,7 +760,14 @@ function Invoke-FakeGhRoute {
             $fields = "$($Flags['--json'])" -split ','
             if ($jq -or $Flags['--label']) { throw 'unknown' }
             $state = if ($Flags['--state']) { $Flags['--state'].ToUpper() } else { 'OPEN' }
-            $issues = @($fake.Issues.Values | Where-Object { $state -eq 'ALL' -or $_.State -eq $state } | ForEach-Object {
+            # GitHub's search, as far as the orchestrator uses it: issues whose title or
+            # body holds every word of the query.
+            $words = @("$($Flags['--search'])" -split '\s+' | Where-Object { $_ })
+            $issues = @($fake.Issues.Values | Where-Object {
+                $text = "$($_.Title) $($_.Body)"
+                ($state -eq 'ALL' -or $_.State -eq $state) -and
+                    @($words | Where-Object { $text -notmatch [regex]::Escape($_) }).Count -eq 0
+            } | ForEach-Object {
                 $issue = $_
                 $o = [ordered]@{}
                 foreach ($f in $fields) {
@@ -821,26 +828,6 @@ function Invoke-FakeGhRoute {
             Update-FakeActivity $issue
             $fake.Changes.Add("#$($issue.Number): closed")
             return ''
-        }
-        '^issue create$' {
-            if (-not $Flags['--title'] -or -not $Flags['--body-file'] -or $Flags['--label']) { throw 'unknown' }
-            $n = Get-FakeNextNumber
-            # The pipeline opens issues with the owner's token.
-            Add-FakeIssue -Number $n -Title $Flags['--title'] -Body (Read-FakeBodyFile -Path $Flags['--body-file'])
-            $fake.Changes.Add("#${n}: opened")
-            return "https://github.com/$($fake.Repo)/issues/$n"
-        }
-        '^issue list$' {
-            # GitHub's search, as far as the orchestrator uses it: open issues whose title
-            # or body holds every word of the query.
-            if (-not $Flags['--search'] -or $Flags['--json'] -ne 'number,title') { throw 'unknown' }
-            $state = if ($Flags['--state']) { $Flags['--state'].ToUpper() } else { 'OPEN' }
-            $words = @("$($Flags['--search'])" -split '\s+' | Where-Object { $_ })
-            $found = @($fake.Issues.Values | Where-Object {
-                $text = "$($_.Title) $($_.Body)"
-                $_.State -eq $state -and @($words | Where-Object { $text -notmatch [regex]::Escape($_) }).Count -eq 0
-            } | ForEach-Object { [ordered]@{ number = $_.Number; title = $_.Title } })
-            return (ConvertTo-Json -InputObject @($found) -Compress)
         }
         '^issue develop$' {
             # Linked branches are not modelled: the orchestrator falls back to git.
