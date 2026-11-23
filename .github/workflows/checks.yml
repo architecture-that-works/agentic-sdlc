@@ -92,8 +92,9 @@ jobs:
   # `if:` reports success, so `eval` can be a required check without blocking
   # unrelated PRs. One rule for every PATHS_<TARGET>: an eval fires when a file
   # it reads changes — the component's entry file or prompt source, its eval test
-  # and its goldens. PATHS_SHARED (the harness, plus the orchestrator's model
-  # configuration the evals read through stage_models) fires every target.
+  # and its goldens. PATHS_SHARED (the harness and its pwsh call into the module,
+  # the orchestrator's settings, and the engine adapter that starts every eval's
+  # model) fires every target.
   eval-scope:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
@@ -113,8 +114,8 @@ jobs:
         shell: bash
         env:
           BASE_REF: ${{ github.base_ref }}
-          PATHS_SHARED: '^(tests/evals/(eval_goldens\.py|stage_models\.py)|\.github/orchestrator/lib/Config\.ps1)$'
-          PATHS_COMMIT: '^(\.github/orchestrator/engines/Claude\.ps1|tests/evals/test_commit_eval\.py|tests/evals/goldens/commit\.jsonl)$'
+          PATHS_SHARED: '^(tests/evals/(eval_goldens\.py|orchestrator_call\.py)|\.github/orchestrator/lib/Config\.ps1|\.github/orchestrator/engines/Claude\.ps1)$'
+          PATHS_COMMIT: '^(tests/evals/test_commit_eval\.py|tests/evals/goldens/commit\.jsonl)$'
           PATHS_REFINE: '^(\.agents/skills/refine/(SKILL\.md|scripts/grill\.ps1)|\.github/orchestrator/lib/Grill\.ps1|tests/evals/test_refine_eval\.py|tests/evals/goldens/refine\.jsonl)$'
           PATHS_REVIEW: '^(\.agents/skills/review/SKILL\.md|\.agents/skills/review/answer\.schema\.json|tests/evals/test_review_eval\.py|tests/evals/goldens/review\.jsonl)$'
           PATHS_IMPLEMENT: '^(\.agents/skills/implement/SKILL\.md|\.agents/skills/implement/answer\.schema\.json|tests/evals/test_implement_eval\.py|tests/evals/goldens/implement\.jsonl)$'

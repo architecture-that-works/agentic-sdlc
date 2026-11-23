@@ -10,7 +10,8 @@
 
     A further engine adds its own adapter in engines/ with the same functions; the
     module loads the adapter the Engine setting names (Orchestrator.psm1).
-    Depends only on Write-Log and Get-TaskModel.
+    Depends only on Write-Log, Get-TaskModel and the settings table
+    ($OrchestratorConfig.EngineTaskMaxAttempts, lib/Config.ps1).
 #>
 
 # How this engine words a spent usage allowance (#229). Spend and session limits
@@ -21,11 +22,6 @@
 # retry such a call, and the readiness check (Get-UsageLimitResume, lib/Util.ps1)
 # uses it to pause the issue.
 $KanbanUsageLimitPattern = '(?i)usage limit|limit reached|rate_limit_error|hit your\b[^.·\n]{0,40}?\blimit|spend limit|session limit'
-
-# Attempts for a call that fails on a non-zero exit (transient API errors —
-# overloaded 529, rate limit, network blips — exit the CLI non-zero after its own
-# internal retries), with 20s × attempt between them.
-$EngineTaskMaxAttempts = 3
 
 # Formats a single tool call for terminal display.
 function Format-ToolLine {
@@ -173,8 +169,8 @@ function Invoke-EngineRun {
 # It never throws for a failed run; each caller decides what a failed run or a
 # used-up turn budget means for its stage. A run that ends on its turn budget, a run
 # without a checked answer, a CLI that cannot start and a spent usage allowance are
-# not retried. Any other non-zero exit is retried up to $EngineTaskMaxAttempts
-# attempts, 20s × attempt apart.
+# not retried. Any other non-zero exit is retried up to the EngineTaskMaxAttempts
+# setting (lib/Config.ps1) attempts, 20s × attempt apart.
 function Invoke-EngineTask {
     param(
         [Parameter(Mandatory)][string]$Task,
@@ -211,7 +207,8 @@ function Invoke-EngineTask {
     $outcome  = 'failed'
     $cause    = $null
 
-    for ($attempt = 1; $attempt -le $EngineTaskMaxAttempts; $attempt++) {
+    $maxAttempts = $OrchestratorConfig.EngineTaskMaxAttempts
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         $run    = Invoke-EngineRun -Prompt $Prompt -CliArgs $cliArgs -OnToolCall $OnToolCall
         $result = $run.Result
         $text   = "$($run.Output)`n$(if ($result) { $result.result })"
@@ -242,9 +239,9 @@ function Invoke-EngineTask {
 
         $outcome = 'failed'
         $cause   = "$Label exited $($run.Exit) after $attempt attempt(s)."
-        if ($attempt -lt $EngineTaskMaxAttempts) {
+        if ($attempt -lt $maxAttempts) {
             $backoff = 20 * $attempt
-            Write-Log "  ⚠️ $Label exited $($run.Exit) (attempt $attempt/$EngineTaskMaxAttempts) — retrying in ${backoff}s (transient API error?)." -Color Yellow
+            Write-Log "  ⚠️ $Label exited $($run.Exit) (attempt $attempt/$maxAttempts) — retrying in ${backoff}s (transient API error?)." -Color Yellow
             Start-Sleep -Seconds $backoff
         }
     }

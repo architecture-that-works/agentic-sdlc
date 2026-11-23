@@ -9,7 +9,7 @@ message (`FromEngine`) or the generator fell back: the rules live in the generat
 
 import pytest
 from eval_goldens import load_goldens
-from stage_models import run_in_orchestrator
+from orchestrator_call import run_in_orchestrator
 
 GOLDENS = load_goldens("commit")
 
