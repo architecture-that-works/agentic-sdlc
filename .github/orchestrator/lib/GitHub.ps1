@@ -506,7 +506,8 @@ function Get-SignalComments {
 # ── Attempts (run history in the carrier) ────────────────────────────────────
 # Every implement run is recorded in attempts[] in AGENT-STATE — both successes
 # and failures — with the five optional fields (implemented, left_undone,
-# issues_discovered, commands, procedure) populated on successful runs.
+# issues_discovered, commands, procedure) populated on runs that gave a closing note.
+# The three note fields are arrays holding every item of the note.
 # The "## Attempts" body section is re-rendered after each write.
 function Add-ImplementAttempt {
     param(
@@ -515,9 +516,9 @@ function Add-ImplementAttempt {
         [string]$Reason           = '',
         [Parameter(Mandatory)][int]$Attempt,
         [Parameter(Mandatory)][int]$Max,
-        [string]$Implemented      = '',
-        [string]$LeftUndone       = '',
-        [string]$IssuesDiscovered = '',
+        [string[]]$Implemented      = @(),
+        [string[]]$LeftUndone       = @(),
+        [string[]]$IssuesDiscovered = @(),
         [string]$Commands         = '',
         [string]$Procedure        = ''
     )
@@ -532,9 +533,15 @@ function Add-ImplementAttempt {
         reason    = $short
         timestamp = (Get-Date).ToUniversalTime().ToString('o')
     }
-    if ($Implemented)      { $entry | Add-Member -NotePropertyName implemented        -NotePropertyValue $Implemented      -Force }
-    if ($LeftUndone)       { $entry | Add-Member -NotePropertyName left_undone         -NotePropertyValue $LeftUndone       -Force }
-    if ($IssuesDiscovered) { $entry | Add-Member -NotePropertyName issues_discovered   -NotePropertyValue $IssuesDiscovered -Force }
+    # The closing note's lists, every item kept; an empty list is the agent's "none".
+    # A failed run passes no note, and its entry gets no note fields (#418).
+    $noteFields = [ordered]@{ Implemented = 'implemented'; LeftUndone = 'left_undone'; IssuesDiscovered = 'issues_discovered' }
+    foreach ($param in $noteFields.Keys) {
+        if ($PSBoundParameters.ContainsKey($param)) {
+            $items = @($PSBoundParameters[$param] | Where-Object { "$_".Trim() })
+            $entry | Add-Member -NotePropertyName $noteFields[$param] -NotePropertyValue $items -Force
+        }
+    }
     if ($Commands)         { $entry | Add-Member -NotePropertyName commands            -NotePropertyValue $Commands         -Force }
     if ($Procedure)        { $entry | Add-Member -NotePropertyName procedure           -NotePropertyValue $Procedure        -Force }
     $history = @($state.attempts | Where-Object { $_ }) + $entry

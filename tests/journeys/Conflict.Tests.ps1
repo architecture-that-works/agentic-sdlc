@@ -105,7 +105,7 @@ Describe 'Conflict journey' {
         $null = Start-ConflictRounds -MergedPR $prA.Number
         $before = Get-RemoteHead $repo -Branch $prB.Head
         # The agent's turn ends with the markers git wrote still in the file.
-        Add-EngineResult -Task ImplementSmall -Reply "- Left undone: the conflict in CONTEXT.md`n- Issues discovered: none"
+        Add-EngineResult -Task ImplementSmall -Answer (New-ClosingNote -LeftUndone 'the conflict in CONTEXT.md')
 
         Invoke-Orchestration -IssueNumber 41 -From implement
 

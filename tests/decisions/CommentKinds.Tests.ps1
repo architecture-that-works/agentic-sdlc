@@ -77,7 +77,7 @@ Describe 'Decision: a secret in a pipeline comment' {
         Add-FakeIssue -Number 71 -Title 'Describe the decisions' -Body (New-PlannedIssueBody -Number 71) -Labels @('agent:backlog')
         Add-EngineResult -Task ImplementSmall -Edits $script:Docs `
             -ToolCalls @(@{ Name = 'Edit'; Input = @{ file_path = 'docs/decisions.md' } }) `
-            -Reply "- ``docs/decisions.md`` — changed`n- Left undone: none`n- Issues discovered: the test run printed $Value"
+            -Answer (New-ClosingNote -Implemented 'Described the decisions' -IssuesDiscovered "the test run printed $Value")
         Add-EngineResult -Task CommitMessage -Reply 'docs(#71): describe the decisions'
         Add-ReviewVerdict
 
