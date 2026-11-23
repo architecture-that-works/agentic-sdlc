@@ -44,7 +44,7 @@ through its callers).
 - The tests of what you changed pass; the full suite passes in the pipeline's verification run
 - Minimal implementation code that satisfies acceptance criteria
 - Refactored modules with deeper interfaces and less duplication
-- A closing note of one or two lines: `Left undone:` what you skipped or did not check; `Issues discovered:` what the owner must know — a risk, a bug outside scope, a stale document. In the pipeline these are the last bullets of the implementation summary, posted to the issue for `review` and the owner
+- A closing note, given as the checked answer that `answer.schema.json` beside this skill defines — three lists, `implemented`, `left_undone` and `issues_discovered`, each field described there. In the pipeline the orchestrator posts every item to the issue, under `Implemented:`, `Left undone:` and `Issues discovered:`, for `review` and the owner, and writes it into the pull request
 
 ## Core Pattern
 

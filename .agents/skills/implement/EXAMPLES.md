@@ -273,7 +273,12 @@ issue's scope — it goes in the closing note with its follow-up, not in a code 
 
 ### Closing note
 
-```
-- Left undone: str cells from the legacy export — follow-up legacy-export-str-cells.
-- Issues discovered: none; both callers are covered by the new test and the existing three.
+The checked answer, in the shape of `answer.schema.json`; an empty list means none:
+
+```json
+{
+  "implemented": ["normalise_score treats an empty cell as zero; both callers are covered by the new test and the existing three"],
+  "left_undone": ["str cells from the legacy export — follow-up legacy-export-str-cells"],
+  "issues_discovered": []
+}
 ```

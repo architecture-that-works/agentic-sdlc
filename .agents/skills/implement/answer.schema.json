@@ -1,0 +1,24 @@
+{
+  "title": "Implement answer",
+  "description": "The implementing agent's closing note: what it changed, what it left undone and what the owner must know. Posted to the issue, recorded with the attempt and written into the pull request.",
+  "type": "object",
+  "properties": {
+    "implemented": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "What was implemented: one short text per change made, in the words a reviewer reads (the files changed are taken from git, so do not list them). An empty list means nothing was implemented."
+    },
+    "left_undone": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "What was left undone: one short text per thing skipped or not checked, naming its follow-up where there is one. An empty list means nothing was left undone."
+    },
+    "issues_discovered": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "What was discovered that the owner must know: one short text per item — a risk, a bug outside scope, a stale document. An empty list means nothing was discovered."
+    }
+  },
+  "required": ["implemented", "left_undone", "issues_discovered"],
+  "additionalProperties": false
+}
