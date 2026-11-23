@@ -87,7 +87,7 @@ Describe 'Build journey' {
 
     It 'implements, reviews and merges a change inside the writable paths once its required checks pass' {
         Add-FakeIssue -Number 20 -Title 'Describe the journeys in the docs' -Body (New-PlannedIssueBody -Number 20) -Labels @('agent:backlog')
-        Add-ImplementRun -Edits (Get-DocsEdit) -Message 'docs(#20): describe the journeys'
+        Add-ImplementRun -Edits (Get-DocsEdit) -Message "docs(#20): describe the journeys`n`nSay what a journey follows."
         Add-ReviewVerdict
         # A skipped check passes, as the eval job skips when no file an eval reads changed.
         Set-FakeChecks -Conclusions @{ eval = 'skipped' }
@@ -98,6 +98,8 @@ Describe 'Build journey' {
         @(Get-PullRequests).Count | Should -Be 1
         $pr = (Get-PullRequests)[0]
         $pr.State | Should -Be 'MERGED'
+        # The title is the first line of the generator's message, not the issue's title.
+        $pr.Title | Should -Be 'docs(#20): describe the journeys'
         # A draft while the round ran, marked ready right before the workflow merged it.
         Get-FakePrTimeline $pr.Number | Should -Be @("opened as draft from $($pr.Head)", 'review comment', 'marked ready', 'squash-merged')
         Get-RemoteFileContent $repo -Branch main -Path 'docs/journeys.md' | Should -Be ((Get-DocsEdit)['docs/journeys.md'].TrimEnd("`n"))

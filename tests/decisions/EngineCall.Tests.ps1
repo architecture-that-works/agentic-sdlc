@@ -188,14 +188,5 @@ Describe 'Decision: the engine call' {
             $run.Output | Should -Match 'a real warning'
             $run.Reply | Should -Be 'feat: y'
         }
-
-        It 'the commit message falls back to the one supplied when the engine fails' {
-            $null = New-FakeCli -Attempts @(@{ Lines = @('boom'); Exit = 1 })
-            Install-FakeCli
-
-            $message = & (Get-Module Orchestrator) { Get-CommitMessage -Diff 'd' -FallbackMessage 'feat(#1): t' }
-
-            $message | Should -Be 'feat(#1): t'
-        }
     }
 }

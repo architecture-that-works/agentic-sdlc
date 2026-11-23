@@ -17,7 +17,7 @@ issue for a suspected vulnerability.
 |---|---|---|---|---|
 | `GH_TOKEN` | every `gh` call in the pipeline — issues, labels, board, PRs, merges; `task` commands locally | `.env` | Actions secret | Azure Key Vault (corporate) / GCP Secret Manager (personal) |
 | `CLAUDE_CODE_OAUTH_TOKEN` | every `claude` call in the pipeline — refine, plan, implement, review, commit messages | your own `claude` login | Actions secret | — (developer credential) |
-| `ANTHROPIC_API_KEY` | AI-backed endpoints in `src/`; `src/tools/commit.py` when the Claude CLI is absent. Not used by the pipeline | `.env` | Actions secret | Azure Key Vault / GCP Secret Manager |
+| `ANTHROPIC_API_KEY` | AI-backed endpoints in a project's own application code in `src/`. Not used by the pipeline | `.env` | Actions secret | Azure Key Vault / GCP Secret Manager |
 
 `.env` is git-ignored and must never be committed. In production, secrets are read at runtime
 through workload identity (Azure) or the attached service account (GCP) — no secret value is

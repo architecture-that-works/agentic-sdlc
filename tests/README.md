@@ -13,7 +13,7 @@ One folder per kind of test. Each folder of the repository, and where it is test
 
 | Folder of the repository | Tested in | How |
 |---|---|---|
-| `src/` (`main.py`, `config.py`), `src/utils/`, `src/tools/` | `tests/app/` | pytest, by what the code does: the HTTP server answers requests, the schema accepts and rejects states, the tools write commits and fill in a project. Counted by the 80% coverage gate for `src/` |
+| `src/` (`main.py`, `config.py`), `src/utils/`, `src/tools/` | `tests/app/` | pytest, by what the code does: the HTTP server answers requests, the schema accepts and rejects states, the setup tool fills in a project. Counted by the 80% coverage gate for `src/` |
 | `.github/orchestrator/` | `tests/journeys/` | Pester 5: a journey per path through `Invoke-Orchestration`, asserting what the owner sees (§ Testing the orchestrator) |
 | `.github/orchestrator/` — its decisions | `tests/decisions/` | Pester 5: a table per decision, a row per input, asserting the outcome through the module (§ Testing the orchestrator) |
 | `.github/orchestrator/lib/Config.ps1` — `$PipelineStates` | `tests/journeys/StateMachine.Tests.ps1` | Pester 5: runs last and checks every label transition the tables and journeys caused |
@@ -225,11 +225,12 @@ fakes.
 | `IssueHeadings.Tests.ps1` | the issue template's headings and the style of each section |
 | `CommentKinds.Tests.ps1` | pipeline history, owner comment or neither; the secrets a pipeline comment never shows |
 | `EngineCall.Tests.ps1` | the engine call against a stand-in CLI: its flags, retries, turn budget, checked answer, tool calls and refused edits |
+| `CommitMessage.Tests.ps1` | the commit message against a stand-in CLI: a reply used, its trailers removed, asked once more naming the broken rule, or the fallback cut to fit |
 | `Check<Name>.Tests.ps1` | one per check in `.github/checks/`: its exit code and the violation lines it prints, on a temporary repository |
 
-The engine call's table is the one that enters below the public surface: every journey
-replaces Invoke-EngineTask with the fake engine, so its own table calls it at that seam,
-against the stand-in CLI.
+The engine call's table and the commit message's are the ones that enter below the public
+surface: every journey replaces Invoke-EngineTask with the fake engine, so their tables call
+the engine adapter at that seam, against the stand-in CLI.
 
 The orchestrator has three outside seams, and each has one fake in `tests/fakes/`; a fourth
 file stands in for the engine's CLI, below the fake engine, for the engine adapter's own tables:
@@ -368,12 +369,13 @@ against fixed cases. Neither repeats the other.
 | `test_review_eval.py` | the review skill on an issue plus a change, three times per case | The verdict, read the way `stages/Review.ps1` reads it (the checked `verdict` field of the result's `structured_output`, under `.agents/skills/review/answer.schema.json`), is right in all three runs: approve `clean`, reject `planted-bug` |
 | `test_refine_eval.py` | the grill probe (`refine/scripts/grill.ps1 -Trace`) on an under-specified issue | Every tool the case expects was called; every open question has a recommendation and two alternatives; the agent brief names no source file (no `.py` or `.ps1` name, no `:<line>` reference) |
 | `test_implement_eval.py` | the implement skill on a finished mini-task | The closing note has a line starting `Left undone:` and one starting `Issues discovered:` |
-| `test_commit_eval.py` | `src/tools/commit.py` on a staged diff | The first line is `<type>(<scope>): <description>` or `<type>: <description>` with a listed type, at most 72 characters, no trailing period; no markdown fence, no Co-Authored-By or Signed-off-by trailer |
+| `test_commit_eval.py` | the orchestrator's commit-message generator (`Get-CommitMessage` in `.github/orchestrator/engines/Claude.ps1`) on a staged diff, in one `pwsh` call through the module | The engine wrote the message (`FromEngine` is true), not the fallback: the generator checks every reply against the commit-message rules written beside it, so the eval writes none |
 
 The skill under test runs on its stage's model, read from the orchestrator by
 `stage_models()` in `tests/evals/stage_models.py`: one `pwsh` call that imports the
 module and asks `Get-TaskModel` for the tasks `Review` and `ImplementLarge` on the engine
-the `Engine` setting names. The refine eval's grill probe imports the module too, so it
+the `Engine` setting names. The commit eval calls the generator through the same helper
+(`run_in_orchestrator`), so it runs on the `CommitMessage` task's model. The refine eval's grill probe imports the module too, so it
 runs on the `Refine` task's model and the `MaxTurns_Refine` budget, as the stage does.
 Never write a model ID in `tests/evals/`. Without `pwsh`, an eval fails rather
 than skips: a skipped gate reports green.
