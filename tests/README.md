@@ -366,19 +366,25 @@ against fixed cases. Neither repeats the other.
 
 | Eval | Runs | Checks in code |
 |------|------|----------------|
-| `test_review_eval.py` | the review skill on an issue plus a change, three times per case | The verdict, read the way `stages/Review.ps1` reads it (the checked `verdict` field of the result's `structured_output`, under `.agents/skills/review/answer.schema.json`), is right in all three runs: approve `clean`, reject `planted-bug` |
+| `test_review_eval.py` | the review skill on an issue plus a change, three times per case | The verdict, read the way `stages/Review.ps1` reads it (the checked `verdict` field of the engine function's `Answer`, under `.agents/skills/review/answer.schema.json`), is right in all three runs: approve `clean`, reject `planted-bug` |
 | `test_refine_eval.py` | the grill probe (`refine/scripts/grill.ps1 -Trace`) on an under-specified issue | Every tool the case expects was called; every open question has a recommendation and two alternatives; the agent brief names no source file (no `.py` or `.ps1` name, no `:<line>` reference) |
-| `test_implement_eval.py` | the implement skill on a finished mini-task | The closing note, read the way `stages/Implement.ps1` reads it (the checked lists of the result's `structured_output`, under `.agents/skills/implement/answer.schema.json`), holds all three lists, with `left_undone` filled when the case is flagged `skipped` and `issues_discovered` filled when it is flagged `noticed` |
+| `test_implement_eval.py` | the implement skill on a finished mini-task | The closing note, read the way `stages/Implement.ps1` reads it (the checked lists of the engine function's `Answer`, under `.agents/skills/implement/answer.schema.json`), holds all three lists, with `left_undone` filled when the case is flagged `skipped` and `issues_discovered` filled when it is flagged `noticed` |
 | `test_commit_eval.py` | the orchestrator's commit-message generator (`Get-CommitMessage` in `.github/orchestrator/engines/Claude.ps1`) on a staged diff, in one `pwsh` call through the module | The engine wrote the message (`FromEngine` is true), not the fallback: the generator checks every reply against the commit-message rules written beside it, so the eval writes none |
 
-The skill under test runs on its stage's model, read from the orchestrator by
-`stage_models()` in `tests/evals/stage_models.py`: one `pwsh` call that imports the
-module and asks `Get-TaskModel` for the tasks `Review` and `ImplementLarge` on the engine
-the `Engine` setting names. The commit eval calls the generator through the same helper
-(`run_in_orchestrator`), so it runs on the `CommitMessage` task's model. The refine eval's grill probe imports the module too, so it
+An eval starts its model the way its stage does, through the orchestrator module.
+`run_in_orchestrator` in `tests/evals/orchestrator_call.py` is the one `pwsh` call that
+imports the module and runs a body in its scope; values such as a prompt, a schema or a
+diff reach the body through `env`, never quoted into it. The review and implement evals
+call `engine_task`, which runs `Invoke-EngineTask` (`.github/orchestrator/engines/Claude.ps1`)
+one-shot on the `Review` and `ImplementLarge` tasks with the skill's text at the head of
+the prompt and the skill's schema, and read `Answer` from the `{Outcome, Answer, Cause}`
+it returns — a result whose `Outcome` is not `finished` fails the case. The engine
+function picks the model from the task on the engine the `Engine` setting names. The
+commit eval calls the generator through the same helper, so it runs on the
+`CommitMessage` task's model. The refine eval's grill probe imports the module too, so it
 runs on the `Refine` task's model and the `MaxTurns_Refine` budget, as the stage does.
-Never write a model ID in `tests/evals/`. Without `pwsh`, an eval fails rather
-than skips: a skipped gate reports green.
+Never write a model ID, the CLI's name or a CLI flag in `tests/evals/`. Without `pwsh`,
+an eval fails rather than skips: a skipped gate reports green.
 
 **Review cases come in twins.** A case with a defect is added together with a clean twin
 that differs only in the defect — the same issue, tests and change, one line apart
@@ -396,12 +402,14 @@ wrong, not from an invented one.
    no model, over one stored output that passes and one that fails. That test carries no
    mark, so it runs in the default suite.
 3. **Write the eval test** — mark it `@pytest.mark.eval`, run the stage on each stored
-   case on `stage_models()[<stage>]`, and assert the check.
+   case through the module (`engine_task` with the stage's task, or `run_in_orchestrator`
+   for a function of the module), and assert the check.
 4. **Gate it in CI** — give the target a `PATHS_<TARGET>` regex in the `eval-scope` job of
    `.github/workflows/checks.yml` naming exactly the files the eval reads: the stage's
    entry file or prompt source, its eval test and its stored cases, plus a run step in the
-   `eval` job. `PATHS_SHARED` (`eval_goldens.py`, `stage_models.py` and
-   `.github/orchestrator/lib/Config.ps1`) fires every target.
+   `eval` job. `PATHS_SHARED` (`eval_goldens.py`, `orchestrator_call.py`,
+   `.github/orchestrator/lib/Config.ps1` and `.github/orchestrator/engines/Claude.ps1`)
+   fires every target.
 
 **Running them**
 

@@ -1,10 +1,11 @@
 """Eval: the review skill's verdict — the one thing the orchestrator reads from a review.
 
-Each stored case is an issue's criterion plus a change. Claude reviews it with the
-skill's SKILL.md as its system prompt and no tools, on the model the review stage uses,
-and answers in the shape of the skill's `answer.schema.json` — the schema the review
-stage passes too. The verdict is read the way `stages/Review.ps1` reads it: the checked
-`verdict` field of the result's `structured_output`.
+Each stored case is an issue's criterion plus a change. The model reviews it the way the
+review stage starts it: through the engine function `Invoke-EngineTask`, on the `Review`
+task, one-shot with no tools, with the skill's SKILL.md at the head of the prompt and the
+skill's `answer.schema.json` as the schema — the schema the review stage passes too. The
+verdict is read the way `stages/Review.ps1` reads it: the checked `verdict` field of the
+result's `Answer`, only when its `Outcome` is `finished`.
 
 The two cases are twins: the same issue, tests and change, differing only in one planted
 line. Approving `clean` and rejecting `planted-bug` can only be explained by that line, so
@@ -13,13 +14,12 @@ every verdict must be right, so a reviewer that is right only some of the time f
 """
 
 import json
-import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 from eval_goldens import load_goldens
-from stage_models import stage_models
+from orchestrator_call import engine_task
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_DIR = REPO_ROOT / ".agents/skills/review"
@@ -30,8 +30,13 @@ RUNS = 3
 
 
 def verdict_of(result: dict) -> str | None:
-    """The verdict the review stage reads from a result: `structured_output.verdict`."""
-    answer = result.get("structured_output")
+    """The verdict the review stage reads from a result: `Answer.verdict`.
+
+    None unless the run finished with a checked answer.
+    """
+    if result.get("Outcome") != "finished":
+        return None
+    answer = result.get("Answer")
     return answer.get("verdict") if isinstance(answer, dict) else None
 
 
@@ -46,37 +51,17 @@ def wrong_results(results: list[dict], approve: bool) -> list[dict]:
 
 
 def review(change: str) -> dict:
-    out = subprocess.run(
-        [
-            "claude",
-            "-p",
-            "--model",
-            stage_models()["review"],
-            "--tools",
-            "",
-            "--system-prompt",
-            SKILL,
-            "--json-schema",
-            SCHEMA,
-            "--output-format",
-            "json",
-        ],
-        input=f"Review this change. You have no tools: judge it from the text below.\n\n{change}",
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        cwd=REPO_ROOT,
-        timeout=600,
-        check=False,
+    prompt = (
+        f"{SKILL}\n\n---\n\n"
+        "Review this change. You have no tools: judge it from the text below.\n\n"
+        f"{change}"
     )
-    assert out.returncode == 0, out.stderr or out.stdout
-    return json.loads(out.stdout)
+    return engine_task("Review", prompt, SCHEMA)
 
 
 @pytest.mark.eval
 @pytest.mark.parametrize("case", GOLDENS, ids=[g["id"] for g in GOLDENS])
 def test_review_verdict(case) -> None:
-    stage_models()  # one lookup before the threads, not one per thread
     with ThreadPoolExecutor(max_workers=RUNS) as pool:
         reports = list(pool.map(review, [case["input"]] * RUNS))
     wrong = wrong_results(reports, case["approve"])
@@ -89,30 +74,43 @@ def test_review_verdict(case) -> None:
 
 def test_verdict_of_reads_the_checked_field_the_review_stage_reads() -> None:
     approved = {
-        "type": "result",
-        "subtype": "success",
-        "structured_output": {"verdict": "approved", "report": "Looks good."},
+        "Outcome": "finished",
+        "Answer": {"verdict": "approved", "report": "Looks good."},
+        "Cause": None,
     }
     rejected = {
-        "type": "result",
-        "subtype": "success",
-        "structured_output": {
+        "Outcome": "finished",
+        "Answer": {
             "verdict": "rejected",
             "report": "Fix 1.\n\nAPPROVED would not count here.\n\n1. **The first page is skipped**",
         },
+        "Cause": None,
     }
     assert verdict_of(approved) == "approved"
     assert verdict_of(rejected) == "rejected"
-    assert (
-        verdict_of({"type": "result", "subtype": "error_max_structured_output_retries"})
-        is None
-    )
+    assert verdict_of({"Outcome": "finished", "Answer": "approved"}) is None
+
+
+def test_a_run_that_did_not_finish_has_no_verdict() -> None:
+    for outcome in ("failed", "max_turns"):
+        result = {
+            "Outcome": outcome,
+            "Answer": {"verdict": "approved", "report": "Looks good."},
+            "Cause": "Review eval produced no checked answer",
+        }
+        assert verdict_of(result) is None
 
 
 def test_a_result_without_a_checked_answer_fails_either_case() -> None:
-    approved = {"structured_output": {"verdict": "approved", "report": "Looks good."}}
-    rejected = {"structured_output": {"verdict": "rejected", "report": "Fix 1."}}
-    no_answer = {"type": "result", "subtype": "success", "result": "REJECTED"}
+    approved = {
+        "Outcome": "finished",
+        "Answer": {"verdict": "approved", "report": "Ok."},
+    }
+    rejected = {
+        "Outcome": "finished",
+        "Answer": {"verdict": "rejected", "report": "No."},
+    }
+    no_answer = {"Outcome": "failed", "Answer": None, "Cause": "no checked answer"}
     assert wrong_results([approved, rejected, no_answer], approve=True) == [
         rejected,
         no_answer,

@@ -138,6 +138,11 @@ $OrchestratorConfig = @{
     # Orchestrator behaviour
     MaxRetries = 3    # failed attempts per round (implement, review, CI, refine) before agent:failed
 
+    # Attempts for an engine call that fails on a non-zero exit (Invoke-EngineTask,
+    # engines/): transient API errors — overloaded 529, rate limit, network blips —
+    # exit the CLI non-zero after its own internal retries. 20s × attempt between them.
+    EngineTaskMaxAttempts = 3
+
     # Reconciliation (the hourly warden, lib/Reconcile.ps1). An agent-held label
     # claims work in progress; when nothing has touched the issue for this long,
     # no runner is doing that work and the state is stale. Must stay comfortably

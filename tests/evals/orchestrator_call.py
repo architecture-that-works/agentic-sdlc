@@ -1,11 +1,11 @@
-"""The orchestrator module, read from the evals in one pwsh call.
+"""The one pwsh call from an eval into the orchestrator module.
 
-An eval runs a stage's instructions on the model that stage uses, so the model comes from
-the orchestrator module and never from a literal in `tests/evals/`. The commit eval calls
-the orchestrator's commit-message generator the same way (`run_in_orchestrator`).
+An eval starts its model the way its stage does: through the module — the engine
+function `Invoke-EngineTask`, or a function that calls it such as the commit-message
+generator. The model comes from the task's name inside the module, so no CLI name, flag
+or model is written in `tests/evals/`.
 """
 
-import functools
 import json
 import os
 import shutil
@@ -14,7 +14,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ORCHESTRATOR = REPO_ROOT / ".github" / "orchestrator" / "Orchestrator.psd1"
-STAGES = ("review", "implement")
 
 # Imports the module and runs {body} in its scope, with Write-Log silenced. The body's
 # last output line is one JSON object.
@@ -28,14 +27,23 @@ Import-Module '{orchestrator}' -Force -DisableNameChecking
 }}
 """
 
-# Both models come from Get-TaskModel on the engine the orchestrator runs (its Engine
-# setting): review is the Review task, and implement the ImplementLarge task (#341).
-_MODELS = """
-    @{
-        review    = Get-TaskModel -Task 'Review'
-        implement = Get-TaskModel -Task 'ImplementLarge'
-    } | ConvertTo-Json -Compress
+# Starts the model on a checked answer: the task, the prompt and the schema come from
+# the environment (EVAL_TASK, EVAL_PROMPT, EVAL_SCHEMA), never quoted into the script.
+# The schema is normalised the way the stages pass it; the result is cut to what an
+# eval reads, deep enough to keep nested lists.
+_ENGINE_TASK = """
+    $schema = $env:EVAL_SCHEMA | ConvertFrom-Json | ConvertTo-Json -Depth 20 -Compress
+    $run = Invoke-EngineTask -Task $env:EVAL_TASK -Prompt $env:EVAL_PROMPT `
+        -Label "$env:EVAL_TASK eval" -Schema $schema
+    [pscustomobject]@{
+        Outcome = $run.Outcome
+        Answer  = $run.Answer
+        Cause   = $run.Cause
+    } | ConvertTo-Json -Depth 20 -Compress
 """
+
+# Covers every attempt of the engine function, its 20s + 40s backoff and the import.
+ENGINE_TASK_TIMEOUT = 900
 
 
 def run_in_orchestrator(
@@ -78,13 +86,14 @@ def run_in_orchestrator(
         raise RuntimeError(f"orchestrator call gave bad JSON: {e}") from e
 
 
-@functools.cache
-def stage_models() -> dict[str, str]:
-    """The models the pipeline's stages use: keys `review` and `implement`.
+def engine_task(task: str, prompt: str, schema: str) -> dict:
+    """Starts `task`'s model through `Invoke-EngineTask`, one-shot, on a checked answer.
 
-    Read from the orchestrator module in one pwsh call, once per process.
+    Returns `{Outcome, Answer, Cause}` — the part of the engine function's result an eval
+    reads. `Answer` is the checked answer, set only when `Outcome` is `finished`.
     """
-    models = run_in_orchestrator(_MODELS)
-    if not all(isinstance(models.get(k), str) and models[k] for k in STAGES):
-        raise RuntimeError(f"stage model lookup gave no models: {models}")
-    return {k: models[k] for k in STAGES}
+    return run_in_orchestrator(
+        _ENGINE_TASK,
+        env={"EVAL_TASK": task, "EVAL_PROMPT": prompt, "EVAL_SCHEMA": schema},
+        timeout=ENGINE_TASK_TIMEOUT,
+    )
