@@ -235,6 +235,9 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GH_TOKEN }}
 
+      # Only picks the issue: the named one, or the oldest queued one when none is
+      # named. Whether a run may start from the issue's label is the conductor's
+      # call (StartsRun in $PipelineStates), so no label is checked here.
       - name: Resolve backlog issue
         id: resolve
         shell: pwsh
@@ -246,15 +249,6 @@ jobs:
             $issue = gh issue list --repo $env:GITHUB_REPOSITORY `
               --label 'agent:backlog' --state open `
               --json number --jq 'sort_by(.number) | .[0].number // empty' 2>$null
-          } else {
-            $hasLabel = gh api "repos/$env:GITHUB_REPOSITORY/issues/$issue/labels" `
-              --jq '[.[].name] | (contains(["agent:backlog"]) or contains(["agent:implementing"]))' 2>$null
-            if ($hasLabel -ne 'true') {
-              Write-Output "Issue #$issue no longer has agent:backlog or agent:implementing — picking oldest remaining."
-              $issue = gh issue list --repo $env:GITHUB_REPOSITORY `
-                --label 'agent:backlog' --state open `
-                --json number --jq 'sort_by(.number) | .[0].number // empty' 2>$null
-            }
           }
           $issue = if ($issue) { $issue.Trim() } else { '' }
           if (-not $issue) {

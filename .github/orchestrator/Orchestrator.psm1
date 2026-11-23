@@ -71,6 +71,17 @@ if ($EngineAdapter.Count -ne 1) {
 # Orchestrator.psd1 FunctionsToExport, which is data rather than logic and lets
 # PowerShell resolve commands without loading the module (ADR-015).
 
+# A run the start rule refused: one log line naming the label, and nothing else —
+# no label, no attempt, no carrier write, no engine call, no error. An implement run
+# on a shipped issue also posts the shipped stop line. Returns $false.
+function Stop-RunAtDoor {
+    param([int]$IssueNumber, [string]$Run, [string]$Label)
+    $which = if ($Label) { $Label } else { 'no pipeline label' }
+    Write-Log "  ⏹ Issue #$IssueNumber carries $which — a $Run run does not start from it (StartsRun, lib/Config.ps1)." -Color Yellow
+    if ($Run -eq 'implement' -and (Test-IssueShipped -IssueNumber $IssueNumber)) { Add-ShippedStopComment -IssueNumber $IssueNumber }
+    return $false
+}
+
 function Invoke-Orchestration {
     param([int]$IssueNumber, [ValidateSet('refine','implement','comment')] [string]$From = 'implement', [switch]$Force)
 
@@ -86,6 +97,21 @@ function Invoke-Orchestration {
             Add-Comment -Number $IssueNumber -Body '· not processed — opened by an outside contributor; open your own issue to adopt it'
         }
         return $false
+    }
+
+    # The start rule (#424) — StartsRun in $PipelineStates, the one place that says from
+    # which label a refine or an implement run may start. Asked before the engine, the
+    # lock or any label: a run that may not start changes nothing and ends in no error.
+    # A comment's run is known only once the router reads the label; it asks below.
+    if ($From -ne 'comment') {
+        $start = Test-RunMayStart -IssueNumber $IssueNumber -Run $From
+        if ($start.ReEntry) {
+            # A failed issue re-enters through Restart-Issue, once (the owner's decision on #424).
+            Write-Log "  ↩ Issue #$IssueNumber carries $($start.Label) — refine re-enters it instead." -Color Yellow
+            $null = Restart-FailedIssue -IssueNumber $IssueNumber
+            return $false
+        }
+        if (-not $start.Allowed) { return (Stop-RunAtDoor -IssueNumber $IssueNumber -Run $From -Label $start.Label) }
     }
 
     # Fail-fast engine validation. A spent usage allowance pauses the issue instead of
@@ -132,6 +158,8 @@ function Invoke-Orchestration {
 
             switch ($onComment) {
                 'refine' {
+                    $start = Test-RunMayStart -IssueNumber $IssueNumber -Run refine
+                    if (-not $start.Allowed) { return (Stop-RunAtDoor -IssueNumber $IssueNumber -Run refine -Label $start.Label) }
                     $From = 'refine'
                     # fall through to the refine block below
                 }
@@ -171,14 +199,6 @@ function Invoke-Orchestration {
             $labels = @($meta.labels.name)
             if ($meta.state -ne 'OPEN') {
                 Write-Log "  Issue #$IssueNumber is $($meta.state) — skipping alignment." -Color DarkGray
-                return $false
-            }
-            if ($labels -contains 'agent:backlog') {
-                Write-Log "  Issue #$IssueNumber already agent:backlog — alignment already granted." -Color DarkGray
-                return $true
-            }
-            if (@($labels | Where-Object { $_ -in @('agent:implementing', 'agent:reviewing', 'agent:shipped') }).Count -gt 0) {
-                Write-Log "  Issue #$IssueNumber is already past refine — skipping alignment." -Color DarkGray
                 return $false
             }
 
@@ -286,45 +306,18 @@ function Invoke-Orchestration {
         # lost runner resumes the round rather than restarting it.
         $state    = Get-IssueState -IssueNumber $IssueNumber
         $attempt  = if ($state -and $state.PSObject.Properties['attempt_count']) { [int]$state.attempt_count } else { 0 }
+        # Any recorded attempt forces the round: a revision an owner's comment started, a
+        # conflict round and a retry all re-implement on the existing branch and PR, with
+        # the owner's comments in the prompt, instead of skipping on the open PR.
         $retrying = $attempt -gt 0 -or @($state.attempts | Where-Object { $_ }).Count -gt 0
-        # Revision cycle: approval_required preserved from ship hold, fresh attempt, not retrying.
-        # Force implement so the LLM re-reads the owner's change request rather than short-circuiting.
-        $isRevise = $state -and
-                    $state.PSObject.Properties['approval_required'] -and
-                    $state.approval_required -and
-                    $attempt -eq 0 -and
-                    -not $retrying
 
         while ($true) {
             $currentStage = 'implement'
             try {
-                $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:($Force -or $retrying -or $isRevise) `
-                    -Revise:($isRevise -and -not $retrying)
+                $implementResult = Invoke-Implement -IssueNumber $IssueNumber -Force:($Force -or $retrying)
 
                 if ($null -eq $implementResult) {
-                    # No code changes: either a question-answer (revision path with
-                    # approval_required) or a tracker issue whose work already landed.
-                    $state = Get-IssueState -IssueNumber $IssueNumber
-                    if ($state -and $state.PSObject.Properties['approval_required'] -and $state.approval_required) {
-                        # Owner asked a question — the agent answered it without new commits.
-                        # Post the answer (last 🤖 signal comment) and return to human:approval.
-                        $latestImpl = "$(Get-SignalComments -IssueNumber $IssueNumber -Prefix '🤖 Implementation' | Select-Object -Last 1)"
-                        $answerBody = if ($latestImpl.Trim()) {
-                            $latestImpl.Trim()
-                        } else {
-                            '(The agent analysed the request but produced no code changes.)'
-                        }
-                        Add-Comment -Number $IssueNumber -Body "🤖 Question answered — no code changes needed.`n`n$answerBody"
-                        # Back to the owner: implement took the PR back to draft (#377).
-                        $heldBranch = Get-BranchName -Number $IssueNumber -Title $meta.title
-                        $heldPR     = @(gh pr list --head $heldBranch --json number --limit 1 | ConvertFrom-Json)
-                        if ($heldPR.Count -gt 0) { $null = Set-PRReady -PRNumber $heldPR[0].number }
-                        Set-AgentState -IssueNumber $IssueNumber -Label 'human:approval'
-                        Write-Log "⏸ Issue #$IssueNumber — no commits; answered question and returned to human:approval." -Color Yellow
-                        Reset-AttemptCount -IssueNumber $IssueNumber
-                        return $false
-                    }
-                    # Normal tracker-issue case: branch already up-to-date, ship immediately.
+                    # No diff against the default branch: the work already landed. Shipped.
                     Reset-AttemptCount -IssueNumber $IssueNumber
                     Set-AgentState -IssueNumber $IssueNumber -Label 'agent:shipped'
                     gh issue close $IssueNumber --repo $ctx.Repo --reason completed 2>&1 | Out-Null
@@ -365,10 +358,7 @@ function Invoke-Orchestration {
                 # no state allows a move from it), no attempt, no retry, nothing pushed.
                 # Also checked on any other failure, so a retry never starts for it.
                 if ($reason -like 'ISSUE-SHIPPED|*' -or (Test-IssueShipped -IssueNumber $IssueNumber)) {
-                    $shippedBranch = Get-BranchName -Number $IssueNumber -Title $meta.title
-                    $mergedPR = @(gh pr list --head $shippedBranch --state merged --json number --limit 1 2>$null | ConvertFrom-Json)
-                    $which    = if ($mergedPR.Count -gt 0) { " (PR #$($mergedPR[0].number) merged)" } else { '' }
-                    Add-Comment -Number $IssueNumber -Body "🤖⏹ Stopped — issue already shipped$which; this round pushes nothing more and opens no pull request."
+                    Add-ShippedStopComment -IssueNumber $IssueNumber
                     Write-Log "⏹ Issue #$IssueNumber already shipped — round stopped." -Color Yellow
                     return
                 }

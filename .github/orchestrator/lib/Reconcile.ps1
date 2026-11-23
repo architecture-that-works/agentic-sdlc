@@ -72,8 +72,8 @@ function Restart-Issue {
     }
 
     # Not ready: refine → architect → plan has to run before agent:backlog can be
-    # granted. Clear any stale pipeline label first — Invoke-Orchestration -From
-    # refine skips an issue that still carries agent:implementing or later.
+    # granted. Clear any stale pipeline label first — a refine run starts only from
+    # the labels StartsRun allows (Test-RunMayStart), and from none.
     foreach ($stale in @(Get-IssueLabel -IssueNumber $IssueNumber |
                          Where-Object { $PipelineStates.Contains($_) })) {
         Set-IssueLabel -Number $IssueNumber -Remove $stale
@@ -86,6 +86,55 @@ function Restart-Issue {
     }
     Add-Comment -Number $IssueNumber -Body "· restarting refine$why"
     return 'refine'
+}
+
+# A refine run that finds agent:failed (StartsRun 'restart') re-enters the issue
+# through Restart-Issue instead of refining it in place — once. The re-entry is
+# recorded in the carrier as a transition marked 'refine from agent:failed', with the
+# failed run's error notes beside it, so the new refine reads them in the issue body,
+# and as a signal comment. An issue that fails again after one such re-entry is not
+# restarted: it goes to human:decision with the notes, and the owner decides.
+# Returns the stage Restart-Issue re-entered, or '' when it did not restart.
+$KanbanFailedReEntry = 'refine from agent:failed'
+
+function Restart-FailedIssue {
+    param([Parameter(Mandatory)][int]$IssueNumber)
+
+    $state = Get-IssueState -IssueNumber $IssueNumber
+    $notes = @()
+    if ($state -and $state.PSObject.Properties['failed_at'] -and $state.failed_at) { $notes += "Failed at: $($state.failed_at)" }
+    if ($state -and $state.PSObject.Properties['failed_reason'] -and $state.failed_reason) { $notes += "Reason: $($state.failed_reason)" }
+    foreach ($c in @(Get-SignalComments -IssueNumber $IssueNumber -Prefix '🤖❌' | Select-Object -Last 3)) {
+        $notes += $(if ($c.Length -gt 1500) { $c.Substring(0, 1497) + '...' } else { $c })
+    }
+    $notesText  = if ($notes.Count -gt 0) { $notes -join "`n---`n" } else { '(no error notes recorded)' }
+    $notesBlock = "``````text`n$notesText`n``````"
+
+    $earlier = @($state.transitions | Where-Object { $_ -and $_.PSObject.Properties['reason'] -and $_.reason -eq $KanbanFailedReEntry })
+    if ($earlier.Count -gt 0) {
+        Set-AgentState -IssueNumber $IssueNumber -Label 'human:decision'
+        Add-Comment -Number $IssueNumber -Body ("🤖⏸ Needs your decision — this issue failed again after refine was already triggered from agent:failed, so it is not restarted.`n`n" +
+            "Error notes:`n`n$notesBlock`n`nComment on this issue with what should change; your comment starts refine again.")
+        Write-Log "⏸ Issue #$IssueNumber failed again after a re-entry from agent:failed — waiting on the owner." -Color Yellow
+        return ''
+    }
+
+    if ($state) {
+        # Lanes as the carrier names them: agent:failed rests in the Backlog lane.
+        $entry = [pscustomobject]@{
+            from      = 'backlog'
+            to        = 'backlog'
+            reason    = $KanbanFailedReEntry
+            notes     = $notesText
+            runtime   = Get-RuntimeName
+            timestamp = (Get-Date).ToUniversalTime().ToString('o')
+        }
+        $state | Add-Member -NotePropertyName transitions -NotePropertyValue @(@($state.transitions | Where-Object { $_ }) + $entry) -Force
+        Set-PlanningState -IssueNumber $IssueNumber -State $state
+    }
+    Add-Comment -Number $IssueNumber -Body ("🤖🔁 Refine triggered from agent:failed — the issue is re-entered once, with the error notes of the failed run (kept in its carrier for the new refine). " +
+        "If it fails again, it waits for your decision instead.`n`n$notesBlock")
+    return Restart-Issue -IssueNumber $IssueNumber -Reason $KanbanFailedReEntry
 }
 
 # agent:backlog is already the go signal — the label is right and nothing is wrong
