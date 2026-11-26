@@ -325,21 +325,21 @@ Describe 'Recovery journey' {
         Assert-JourneyClean
     }
 
-    It 'fails an issue whose refine starts while its pause is not due yet' {
-        # Today's behaviour, not a settled rule: a refine run (an issue event or a stage=refine
-        # dispatch) on a pause that is not due tries to leave agent:paused for agent:refining,
-        # which the table refuses, and the conductor fails the issue. Whether refine should
-        # skip a paused issue instead is an open follow-up; if the orchestrator changes,
-        # update this journey rather than read its failure as a regression.
+    It 'leaves the pause and the label as they are when a refine starts while the pause is not due yet' {
+        # A refine run (an issue event or a stage=refine dispatch) on a paused issue: agent:paused
+        # starts no run, so the conductor stops at its door. The pause resumes when it is due.
         $future = @{ paused_until = (Get-Date).ToUniversalTime().AddHours(1).ToString('o') }
         Add-FakeIssue -Number 76 -Title 'Greet the visitor by name' -Body (New-PlannedIssueBody -Number 76 -Unplanned -State $future) -Labels @('agent:paused')
+        $body = (Get-FakeIssue 76).Body
 
-        $null = Invoke-Orchestration -IssueNumber 76 -From refine
+        $started = Invoke-Orchestration -IssueNumber 76 -From refine
 
-        Get-FakePipelineLabel 76 | Should -Be 'agent:failed' -Because (Get-JourneyStory 76)
-        @(Get-FakeCommentHeadings 76)[-1] | Should -Be '🤖❌ Orchestrator Error'
-        (Get-FakeComments 76)[-1].Body | Should -Match "transition from 'agent:paused' to 'agent:refining' is not allowed"
-        @(Get-FakeEngineCalls | Where-Object Task -ne 'EngineCheck') | Should -BeNullOrEmpty
+        $started | Should -BeFalse
+        Get-FakePipelineLabel 76 | Should -Be 'agent:paused' -Because (Get-JourneyStory 76)
+        (Get-FakeIssue 76).Body | Should -Be $body
+        Get-FakeComments 76 | Should -BeNullOrEmpty
+        Get-FakeTransitions | Should -BeNullOrEmpty
+        Get-FakeEngineCalls | Should -BeNullOrEmpty
         Assert-JourneyClean
     }
 

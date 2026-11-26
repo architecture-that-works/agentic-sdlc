@@ -280,7 +280,6 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
             ChangedFiles     = @()
             RefusedFiles     = @()
             MarkerFiles      = $markerFiles
-            AttemptBase      = $BaseCommit
             Implemented      = $note.Implemented
             LeftUndone       = $note.LeftUndone
             IssuesDiscovered = $note.IssuesDiscovered
@@ -333,7 +332,6 @@ $(Format-ConflictInstructions -Conflicts $Conflicts)INSTRUCTIONS:
         ChangedFiles     = $changedFiles
         RefusedFiles     = $refusedFiles
         MarkerFiles      = @()
-        AttemptBase      = $BaseCommit
         Implemented      = $note.Implemented
         LeftUndone       = $note.LeftUndone
         IssuesDiscovered = $note.IssuesDiscovered
@@ -555,7 +553,7 @@ function Invoke-CommitAndPR {
 # ── Orchestrator entry point ──────────────────────────────────────────────────
 
 function Invoke-Implement {
-    param([int]$IssueNumber = 0, [switch]$Force, [switch]$Revise)
+    param([int]$IssueNumber = 0, [switch]$Force)
 
     if ($IssueNumber -eq 0) { $IssueNumber = Get-CurrentIssueNumber }
     if ($IssueNumber -eq 0) {
@@ -638,8 +636,6 @@ function Invoke-Implement {
     $testsFailed = $false   # set when this stage already posted and recorded the failure
     try {
         $devResult = Invoke-Develop -Number $IssueNumber -Branch $branch -BaseCommit $headBefore -Conflicts $conflicts
-        # The merge commit when a conflict was completed, else the pre-attempt HEAD.
-        $attemptBase = if ($devResult.AttemptBase) { $devResult.AttemptBase } else { $headBefore }
 
         $stateForAttempt = Get-IssueState -IssueNumber $IssueNumber
         $runAttempt      = if ($stateForAttempt -and $stateForAttempt.PSObject.Properties['attempt_count']) { [int]$stateForAttempt.attempt_count + 1 } else { 1 }
@@ -732,20 +728,6 @@ function Invoke-Implement {
             # (Invoke-Orchestration) will mark this as merged and close the issue.
             Write-Log "✅ Implement complete — issue already satisfied; no PR needed." -Color Green
             return $null
-        }
-
-        if ($Revise) {
-            # Only a revision reads "no new commits" as an answered question. A retry also
-            # runs with -Force and may find nothing left to commit (the owner fixed it by
-            # hand); it must go on to review with the existing PR, not close the issue.
-            # Counted from the attempt's base, so a merge of the default branch alone is
-            # not new work.
-            $newCommits = [int](git rev-list --count "${attemptBase}..HEAD" 2>$null)
-            if ($newCommits -eq 0) {
-                # The revision produced no new commits — the owner asked a question.
-                Write-Log "✅ Implement complete — question answered, no new commits." -Color Green
-                return $null
-            }
         }
 
         Write-Log "✅ Implement complete — PR at $prUrl" -Color Green

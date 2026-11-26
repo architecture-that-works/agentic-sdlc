@@ -161,10 +161,16 @@ Describe 'Refine journey' {
 
     It 'refines and queues a failed issue when the owner starts refine for it by hand' {
         # A refine that failed before anything was written; the owner dispatches stage=refine.
+        # agent:failed starts no refine in place: the run re-enters the issue, which clears
+        # its label and dispatches refine.
         Add-FakeIssue -Number 17 -Title 'Greet the visitor by name' -Body (New-IssueBody) -Labels @('agent:failed')
+        $null = Invoke-Orchestration -IssueNumber 17 -From refine
+        Get-FakePipelineLabel 17 | Should -BeNullOrEmpty -Because (Get-JourneyStory 17)
+        @(Get-FakeDispatches | Where-Object { $_.Stage -eq 'refine' -and $_.Issue -eq 17 }).Count | Should -Be 1
+
+        # The dispatched refine run.
         Add-EngineResult -Task Refine -Reply (New-GrillReply)
         Add-EngineResult -Task Plan -Reply (New-PlanReply)
-
         $null = Invoke-Orchestration -IssueNumber 17 -From refine
 
         Get-FakePipelineLabel 17 | Should -Be 'agent:backlog' -Because (Get-JourneyStory 17)
@@ -189,8 +195,11 @@ Describe 'Refine journey' {
     It 'asks again for what is still open when the owner starts refine by hand on a failed issue that waits on answers' {
         Add-FakeIssue -Number 19 -Title 'Greet the visitor by name' -Body (New-WaitingIssueBody -Number 19) -Labels @('agent:failed')
         Add-FakeComment -Issue 19 -Body '1A. Not sure about the second one yet.'
-        Add-EngineResult -Task Refine -Reply (New-PartialAnswerReply)
+        $null = Invoke-Orchestration -IssueNumber 19 -From refine
+        @(Get-FakeDispatches | Where-Object { $_.Stage -eq 'refine' -and $_.Issue -eq 19 }).Count | Should -Be 1 -Because (Get-JourneyStory 19)
 
+        # The dispatched refine run reads the reply.
+        Add-EngineResult -Task Refine -Reply (New-PartialAnswerReply)
         $null = Invoke-Orchestration -IssueNumber 19 -From refine
 
         Get-FakePipelineLabel 19 | Should -Be 'human:decision' -Because (Get-JourneyStory 19)

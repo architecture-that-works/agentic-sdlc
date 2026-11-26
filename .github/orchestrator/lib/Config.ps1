@@ -228,6 +228,15 @@ $KanbanStopWords = @(
 #                      revise  — revision cycle on the existing branch + PR
 #                      ack     — post "· comment noted", no further action
 #                      ''      — skip (terminal or in-flight states)
+#   StartsRun        the run that may start on an issue carrying the label — the one
+#                    rule the conductor asks at its door (Test-RunMayStart), before it
+#                    asks the engine, takes the lock or sets a label:
+#                      refine    — a refine run starts
+#                      implement — an implement run starts
+#                      restart   — a refine run does not start; it re-enters the issue
+#                                  through Restart-Issue, once (Restart-FailedIssue)
+#                      ''        — no run starts; a run that finds it stops, changing nothing
+#                    An issue with no pipeline label starts $UnlabelledStartsRun.
 #
 # Adding a state means adding one row. Nothing else in the module may switch on a
 # label; a second mapping is how #252, #266 and #275 each shipped the same bug.
@@ -236,8 +245,9 @@ $PipelineStates = [ordered]@{
         LaneName    = 'Backlog'
         Holder      = 'agent'
         Recovery    = 'restart'
-        AllowedFrom = @($null, 'human:decision', 'agent:failed', 'human:approval')
+        AllowedFrom = @($null, 'human:decision', 'human:approval')
         OnComment   = 'refine'
+        StartsRun   = 'refine'
     }
     'agent:backlog' = @{
         LaneName    = 'Backlog'
@@ -245,6 +255,7 @@ $PipelineStates = [ordered]@{
         Recovery    = 'implement'
         AllowedFrom = @($null, 'human:approval', 'human:decision', 'agent:failed', 'agent:implementing', 'agent:reviewing', 'agent:paused', 'agent:refining')
         OnComment   = 'ack'
+        StartsRun   = 'implement'
     }
     'agent:implementing' = @{
         LaneName    = 'Implementing'
@@ -252,6 +263,7 @@ $PipelineStates = [ordered]@{
         Recovery    = 'restart'
         AllowedFrom = @('agent:backlog', 'agent:reviewing', 'human:approval')
         OnComment   = 'ack'
+        StartsRun   = 'implement'
     }
     'agent:reviewing' = @{
         LaneName    = 'Review'
@@ -259,6 +271,7 @@ $PipelineStates = [ordered]@{
         Recovery    = 'restart'
         AllowedFrom = @('agent:implementing')
         OnComment   = 'ack'
+        StartsRun   = ''
     }
     'agent:paused' = @{
         LaneName    = 'Backlog'
@@ -266,6 +279,7 @@ $PipelineStates = [ordered]@{
         Recovery    = 'resume'
         AllowedFrom = @($null, 'agent:backlog', 'agent:implementing', 'agent:reviewing', 'human:decision', 'human:approval', 'agent:failed', 'agent:refining')
         OnComment   = 'ack'
+        StartsRun   = ''
     }
     'agent:shipped' = @{
         LaneName    = 'Shipped'
@@ -273,13 +287,15 @@ $PipelineStates = [ordered]@{
         Recovery    = 'none'
         AllowedFrom = @('agent:implementing', 'agent:reviewing', 'human:approval', 'agent:failed')
         OnComment   = ''
+        StartsRun   = ''
     }
     'agent:failed' = @{
         LaneName    = 'Backlog'
         Holder      = 'human'
         Recovery    = 'none'
-        AllowedFrom = @($null, 'human:decision', 'agent:backlog', 'agent:implementing', 'agent:reviewing', 'human:approval', 'agent:paused', 'agent:refining')
+        AllowedFrom = @($null, 'human:decision', 'agent:backlog', 'agent:implementing', 'agent:reviewing', 'human:approval', 'agent:refining')
         OnComment   = 'retry'
+        StartsRun   = 'restart'
     }
     'human:decision' = @{
         LaneName    = 'Backlog'
@@ -287,6 +303,7 @@ $PipelineStates = [ordered]@{
         Recovery    = 'none'
         AllowedFrom = @($null, 'agent:failed', 'agent:refining')
         OnComment   = 'refine'
+        StartsRun   = 'refine'
     }
     'human:approval' = @{
         LaneName    = 'Review'
@@ -294,6 +311,31 @@ $PipelineStates = [ordered]@{
         Recovery    = 'none'
         AllowedFrom = @('agent:implementing', 'agent:reviewing')
         OnComment   = 'revise'
+        StartsRun   = 'refine'
+    }
+}
+
+# The run an issue with no pipeline label starts: a new issue is refined first.
+$UnlabelledStartsRun = 'refine'
+
+# May this run start on the issue? Asked by the conductor at its door. Reads the
+# issue's pipeline label over REST and answers from StartsRun in $PipelineStates
+# only; changes nothing and calls no engine.
+#   Allowed  the run may start
+#   Label    the pipeline label read ($null for none)
+#   ReEntry  a refine run that finds this label re-enters the issue instead
+#            (StartsRun 'restart') — Restart-FailedIssue
+function Test-RunMayStart {
+    param([Parameter(Mandatory)][int]$IssueNumber, [Parameter(Mandatory)][ValidateSet('refine', 'implement')][string]$Run)
+    # An issue carries one pipeline label (ADR-015); the first in table order decides
+    # a transient double label.
+    $labels = @(Get-IssueLabel -IssueNumber $IssueNumber)
+    $label  = @($PipelineStates.Keys | Where-Object { $labels -contains $_ }) | Select-Object -First 1
+    $starts = if ($label) { $PipelineStates[$label].StartsRun } else { $UnlabelledStartsRun }
+    return [pscustomobject]@{
+        Allowed = $starts -eq $Run
+        Label   = $label
+        ReEntry = $Run -eq 'refine' -and $starts -eq 'restart'
     }
 }
 

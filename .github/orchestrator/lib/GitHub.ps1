@@ -735,12 +735,14 @@ function Set-AgentState {
     }
 
     # AllowedFrom enforcement — strict transition gate so invalid paths surface
-    # immediately rather than silently reaching the wrong state (ADR-015).
-    # Extend AllowedFrom in Config.ps1 to permit a new valid path.
+    # immediately rather than silently reaching the wrong state (ADR-015). A refused
+    # transition means the issue left the designed path somewhere: the entry point
+    # that brought it here is what to close; the table is never widened to accept it
+    # (CONTEXT.md, "The state machine is rigid").
     if ($spec -and $spec.ContainsKey('AllowedFrom') -and $null -ne $spec.AllowedFrom -and @($spec.AllowedFrom).Count -gt 0) {
         $currentLabel = if ($current.Count -gt 0) { $current[0] } else { $null }
         if (-not (@($spec.AllowedFrom) -contains $currentLabel)) {
-            throw "Set-AgentState: transition from '$currentLabel' to '$Label' is not allowed — extend AllowedFrom in Config.ps1 to permit it."
+            throw "Set-AgentState: transition from '$currentLabel' to '$Label' is not allowed — the issue left the designed path; close the entry point that brought it to '$currentLabel', never widen the label table."
         }
     }
 
@@ -812,6 +814,18 @@ function Assert-NotShipped {
     if (Test-IssueShipped -IssueNumber $IssueNumber) { throw "ISSUE-SHIPPED|issue #$IssueNumber already shipped" }
 }
 
+# The one line an implement run posts when its issue already shipped: a round stopped
+# mid-way by a merge, or a run the start rule refused at agent:shipped. Names the
+# merged pull request when there is one.
+function Add-ShippedStopComment {
+    param([Parameter(Mandatory)][int]$IssueNumber)
+    $title    = (gh issue view $IssueNumber --repo $KanbanRepo --json title | ConvertFrom-Json).title
+    $branch   = Get-BranchName -Number $IssueNumber -Title $title
+    $mergedPR = @(gh pr list --head $branch --state merged --json number --limit 1 2>$null | ConvertFrom-Json)
+    $which    = if ($mergedPR.Count -gt 0) { " (PR #$($mergedPR[0].number) merged)" } else { '' }
+    Add-Comment -Number $IssueNumber -Body "🤖⏹ Stopped — issue already shipped$which; this round pushes nothing more and opens no pull request."
+}
+
 # ── Draft until released (#377) ───────────────────────────────────────────────
 # GitHub refuses to merge a draft, so a draft is the workflow's work in progress and
 # a PR marked ready is the one to merge. A private repository on a plan without
@@ -865,7 +879,7 @@ function Add-Comment {
 
 # Dispatches the implement job for one issue (afk.yml stage=implement), so every
 # implement run waits in the one implement-pipeline queue. The caller has already
-# moved the issue to agent:implementing, which the job's resolve step accepts.
+# moved the issue to agent:implementing, a label an implement run starts from.
 # Shared by the owner-comment revision route and the conflict rounds a merge starts
 # (Start-ConflictRounds, #374). True when the dispatch was accepted.
 function Start-ImplementRound {
