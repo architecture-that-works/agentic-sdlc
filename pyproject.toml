@@ -4,7 +4,7 @@ description = "Python Copier template for a fully agentic software development l
 version = "0.1.1"
 requires-python = "==3.14.*"
 dependencies = [
-    "anthropic>=2.10.0",
+    "anthropic>=2.14.0",
     "msgpack>=1.2.4",
     "pip>=26.3",
     "pydantic-settings>=2.16.3",
